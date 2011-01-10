@@ -1,0 +1,9 @@
+dmapilookup
+dumpinode
+pftool
+testing
+setstgpool
+*.o
+*.swp
+*.pyc
+dsmerror.log
