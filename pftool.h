@@ -7,8 +7,7 @@
 #include "pfutils.h"
 
 /* Function Prototypes */
-void manager(char *, int, int, int);
-void worker(int);
+void output_proc(int request, int rank);
 
 #define ANYFS     0
 #define PANASASFS 1
@@ -26,76 +25,7 @@ void worker(int);
 
 #define NULL_DEVICE      "/dev/null"  
 
-
-/*four our MPI communications*/
-#define MANAGER_PROC  0
-#define OUTPUT_PROC   1
-#define NAMEREAD_PROC 2
-#define NAMESTAT_PROC 3
-#define MANAGER_TAG   0
-#define OUTPUT_TAG    1
-#define NAMEREAD_TAG  2
-#define NAMESTAT_TAG  3 
-
-
 #define WAIT_TIME    1
-// 0507-2009  TEST 
-//#define QSIZE 1000
-#define QSIZE           75000
-
-#define QSIZE_INCREASED 1000
-
-#define QSIZE_SOFTQUOTA 25000
-
-// The original PACKSIZE was set to 100 
-#define PACKSIZE  200 
-
-#define WORKSIZE (QSIZE * PACKSIZE * 10)
-
 #define SANITY_TIMER  300 
-
-
-#define FATAL       1
-#define NONFATAL    0
-
-#define INTERNALERR 9999
-#define INFOONLY    2
-
-// pflog ACTION CODE 
-#define ACT_ERROR    "ERROR"
-#define ACT_INFO     "INFO"
-#define ACT_CRITICAL "CRITICAL"
-#define ACT_WARNING  "WARNING"
-#define ACT_EMERG    "EMERGENCY"
-#define ACT_ALERT    "ALERT"
-#define ACT_NOTICE   "NOTICE"
-#define ACT_DEBUG    "DEBUG"
-
-
-#define SMGC_MASTER_RANK 0
-
-
-/*these are the different commands that can be sent around
-  basically its just a tag of what we are talking about
-  in our MPI communications*/
-enum cmd_opcode {
-  DIRCMD = 1,
-  NAMECMD,
-  REQCMD,
-  EXITCMD,
-  OUTCMD,
-  STATCMD,
-  ABORTCMD,
-  COPYCMD,
-  OUTFIN,
-  OUTFLUSH,
-  WAITCMD,
-  COPYCMD2,
-  COMPCMD,
-  CHUNKFILECMD,
-  WATCHDOGCMD
-
-};
-
 
 #endif
