@@ -3,13 +3,14 @@
 
 
 //define debugs
-//#define DEBUG_GEN
+#define POLL_DEBUG
 
 //define debug print statements
-#ifdef DEBUG_GEN
-#define PRINT_DEBUG_GEN(format, args...) printf("DEBUG_GEN: "format, ##args);
+
+#ifdef POLL_DEBUG 
+#define PRINT_POLL_DEBUG(format, args...) printf("POLL_DEBUG: "format, ##args);
 #else
-#define PRINT_DEBUG_GEN(format, args...)
+#define PRINT_POLL_DEBUG(format, args...)
 #endif
 
 #endif

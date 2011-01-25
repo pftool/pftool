@@ -7,7 +7,13 @@
 #include "pfutils.h"
 
 /* Function Prototypes */
-void output_proc(int request, int rank);
+//manager rank operations
+void manager(int rank, char *jid, int nproc, path_node *input_queue);
+
+//worker rank operations
+void worker(int rank);
+void worker_output();
+void worker_stat();
 
 #define ANYFS     0
 #define PANASASFS 1

@@ -10,10 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <time.h>
 
 //Parallel Filesystem
 #include <gpfs.h>
 #include "gpfs_fcntl.h"
+
+//Regular Filesystem
+#include <sys/vfs.h>
 
 // include that is associated with pftool itself
 #include "pftool.h"
@@ -24,7 +28,14 @@
 
 //External Declarations
 extern void usage();
+extern char *printmode (mode_t aflag, char *buf);
+
+//functions that use workers
 extern void errsend(int rank, int fatal, char *error_text);
+extern void write_output(int rank, char *message);
+extern void stat_path(int rank, int target_rank, char *path);
+extern void exit_rank(int target_rank);
+extern void send_command(int target_rank, int type_cmd);
 
 //queues 
 extern void enqueue_path(path_node **head, char *path, int *count);
@@ -41,6 +52,7 @@ int main(int argc, char *argv[]){
   //getopt
   int c;
   int recurse = 0;
+  char jid[128];
 
   //queues
   path_node *input_queue = NULL;
@@ -53,16 +65,18 @@ int main(int argc, char *argv[]){
   int statrc;
 
   //Process using getopt
-  while ((c = getopt(argc, argv, "p:c:rh")) != -1) 
+  while ((c = getopt(argc, argv, "p:c:j:rh")) != -1) 
     switch(c){
       case 'p':
         //Get the source/beginning path
-        snprintf(src_path, PATHSIZE_PLUS, "%s", optarg);        
+        strncpy(src_path, optarg, PATHSIZE_PLUS);        
         break;
       case 'c':
         //Get the destination path
-        snprintf(dest_path, PATHSIZE_PLUS, "%s", optarg);        
+        strncpy(dest_path, optarg, PATHSIZE_PLUS);        
         break;
+      case 'j':
+        strncpy(jid, optarg, 128);
       case 'r':
         //Recurse
         recurse = 1;
@@ -110,9 +124,11 @@ int main(int argc, char *argv[]){
     else if (recurse){
       lstat(src_path, &src_stat);
       statrc = lstat(dest_path, &dest_stat);
+      //src is a dir and there was no wildcard
       if (statrc < 0 && S_ISDIR(src_stat.st_mode)){
         mkdir(dest_path, S_IRWXU);
       }
+      //The dest is a dir
       else if (S_ISDIR(dest_stat.st_mode)) { 
         strcpy(temp_path, src_path);
         while (temp_path[strlen(temp_path) - 1] == '/') {
@@ -166,35 +182,199 @@ int main(int argc, char *argv[]){
   }
   
   if (rank == OUTPUT_PROC){
-    output_proc(rank);
+    worker(rank);
   } 
   
-  if (rank == 2){
-    errsend(rank, 0, "This is a test");
+
+  if (rank == MANAGER_PROC){
+    manager(rank, jid, nproc, input_queue);
   }
-  //if (rank == 0){
-  //  errsend(rank, 0, "Another test!");
-  //}
+  else if (rank != OUTPUT_PROC){
+    worker(rank);
+  }
 
   //Program Finished
+  //printf("%d -- done.\n", rank);
+  free(input_queue);
   MPI_Finalize(); 
   return 0;
 }
 
 
-void output_proc(int request, int rank){
-  char *workbuf = (char *) malloc(WORKSIZE * sizeof(char));
-  char errormsg[ERROR_SIZE];
-  int position;
-  int out_rank;
+void manager(int rank, char *jid, int nproc, path_node *input_queue){
+  int i;
+  int *proc_status;
+
+  char message[MESSAGESIZE];
+  char beginning_path[PATHSIZE_PLUS];
+  
+  path_node *current_input = input_queue;
+
+  //path stuff
+  strncpy(beginning_path, input_queue->path, PATHSIZE_PLUS);
+
+  //proc stuff
+  proc_status = malloc(nproc * sizeof(int));
+  //initialize proc_status
+  for (i = 0; i < nproc; i++){
+    proc_status[i] = 0;
+  }
+  
+
+  sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", jid);
+  write_output(rank, message);
+  sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_path);
+  write_output(rank, message);
+
+  //lets send a stat to rank 3
+  while (current_input != NULL){
+    stat_path(rank, 3, current_input->path);
+    current_input = current_input->next;
+  }
+  usleep(1000);
+
+  //Manager is done, cleaning have the other ranks exit
+  for (i = 1; i < nproc; i++){
+    exit_rank(i);
+  }
+
+  //free any allocated stuff
+  free(proc_status);
+  
+}
+
+void worker(int rank){
   MPI_Status status;
+  int all_done = 0, message_ready = 0, probecount = 0;
+  int prc;
+  
+
+  int type_cmd;
+  char *workbuf= malloc(WORKSIZE * sizeof(char));
+
 
   //change this to get request first, process, then get work    
+  while ( all_done == 0){
+    //poll for message
+    while ( message_ready == 0){
+      prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &message_ready, &status);
+      if (prc != MPI_SUCCESS) {
+        //report an error here
+        message_ready = -1;
+      }
+      else{
+        probecount++;
+      }
 
-  if (MPI_Recv(workbuf, WORKSIZE, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) == MPI_SUCCESS){
-    MPI_Unpack(workbuf, WORKSIZE, &position, &out_rank, 1, MPI_INT, MPI_COMM_WORLD);
-    MPI_Unpack(workbuf, WORKSIZE, &position, &errormsg, ERROR_SIZE, MPI_CHAR, MPI_COMM_WORLD);
+      if  (probecount % 3000 == 0){
+        PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
+      }
+      usleep(10);
+    }
 
-    printf("RANK %d -- %s\n", out_rank, errormsg);
+    //grab message type
+    if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        //error message
+    }
+
+    //do operations based on the message
+    switch(type_cmd){
+      case OUTCMD:
+        worker_output();
+        break;
+      case EXITCMD:
+        all_done = 1;
+        break;
+      case NAMECMD:
+        worker_stat();
+        break;
+      default:
+        break;
+    }
+    //process message
   }
+  free(workbuf);
+}
+
+void worker_output(){
+  MPI_Status status;
+  
+  int rank;
+  char msg[MESSAGESIZE];
+
+  //gather the rank
+  if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        //error message
+  }
+  //gather the message to print
+  if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        //error message
+  }
+  printf("Rank %d: %s", rank, msg);
+}
+
+void worker_stat(){
+  MPI_Status status;
+  int rank;  
+  char path[PATHSIZE_PLUS];
+  char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
+
+  struct stat st;
+  struct statfs stfs;
+  struct tm sttm;
+  int sourcefs;
+  char sourcefsc[5], modebuf[15], timebuf[30];
+
+  //gather the rank
+  if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        //error message
+  }
+
+  //gather the path to stat
+  if (MPI_Recv(path, PATHSIZE_PLUS, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        //error message
+  }
+
+  if (statfs(path, &stfs) < 0) { 
+    snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+    errsend(rank, FATAL, errortext);
+  } 
+
+  if (stfs.f_type == GPFS_SUPER_MAGIC) {
+    sourcefs = GPFSFS;
+    sprintf(sourcefsc, "G");
+  }
+  else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
+    sourcefs = PANASASFS;
+    sprintf(sourcefsc, "P");
+  }
+  else{
+    sourcefs = ANYFS;
+    sprintf(sourcefsc, "A");
+  }
+ 
+
+  if (lstat(path, &st) == -1) {
+    snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", path);
+    errsend(rank, FATAL, errortext);
+  }
+
+  printmode(st.st_mode, modebuf);
+  memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
+  strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
+
+  if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
+    sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
+  }
+  else{
+    sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
+  }
+
+  write_output(rank, statrecord);
+  
+
+  
+
+
+  
 }

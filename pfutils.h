@@ -11,8 +11,13 @@
 #include <gpfs.h>
 #include "mpi.h"
 
+//panasas
+#include "pan_fs_client_sdk.h"
+
+
 #define PATHSIZE_PLUS FILENAME_MAX+30
-#define ERROR_SIZE PATHSIZE_PLUS
+#define ERRORSIZE PATHSIZE_PLUS
+#define MESSAGESIZE PATHSIZE_PLUS
 
 #define MAX_STAT  600 
 #define MAXFILES 50000
@@ -40,19 +45,31 @@ typedef unsigned long long int uint_64;
 enum cmd_opcode {                                                                                                                                                                                                                                                                                                  
   EXITCMD = 1,
   OUTCMD,
+  NAMECMD,
   STATCMD,
   COMPARECMD,
   COPYCMD,
 };
 
-/*for our MPI communications*/                                                                                                                                                                                                                                                                                     
+//for our MPI communications 
 #define MANAGER_PROC  0
 #define OUTPUT_PROC   1
+
+//errsend
+#define FATAL 1
+#define NONFATAL 0
 
 
 //Function Declarations
 void usage();
+char *printmode (mode_t aflag, char *buf);
+
+//operations on ranks
 void errsend(int rank, int fatal, char *error_text);
+void write_output(int rank, char *message);
+void stat_path(int rank, int target_rank, char *path);
+void exit_rank(int target_rank);
+void send_command(int target_rank, int type_cmd);
 
 //Queues
 // A queue to store all of our input nodes
@@ -68,6 +85,7 @@ void enqueue_path(path_node **head, char *path, int *count);
 void dequeue_path(path_node **head, int *count);
 void print_queue_path(path_node *head);
                         
+
 
 
 #endif

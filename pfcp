@@ -95,6 +95,8 @@ def main():
 
   jid = get_jid()
 
+  commands.append("-j")
+  commands.append(jid)
   commands.append("-c")
   commands.append(dest)
   commands.append("-p")
