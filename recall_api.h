@@ -2,7 +2,7 @@
 #define      __RECALLAPI_H
 
 
-#define PATHSIZE_PLUS FILENAME_MAX+30
+#define PATHSIZE_PLUS (FILENAME_MAX+30)
 
 void set_base_dir(const char *base_dir);
 int create_recall_dir(char *dest_path);

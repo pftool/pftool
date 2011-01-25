@@ -13,19 +13,16 @@
 #include <utime.h>
 
 /* special includes for gpfs and dmapi */
-#include <gpfs.h>
-#include <dmapi.h>
+//#include <gpfs.h>
+//#include <dmapi.h>
 
 #include "pfutils.h"
 #include "debug.h"
 
 #include <syslog.h>
 
-/* Syslog related data structure */
-char *ident = "PFTOOL-LOG:";		/* pflog identification */
-
 void usage () {
-	/* print usage statement */
+	// print usage statement 
 	printf ("********************** PFTOOL USAGE ************************************************************\n");
 	printf (" \n");
 	printf ("\npftool: parallel file tool utilities\n");
@@ -48,6 +45,7 @@ void usage () {
 }
 
 char *printmode (mode_t aflag, char *buf){
+  // print the mode in a regular 'pretty' format
   static int m0[] = { 1, S_IREAD >> 0, 'r', '-' };
   static int m1[] = { 1, S_IWRITE >> 0, 'w', '-' };
   static int m2[] = { 3, S_ISUID | S_IEXEC, 's', S_IEXEC, 'x', S_ISUID, 'S', '-' };
@@ -80,67 +78,9 @@ char *printmode (mode_t aflag, char *buf){
 }
 
 
-void errsend(int rank, int fatal, char *error_text){
-  char errormsg[MESSAGESIZE];
-
-  if (fatal){
-    snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n",error_text);
-  }
-  else{
-    snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n",error_text);
-  }
-  
-  write_output(rank, errormsg);
-
-  if (fatal){
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-
-}
-
-void write_output(int rank, char *message){
-  //set the command type
-  send_command(OUTPUT_PROC, OUTCMD);
-
-  //send the rank
-  if (MPI_Send(&rank, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-
-
-  //send the message
-  if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-}
-
-void stat_path(int rank, int target_rank, char *path){
-  send_command(target_rank, NAMECMD);
-
-  //send the rank
-  if (MPI_Send(&target_rank, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-
-  //send the path
-  if (MPI_Send(path, PATHSIZE_PLUS, MPI_CHAR, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-
-}
-
-void exit_rank(int target_rank){
-  send_command(target_rank, EXITCMD);
-}
-
-void send_command(int target_rank, int type_cmd){
-  if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-}
-
 //Queue Function Definitions
 void enqueue_path(path_node **head, char *path, int *count){
+  //stick a path on the end of the queue
   path_node *new_node = malloc(sizeof(path_node));
   path_node *temp_node = *head;
   
@@ -160,6 +100,7 @@ void enqueue_path(path_node **head, char *path, int *count){
 } 
 
 void dequeue_path(path_node **head, int *count){
+  //remove a path from the front of the queue
   path_node *temp_node = *head;
   if (temp_node == NULL){
     return;
@@ -170,8 +111,149 @@ void dequeue_path(path_node **head, int *count){
 }
 
 void print_queue_path(path_node *head){
+    //print the entire queue
     while(head != NULL){
       printf("%s\n", head->path);
       head = head->next;
     }
 }
+
+//functions that work with ranks
+void errsend(int rank, int fatal, char *error_text){
+  //send an error message to the outputproc. Die if fatal.
+  char errormsg[MESSAGESIZE];
+
+  if (fatal){
+    snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n",error_text);
+  }
+  else{
+    snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n",error_text);
+  }
+  
+  write_output(rank, errormsg);
+
+  if (fatal){
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+}
+
+void write_output(int rank, char *message){
+  //write a single line using the outputproc
+
+  //set the command type
+  send_command(OUTPUT_PROC, OUTCMD);
+
+  //send the rank
+  if (MPI_Send(&rank, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+  //send the message
+  if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+}
+
+void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count){
+  //write a buffer to the output proc
+
+  //set the command type
+  send_command(OUTPUT_PROC, BUFFEROUTCMD);
+
+  //send the rank
+  if (MPI_Send(&rank, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+  
+  //send the size of the buffer
+  if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+  if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+
+}
+
+void stat_path(int rank, int target_rank, int num_stat, path_node **head, int *count){
+  //stat a chunk of paths (passed in via linked list)
+  int stat_count = 0, position = 0;
+  int worksize = PATHSIZE_PLUS * num_stat;
+  char *workbuf = (char *) malloc(worksize * sizeof(char));
+  
+  send_command(target_rank, NAMECMD);
+  
+  //send the rank
+  if (MPI_Send(&rank, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+  while(*head != NULL && stat_count != num_stat){
+    stat_count++;
+    MPI_Pack((*head)->path, PATHSIZE_PLUS, MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+    dequeue_path(head, count);
+  }
+
+  //send the number of files stated
+  if (MPI_Send(&stat_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  
+  //recalculate worksize
+  worksize = PATHSIZE_PLUS * stat_count;
+  if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  free(workbuf);
+  
+}
+
+void work_done(int rank){
+  //the worker is finished processing, notify the manager
+  send_command(MANAGER_PROC, WORKDONECMD);
+
+  //send the rank
+  if (MPI_Send(&rank, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+}
+
+int get_free_rank(int *proc_status, int start_range, int end_range){
+  //given an inclusive range, return the first encountered free rank
+  int i;
+
+  for (i = start_range; i <= end_range; i++){
+    if (proc_status[i] == 0){
+      return i;
+    }
+  }
+  return -1;
+
+}
+
+int processing_complete(int *proc_status, int nproc){
+  //are all the ranks free?
+  int i;
+  int count = 0;
+  for (i = 0; i < nproc; i++){
+    if (proc_status[i] == 1){
+      count++;
+    }
+  }
+  return count;
+}
+
+void exit_rank(int target_rank){
+  //order a rank to exit
+  send_command(target_rank, EXITCMD);
+}
+
+void send_command(int target_rank, int type_cmd){
+  //Tell a rank it's time to begin processing
+  if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+}
+

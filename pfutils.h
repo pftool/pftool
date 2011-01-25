@@ -14,8 +14,14 @@
 //panasas
 #include "pan_fs_client_sdk.h"
 
+//gpfs
+#include <gpfs.h>                                                                                                                                                                                                                                                                    
+#include "gpfs_fcntl.h"
+#include <dmapi.h>
 
-#define PATHSIZE_PLUS FILENAME_MAX+30
+
+
+#define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
 
@@ -45,10 +51,12 @@ typedef unsigned long long int uint_64;
 enum cmd_opcode {                                                                                                                                                                                                                                                                                                  
   EXITCMD = 1,
   OUTCMD,
+  BUFFEROUTCMD,
   NAMECMD,
   STATCMD,
   COMPARECMD,
   COPYCMD,
+  WORKDONECMD
 };
 
 //for our MPI communications 
@@ -59,17 +67,15 @@ enum cmd_opcode {
 #define FATAL 1
 #define NONFATAL 0
 
+enum wrk_type{
+  COPYWORK = 1,
+  LSWORK = 2,
+  COMPAREWORK = 3
+};
 
 //Function Declarations
 void usage();
 char *printmode (mode_t aflag, char *buf);
-
-//operations on ranks
-void errsend(int rank, int fatal, char *error_text);
-void write_output(int rank, char *message);
-void stat_path(int rank, int target_rank, char *path);
-void exit_rank(int target_rank);
-void send_command(int target_rank, int type_cmd);
 
 //Queues
 // A queue to store all of our input nodes
@@ -84,8 +90,17 @@ typedef struct path_queue path_node;
 void enqueue_path(path_node **head, char *path, int *count);
 void dequeue_path(path_node **head, int *count);
 void print_queue_path(path_node *head);
-                        
 
+//operations on ranks
+void errsend(int rank, int fatal, char *error_text);
+void write_output(int rank, char *message);
+void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
+void stat_path(int rank, int target_rank, int num_stat, path_node **head, int *count);
+void work_done(int rank);
+int processing_complete(int *proc_status, int nproc);
+int get_free_rank(int *proc_status, int start_range, int end_range);
+void exit_rank(int target_rank);
+void send_command(int target_rank, int type_cmd);
 
 
 #endif

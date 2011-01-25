@@ -8,12 +8,14 @@
 
 /* Function Prototypes */
 //manager rank operations
-void manager(int rank, char *jid, int nproc, path_node *input_queue);
+void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_queue_count, int work_type);
+void manager_workdone(int *proc_status);
 
 //worker rank operations
 void worker(int rank);
 void worker_output();
-void worker_stat();
+void worker_buffer_output();
+void worker_stat(int rank);
 
 #define ANYFS     0
 #define PANASASFS 1
