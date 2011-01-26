@@ -26,16 +26,22 @@
 extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
 
-//functions that use workers
-extern void errsend(int rank, int fatal, char *error_text);
+//manager
+extern void send_manager_nonfatal_inc();
+extern void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count);
+extern void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count);
+extern void send_manager_work_done(int rank);
+
+//worker
 extern void write_output(int rank, char *message);
 extern void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
-extern void stat_path(int rank, int target_rank, int num_stat, path_node **head, int *count);
-extern void work_done(int rank);
+extern void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count);                                                                                                                                                                                              
+extern void send_worker_exit(int target_rank);
+
+//functions that use workers
+extern void errsend(int rank, int fatal, char *error_text);
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
-extern void exit_rank(int target_rank);
-extern void send_command(int target_rank, int type_cmd);
 
 //queues 
 extern void enqueue_path(path_node **head, char *path, int *count);
@@ -210,9 +216,13 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   int i;
   int *proc_status;
   struct timeval in, out;
+  int non_fatal = 0, reg_count = 0, dir_count = 0;
 
   char message[MESSAGESIZE];
   char beginning_path[PATHSIZE_PLUS];
+
+  path_node *work_queue = NULL, *dir_work_queue = NULL;
+  int work_queue_count = 0, dir_work_queue_count = 0;
 
 
   //path stuff
@@ -263,7 +273,7 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
         //first run through the remaining stat_queue
         if (work_rank != -1 && input_queue_count != 0){
           proc_status[work_rank] = 1;
-          stat_path(rank, work_rank, 50, &input_queue, &input_queue_count);
+          send_worker_stat_path(rank, work_rank, 50, &input_queue, &input_queue_count);
         }
       }
     }   
@@ -276,7 +286,20 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
     //do operations based on the message
     switch(type_cmd){ 
       case WORKDONECMD:
+        //worker finished their tasks
         manager_workdone(proc_status);       
+        break;
+      case NONFATALINCCMD:
+        //non fatal errsend encountered
+        non_fatal++;
+        break;
+      case REGULARCMD:
+        reg_count += manager_add_paths(&work_queue, &work_queue_count);
+        printf("==> %d\n", reg_count);
+        break;
+      case DIRCMD:
+        dir_count += manager_add_paths(&dir_work_queue, &dir_work_queue_count);
+        printf("==> %d\n", dir_count);
         break;
       default:
         break;
@@ -291,8 +314,12 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   }
   gettimeofday(&out, NULL);
   //Manager is done, cleaning have the other ranks exit
+  sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
+  write_output(rank, message);
+  sprintf(message, "INFO  FOOTER   =================================================================================\n");
+  write_output(rank, message);
   for (i = 1; i < nproc; i++){
-    exit_rank(i);
+    send_worker_exit(i);
   }
 
   //free any allocated stuff
@@ -300,9 +327,47 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   
 }
 
+int manager_add_paths(path_node **queue, int *queue_count){
+  MPI_Status status;
+  int rank, path_count;
+
+  char path[PATHSIZE_PLUS];
+  char *workbuf;
+  int worksize, position;
+  
+  int i;  
+
+  //gather the rank
+  if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+  //gather the # of files
+  if (MPI_Recv(&path_count, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  worksize = PATHSIZE_PLUS * path_count;
+  workbuf = (char *) malloc(worksize * sizeof(char));
+  
+  //gather the path to stat
+  if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  
+  position = 0;
+  for (i = 0; i < path_count; i++){
+    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    enqueue_path(queue, path, queue_count);
+
+  }
+
+  return path_count;
+
+}
+
 void manager_workdone(int *proc_status){
   MPI_Status status;
-  int rank = 0;  
+  int rank;  
   
   //gather the rank
   if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -448,7 +513,7 @@ void worker_stat(int rank){
   int i;
 
   //classification
-  path_node *dir_list, *reg_list;
+  path_node *dir_list = NULL, *reg_list = NULL; 
   int dir_list_count = 0, reg_list_count = 0;
 
   //gather the rank
@@ -502,6 +567,13 @@ void worker_stat(int rank){
     memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
     strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
+    if (S_ISDIR(st.st_mode)){
+      enqueue_path(&dir_list, path, &dir_list_count);
+    }
+    else{
+      enqueue_path(&reg_list, path, &reg_list_count);
+    }
+
     if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
       sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
     }
@@ -512,8 +584,18 @@ void worker_stat(int rank){
     //write_output(rank, statrecord);
   } 
   write_buffer_output(rank, writebuf, writesize, stat_count);
+
+  
+  while(dir_list && reg_list){
+    send_manager_dirs(rank, 200, &dir_list, &dir_list_count);
+    send_manager_regs(rank, 200, &reg_list, &reg_list_count);
+  }  
+
+  //free malloc buffers
   free(workbuf);
   free(writebuf);
-  work_done(rank);  
+  delete_queue_path(&dir_list);
+  delete_queue_path(&reg_list);
+  send_manager_work_done(rank);  
 }
 

@@ -46,7 +46,6 @@
 #define ANY_FILE         0X00000000 
 
 typedef unsigned long long int uint_64;
-
 //mpi_commands
 enum cmd_opcode {                                                                                                                                                                                                                                                                                                  
   EXITCMD = 1,
@@ -56,7 +55,16 @@ enum cmd_opcode {
   STATCMD,
   COMPARECMD,
   COPYCMD,
-  WORKDONECMD
+  REGULARCMD,
+  DIRCMD,
+  WORKDONECMD,
+  NONFATALINCCMD
+};
+
+enum wrk_type{
+  COPYWORK = 1,
+  LSWORK = 2,
+  COMPAREWORK = 3
 };
 
 //for our MPI communications 
@@ -67,17 +75,8 @@ enum cmd_opcode {
 #define FATAL 1
 #define NONFATAL 0
 
-enum wrk_type{
-  COPYWORK = 1,
-  LSWORK = 2,
-  COMPAREWORK = 3
-};
 
-//Function Declarations
-void usage();
-char *printmode (mode_t aflag, char *buf);
-
-//Queues
+//Structs and typedefs
 // A queue to store all of our input nodes
 struct path_queue{
   char path[PATHSIZE_PLUS];
@@ -86,23 +85,36 @@ struct path_queue{
 
 typedef struct path_queue path_node;
 
+//Function Declarations
+void usage();
+char *printmode (mode_t aflag, char *buf);
+
+//local functions
+void send_command(int target_rank, int type_cmd);
+void send_path_list(int rank, int target_rank, int command, int num_send, path_node **list, int *list_count);
+
+//worker utility functions
+void errsend(int rank, int fatal, char *error_text);
+int get_free_rank(int *proc_status, int start_range, int end_range);
+int processing_complete(int *proc_status, int nproc);
+
+//function definitions for manager
+void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count);
+void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count);
+void send_manager_nonfatal_inc();
+void send_manager_work_done(int rank);
+
+//function definitions for workers
+void write_output(int rank, char *message);
+void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
+void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count);
+void send_worker_exit(int target_rank);
+
 //function definitions for queues
 void enqueue_path(path_node **head, char *path, int *count);
 void dequeue_path(path_node **head, int *count);
 void print_queue_path(path_node *head);
-
-//operations on ranks
-void errsend(int rank, int fatal, char *error_text);
-void write_output(int rank, char *message);
-void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
-void stat_path(int rank, int target_rank, int num_stat, path_node **head, int *count);
-void work_done(int rank);
-int processing_complete(int *proc_status, int nproc);
-int get_free_rank(int *proc_status, int start_range, int end_range);
-void exit_rank(int target_rank);
-void send_command(int target_rank, int type_cmd);
-
-
+void delete_queue_path(path_node **head);
 #endif
 
 
