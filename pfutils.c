@@ -131,6 +131,11 @@ void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_li
   send_path_list(rank, MANAGER_PROC, DIRCMD, num_send, dir_list, dir_list_count);
 }
 
+void send_manager_new_input(int rank, int num_send, path_node **new_input_list, int *new_input_list_count){
+  //sends additional input files to the manager
+  send_path_list(rank, MANAGER_PROC, INPUTCMD, num_send, new_input_list, new_input_list_count);
+}
+
 void send_manager_work_done(int rank){
   //the worker is finished processing, notify the manager
   send_command(MANAGER_PROC, WORKDONECMD);
@@ -183,6 +188,12 @@ void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_cou
 void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count){
   //send a worker a list of paths to stat
   send_path_list(rank, target_rank, NAMECMD, num_send, input_queue, input_queue_count);
+}
+
+void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue, int *dir_work_queue_count){
+  //send a worker a list of paths to stat
+  send_path_list(rank, target_rank, DIRCMD, num_send, dir_work_queue, dir_work_queue_count);
+
 }
 
 void send_worker_exit(int target_rank){

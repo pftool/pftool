@@ -56,6 +56,7 @@ enum cmd_opcode {
   COMPARECMD,
   COPYCMD,
   REGULARCMD,
+  INPUTCMD,
   DIRCMD,
   WORKDONECMD,
   NONFATALINCCMD
@@ -101,6 +102,7 @@ int processing_complete(int *proc_status, int nproc);
 //function definitions for manager
 void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count);
 void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count);
+void send_manager_new_input(int rank, int num_send, path_node **new_input_list, int *new_input_list_count);
 void send_manager_nonfatal_inc();
 void send_manager_work_done(int rank);
 
@@ -108,6 +110,7 @@ void send_manager_work_done(int rank);
 void write_output(int rank, char *message);
 void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
 void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count);
+void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue, int *dir_work_queue_count);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues

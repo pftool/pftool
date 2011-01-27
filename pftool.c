@@ -30,12 +30,14 @@ extern char *printmode (mode_t aflag, char *buf);
 extern void send_manager_nonfatal_inc();
 extern void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count);
 extern void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count);
+extern void send_manager_new_input(int rank, int num_send, path_node **new_input_list, int *new_input_list_count);
 extern void send_manager_work_done(int rank);
 
 //worker
 extern void write_output(int rank, char *message);
 extern void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
 extern void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count);                                                                                                                                                                                              
+extern void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue, int *dir_work_queue_count);
 extern void send_worker_exit(int target_rank);
 
 //functions that use workers
@@ -241,7 +243,6 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_path);
   write_output(rank, message);
 
-  
   //starttime
   gettimeofday(&in, NULL);
 
@@ -268,12 +269,19 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
           PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status[i]);
         }
         PRINT_PROC_DEBUG("=============\n");
-        work_rank = get_free_rank(proc_status, 2, 2);
+        work_rank = get_free_rank(proc_status, 2, 3);
   
         //first run through the remaining stat_queue
         if (work_rank != -1 && input_queue_count != 0){
           proc_status[work_rank] = 1;
-          send_worker_stat_path(rank, work_rank, 50, &input_queue, &input_queue_count);
+          send_worker_stat_path(rank, work_rank, 1000, &input_queue, &input_queue_count);
+        }
+
+        work_rank = get_free_rank(proc_status, 4, 4);
+
+        if (work_rank != -1 && dir_work_queue_count !=0){
+          proc_status[work_rank] = 1;
+          send_worker_readdir(rank, work_rank, 100, &dir_work_queue, &dir_work_queue_count);
         }
       }
     }   
@@ -295,11 +303,12 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
         break;
       case REGULARCMD:
         reg_count += manager_add_paths(&work_queue, &work_queue_count);
-        printf("==> %d\n", reg_count);
         break;
       case DIRCMD:
         dir_count += manager_add_paths(&dir_work_queue, &dir_work_queue_count);
-        printf("==> %d\n", dir_count);
+        break;
+      case INPUTCMD:
+        manager_add_paths(&input_queue, &input_queue_count);
         break;
       default:
         break;
@@ -313,10 +322,17 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
     
   }
   gettimeofday(&out, NULL);
+  int elapsed_time = out.tv_sec - in.tv_sec;
   //Manager is done, cleaning have the other ranks exit
   sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
   write_output(rank, message);
   sprintf(message, "INFO  FOOTER   =================================================================================\n");
+  write_output(rank, message);
+  sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", reg_count);
+  write_output(rank, message);
+  sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", dir_count);
+  write_output(rank, message);
+  sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
   write_output(rank, message);
   for (i = 1; i < nproc; i++){
     send_worker_exit(i);
@@ -360,6 +376,7 @@ int manager_add_paths(path_node **queue, int *queue_count){
     enqueue_path(queue, path, queue_count);
 
   }
+  free(workbuf);
 
   return path_count;
 
@@ -424,6 +441,9 @@ void worker(int rank){
         break;
       case NAMECMD:
         worker_stat(rank);
+        break;
+      case DIRCMD:
+        worker_readdir(rank);
         break;
       default:
         break;
@@ -490,6 +510,7 @@ void worker_buffer_output(){
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
     printf("Rank %d: %s", rank, msg);
   }
+  free(buffer);
 }
 
 void worker_stat(int rank){
@@ -539,23 +560,6 @@ void worker_stat(int rank){
   out_position = 0;
   for (i = 0; i < stat_count; i++){
     MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
-    if (statfs(path, &stfs) < 0) { 
-      snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-      errsend(rank, FATAL, errortext);
-    } 
-
-    if (stfs.f_type == GPFS_SUPER_MAGIC) {
-      sourcefs = GPFSFS;
-      sprintf(sourcefsc, "G");
-    }
-    else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
-      sourcefs = PANASASFS;
-      sprintf(sourcefsc, "P");
-    }
-    else{
-      sourcefs = ANYFS;
-      sprintf(sourcefsc, "A");
-    }
    
 
     if (lstat(path, &st) == -1) {
@@ -574,6 +578,31 @@ void worker_stat(int rank){
       enqueue_path(&reg_list, path, &reg_list_count);
     }
 
+    if (!S_ISLNK(st.st_mode)){
+      if (statfs(path, &stfs) < 0) { 
+        snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+        errsend(rank, FATAL, errortext);
+      } 
+
+      if (stfs.f_type == GPFS_SUPER_MAGIC) {
+        sourcefs = GPFSFS;
+        sprintf(sourcefsc, "G");
+      }
+      else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
+        sourcefs = PANASASFS;
+        sprintf(sourcefsc, "P");
+      }
+      else{
+        sourcefs = ANYFS;
+        sprintf(sourcefsc, "A");
+      }
+  }
+  else{
+    //symlink
+    sourcefs = GPFSFS;
+    sprintf(sourcefsc, "G");
+  }
+
     if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
       sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
     }
@@ -586,16 +615,84 @@ void worker_stat(int rank){
   write_buffer_output(rank, writebuf, writesize, stat_count);
 
   
-  while(dir_list && reg_list){
-    send_manager_dirs(rank, 200, &dir_list, &dir_list_count);
-    send_manager_regs(rank, 200, &reg_list, &reg_list_count);
-  }  
+  do{
+    send_manager_dirs(rank, 1000, &dir_list, &dir_list_count);
+    send_manager_regs(rank, 1000, &reg_list, &reg_list_count);
+  } while(dir_list && reg_list);
 
   //free malloc buffers
   free(workbuf);
   free(writebuf);
-  delete_queue_path(&dir_list);
-  delete_queue_path(&reg_list);
   send_manager_work_done(rank);  
+}
+
+void worker_readdir(int rank){
+  //When a worker is told to readdir, it comes here
+  MPI_Status status;
+  int req_rank;  
+
+  char *workbuf;
+  int worksize;
+  int position, out_position;
+  int read_count;
+  char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
+  char errmsg[MESSAGESIZE];
+
+  DIR *dip;
+  struct dirent *dit;
+  
+  int i;
+
+  path_node *new_input_list = NULL;
+  int new_input_list_count = 0;
+
+  //gather the rank
+  if (MPI_Recv(&req_rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+  if (MPI_Recv(&read_count, 1, MPI_INT, req_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  worksize = PATHSIZE_PLUS * read_count;
+  workbuf = (char *) malloc(worksize * sizeof(char));
+
+  //gather the path to stat
+  if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  
+  position = 0;
+  out_position = 0;
+  for (i = 0; i < read_count; i++){
+    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    if ((dip = opendir(path)) == NULL){
+      MPI_Abort(MPI_COMM_WORLD, -1);
+      //failed to open dir
+    }
+    while ((dit = readdir(dip)) != NULL){
+      if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
+        strncpy(full_path, path, PATHSIZE_PLUS);
+        if (full_path[-1] != '/'){
+          strncat(full_path, "/", 1);
+        }
+        strncat(full_path, dit->d_name, PATHSIZE_PLUS);
+        enqueue_path(&new_input_list, full_path, &new_input_list_count);
+      }
+    }
+    if (closedir(dip) == -1){
+      snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", path);
+      errsend(rank, 1, errmsg);
+    }
+  }
+
+
+  do{
+  send_manager_new_input(rank, 1000, &new_input_list, &new_input_list_count);
+  } while (new_input_list);
+
+  free(workbuf);
+  send_manager_work_done(rank);
+
 }
 

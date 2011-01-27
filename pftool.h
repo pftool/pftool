@@ -17,6 +17,7 @@ void worker(int rank);
 void worker_output();
 void worker_buffer_output();
 void worker_stat(int rank);
+void worker_readdir(int rank);
 
 #define ANYFS     0
 #define PANASASFS 1
