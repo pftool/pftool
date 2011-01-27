@@ -85,15 +85,24 @@ void send_command(int target_rank, int type_cmd){
   }
 }
 
-void send_path_list(int rank, int target_rank, int command, int num_send, path_node **list, int *list_count){
+void send_path_list(int rank, int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count){
   int path_count = 0, position = 0;
-  int worksize = PATHSIZE_PLUS * num_send;
+  int worksize, workcount;
+
+  if (path_count >= *list_count){
+    workcount = path_count;
+  }
+  else{
+    workcount = *list_count;
+  }
+
+  worksize = workcount * PATHSIZE_PLUS;
   char *workbuf = (char *) malloc(worksize * sizeof(char));
 
-  while(*list != NULL &&  path_count != num_send){
+  while(path_count < workcount){
     path_count++;
-    MPI_Pack((*list)->path, PATHSIZE_PLUS, MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
-    dequeue_path(list, list_count);
+    MPI_Pack((*list_head)->path, PATHSIZE_PLUS, MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+    dequeue_path(list_head, list_tail, list_count);
   }
   //send the command to get started
   send_command(target_rank, command);
@@ -109,7 +118,6 @@ void send_path_list(int rank, int target_rank, int command, int num_send, path_n
   }
 
   //recalculate worksize
-  worksize = PATHSIZE_PLUS * path_count;
   if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
@@ -121,19 +129,19 @@ void send_manager_nonfatal_inc(){
   send_command(MANAGER_PROC, NONFATALINCCMD);
 }
 
-void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count){
+void send_manager_regs(int rank, int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count){
   //sends a chunk of regular files to the manager
-  send_path_list(rank, MANAGER_PROC, REGULARCMD, num_send, reg_list, reg_list_count);
+  send_path_list(rank, MANAGER_PROC, REGULARCMD, num_send, reg_list_head, reg_list_tail, reg_list_count);
 }
 
-void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count){
+void send_manager_dirs(int rank, int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count){
   //sends a chunk of regular files to the manager
-  send_path_list(rank, MANAGER_PROC, DIRCMD, num_send, dir_list, dir_list_count);
+  send_path_list(rank, MANAGER_PROC, DIRCMD, num_send, dir_list_head, dir_list_tail, dir_list_count);
 }
 
-void send_manager_new_input(int rank, int num_send, path_node **new_input_list, int *new_input_list_count){
+void send_manager_new_input(int rank, int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count){
   //sends additional input files to the manager
-  send_path_list(rank, MANAGER_PROC, INPUTCMD, num_send, new_input_list, new_input_list_count);
+  send_path_list(rank, MANAGER_PROC, INPUTCMD, num_send, new_input_list_head, new_input_list_tail, new_input_list_count);
 }
 
 void send_manager_work_done(int rank){
@@ -185,14 +193,14 @@ void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_cou
   }
 }
 
-void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count){
+void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count){
   //send a worker a list of paths to stat
-  send_path_list(rank, target_rank, NAMECMD, num_send, input_queue, input_queue_count);
+  send_path_list(rank, target_rank, NAMECMD, num_send, input_queue_head, input_queue_tail, input_queue_count);
 }
 
-void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue, int *dir_work_queue_count){
+void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count){
   //send a worker a list of paths to stat
-  send_path_list(rank, target_rank, DIRCMD, num_send, dir_work_queue, dir_work_queue_count);
+  send_path_list(rank, target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
 
 }
 
@@ -249,7 +257,7 @@ int processing_complete(int *proc_status, int nproc){
 }
 
 //Queue Function Definitions
-void enqueue_path(path_node **head, char *path, int *count){
+void enqueue_path(path_node **head, path_node **tail, char *path, int *count){
   //stick a path on the end of the queue
   path_node *new_node = malloc(sizeof(path_node));
   path_node *temp_node = *head;
@@ -269,7 +277,7 @@ void enqueue_path(path_node **head, char *path, int *count){
   *count += 1;
 } 
 
-void dequeue_path(path_node **head, int *count){
+void dequeue_path(path_node **head, path_node **tail, int *count){
   //remove a path from the front of the queue
   path_node *temp_node = *head;
   if (temp_node == NULL){

@@ -28,16 +28,16 @@ extern char *printmode (mode_t aflag, char *buf);
 
 //manager
 extern void send_manager_nonfatal_inc();
-extern void send_manager_regs(int rank, int num_send, path_node **reg_list, int *reg_list_count);
-extern void send_manager_dirs(int rank, int num_send, path_node **dir_list, int *dir_list_count);
-extern void send_manager_new_input(int rank, int num_send, path_node **new_input_list, int *new_input_list_count);
+extern void send_manager_regs(int rank, int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
+extern void send_manager_dirs(int rank, int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
+extern void send_manager_new_input(int rank, int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
 extern void send_manager_work_done(int rank);
 
 //worker
 extern void write_output(int rank, char *message);
 extern void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
-extern void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue, int *input_queue_count);                                                                                                                                                                                              
-extern void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue, int *dir_work_queue_count);
+extern void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
+extern void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
 extern void send_worker_exit(int target_rank);
 
 //functions that use workers
@@ -46,8 +46,8 @@ extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
 
 //queues 
-extern void enqueue_path(path_node **head, char *path, int *count);
-extern void dequeue_path(path_node **head, int *count);
+extern void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
+extern void dequeue_path(path_node **head, path_node **tail, int *count);
 extern void print_queue_path(path_node *head);
 
 int main(int argc, char *argv[]){
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]){
   int work_type;
 
   //queues
-  path_node *input_queue = NULL;
+  path_node *input_queue_head = NULL, *input_queue_tail = NULL;
   int input_queue_count = 0;
   
   //paths
@@ -184,9 +184,9 @@ int main(int argc, char *argv[]){
   //process remaining optind for * and multiple src files
   // stick them on the input_queue
   if (rank == MANAGER_PROC && optind < argc){
-    enqueue_path(&input_queue, src_path, &input_queue_count);
+    enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
     for (i = optind; i < argc; ++i){
-      enqueue_path(&input_queue, argv[i], &input_queue_count);
+      enqueue_path(&input_queue_head, &input_queue_tail, argv[i], &input_queue_count);
     }
   }
   
@@ -196,7 +196,7 @@ int main(int argc, char *argv[]){
   
 
   if (rank == MANAGER_PROC){
-    manager(rank, jid, nproc, input_queue, input_queue_count, work_type);
+    manager(rank, jid, nproc, input_queue_head, input_queue_tail, input_queue_count, work_type);
   }
   else if (rank != OUTPUT_PROC){
     worker(rank);
@@ -209,7 +209,7 @@ int main(int argc, char *argv[]){
 }
 
 
-void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_queue_count, int work_type){
+void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, int work_type){
   MPI_Status status;
   int all_done = 0, message_ready = 0, probecount = 0;
   int prc, type_cmd;
@@ -223,12 +223,13 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   char message[MESSAGESIZE];
   char beginning_path[PATHSIZE_PLUS];
 
-  path_node *work_queue = NULL, *dir_work_queue = NULL;
+  path_node *work_queue_head = NULL, *work_queue_tail = NULL;
+  path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
   int work_queue_count = 0, dir_work_queue_count = 0;
 
 
   //path stuff
-  strncpy(beginning_path, input_queue->path, PATHSIZE_PLUS);
+  strncpy(beginning_path, input_queue_head->path, PATHSIZE_PLUS);
 
   //proc stuff
   proc_status = malloc(nproc * sizeof(int));
@@ -269,26 +270,26 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
           PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status[i]);
         }
         PRINT_PROC_DEBUG("=============\n");
-        work_rank = get_free_rank(proc_status, 2, 3);
-  
+
+        work_rank = get_free_rank(proc_status, 2, 2);
+        if (work_rank != -1 && dir_work_queue_count !=0){
+          proc_status[work_rank] = 1;
+          send_worker_readdir(rank, work_rank, 5, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
+        }
+
+        work_rank = get_free_rank(proc_status, 3, 6);
         //first run through the remaining stat_queue
         if (work_rank != -1 && input_queue_count != 0){
           proc_status[work_rank] = 1;
-          send_worker_stat_path(rank, work_rank, 1000, &input_queue, &input_queue_count);
+          send_worker_stat_path(rank, work_rank, 1000, &input_queue_head, &input_queue_tail, &input_queue_count);
         }
 
-        work_rank = get_free_rank(proc_status, 4, 4);
-
-        if (work_rank != -1 && dir_work_queue_count !=0){
-          proc_status[work_rank] = 1;
-          send_worker_readdir(rank, work_rank, 100, &dir_work_queue, &dir_work_queue_count);
-        }
       }
     }   
 
     //grab message type
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-      MPI_Abort(MPI_COMM_WORLD, -1);
+      errsend(rank, FATAL, "Failed to receive type_cmd\n");
     }   
 
     //do operations based on the message
@@ -302,13 +303,13 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
         non_fatal++;
         break;
       case REGULARCMD:
-        reg_count += manager_add_paths(&work_queue, &work_queue_count);
+        reg_count += manager_add_paths(&work_queue_head, &work_queue_tail, &work_queue_count);
         break;
       case DIRCMD:
-        dir_count += manager_add_paths(&dir_work_queue, &dir_work_queue_count);
+        dir_count += manager_add_paths(&dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
         break;
       case INPUTCMD:
-        manager_add_paths(&input_queue, &input_queue_count);
+        manager_add_paths(&input_queue_head, &input_queue_tail, &input_queue_count);
         break;
       default:
         break;
@@ -343,7 +344,7 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_q
   
 }
 
-int manager_add_paths(path_node **queue, int *queue_count){
+int manager_add_paths(path_node **queue_head, path_node **queue_tail, int *queue_count){
   MPI_Status status;
   int rank, path_count;
 
@@ -355,25 +356,25 @@ int manager_add_paths(path_node **queue, int *queue_count){
 
   //gather the rank
   if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-      MPI_Abort(MPI_COMM_WORLD, -1);
+      errsend(MANAGER_PROC, FATAL, "Failed to receive rank\n");
   }
 
   //gather the # of files
   if (MPI_Recv(&path_count, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-      MPI_Abort(MPI_COMM_WORLD, -1);
+      errsend(MANAGER_PROC, FATAL, "Failed to receive path_count\n");
   }
   worksize = PATHSIZE_PLUS * path_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
   
   //gather the path to stat
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+      errsend(MANAGER_PROC, FATAL, "Failed to receive worksize\n");
   }
   
   position = 0;
   for (i = 0; i < path_count; i++){
     MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
-    enqueue_path(queue, path, queue_count);
+    enqueue_path(queue_head, queue_tail, path, queue_count);
 
   }
   free(workbuf);
@@ -388,7 +389,7 @@ void manager_workdone(int *proc_status){
   
   //gather the rank
   if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-      MPI_Abort(MPI_COMM_WORLD, -1);
+      errsend(MANAGER_PROC, FATAL, "Failed to receive rank\n");
   }
   proc_status[rank] = 0;
 
@@ -410,8 +411,7 @@ void worker(int rank){
     while ( message_ready == 0){
       prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &message_ready, &status);
       if (prc != MPI_SUCCESS) {
-        MPI_Abort(MPI_COMM_WORLD, -1);
-        message_ready = -1;
+        errsend(rank, FATAL, "MPI_Iprobe failed\n");
       }
       else{
         probecount++;
@@ -425,7 +425,7 @@ void worker(int rank){
 
     //grab message type
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-      MPI_Abort(MPI_COMM_WORLD, -1);
+        errsend(rank, FATAL, "Failed to receive type_cmd\n");
     }
 
     //do operations based on the message
@@ -463,11 +463,11 @@ void worker_output(){
 
   //gather the rank
   if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(OUTPUT_PROC, FATAL, "Failed to receive rank\n");
   }
   //gather the message to print
   if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(OUTPUT_PROC, FATAL, "Failed to receive msg\n");
   }
   printf("Rank %d: %s", rank, msg);
   
@@ -489,12 +489,12 @@ void worker_buffer_output(){
 
   //gather the rank
   if (MPI_Recv(&rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(OUTPUT_PROC, FATAL, "Failed to receive rank\n");
   }
 
   //gather the message_count
   if (MPI_Recv(&message_count, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(OUTPUT_PROC, FATAL, "Failed to receive message_count\n");
   }
     
   buffersize = MESSAGESIZE*message_count;
@@ -502,7 +502,7 @@ void worker_buffer_output(){
   
   //gather the path to stat
   if (MPI_Recv(buffer, buffersize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(OUTPUT_PROC, FATAL, "Failed to receive buffer\n");
   }
 
   position = 0;
@@ -534,16 +534,17 @@ void worker_stat(int rank){
   int i;
 
   //classification
-  path_node *dir_list = NULL, *reg_list = NULL; 
+  path_node *dir_list_head = NULL, *dir_list_tail = NULL;
+  path_node *reg_list_head = NULL, *reg_list_tail = NULL; 
   int dir_list_count = 0, reg_list_count = 0;
 
   //gather the rank
   if (MPI_Recv(&req_rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive req_rank\n");
   }
 
   if (MPI_Recv(&stat_count, 1, MPI_INT, req_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive stat_count\n");
   }
   worksize = PATHSIZE_PLUS * stat_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
@@ -553,7 +554,7 @@ void worker_stat(int rank){
 
   //gather the path to stat
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive workbuf\n");
   }
   
   position = 0;
@@ -572,10 +573,10 @@ void worker_stat(int rank){
     strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
     if (S_ISDIR(st.st_mode)){
-      enqueue_path(&dir_list, path, &dir_list_count);
+      enqueue_path(&dir_list_head, &dir_list_tail, path, &dir_list_count);
     }
     else{
-      enqueue_path(&reg_list, path, &reg_list_count);
+      enqueue_path(&reg_list_head, &reg_list_tail, path, &reg_list_count);
     }
 
     if (!S_ISLNK(st.st_mode)){
@@ -615,10 +616,10 @@ void worker_stat(int rank){
   write_buffer_output(rank, writebuf, writesize, stat_count);
 
   
-  do{
-    send_manager_dirs(rank, 1000, &dir_list, &dir_list_count);
-    send_manager_regs(rank, 1000, &reg_list, &reg_list_count);
-  } while(dir_list && reg_list);
+  while(dir_list_count != 0 && reg_list_count != 0){
+    send_manager_dirs(rank, 100, &dir_list_head, &dir_list_tail, &dir_list_count);
+    send_manager_regs(rank, 1000, &reg_list_head, &reg_list_tail, &reg_list_count);
+  } 
 
   //free malloc buffers
   free(workbuf);
@@ -643,23 +644,23 @@ void worker_readdir(int rank){
   
   int i;
 
-  path_node *new_input_list = NULL;
+  path_node *new_input_list_head = NULL, *new_input_list_tail = NULL;
   int new_input_list_count = 0;
 
   //gather the rank
   if (MPI_Recv(&req_rank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive req_rank\n");
   }
 
   if (MPI_Recv(&read_count, 1, MPI_INT, req_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive read_count\n");
   }
   worksize = PATHSIZE_PLUS * read_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
 
   //gather the path to stat
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    errsend(rank, FATAL, "Failed to receive workbuf\n");
   }
   
   position = 0;
@@ -667,8 +668,8 @@ void worker_readdir(int rank){
   for (i = 0; i < read_count; i++){
     MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
     if ((dip = opendir(path)) == NULL){
-      MPI_Abort(MPI_COMM_WORLD, -1);
-      //failed to open dir
+      snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
+      errsend(rank, FATAL, errmsg);
     }
     while ((dit = readdir(dip)) != NULL){
       if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
@@ -677,7 +678,7 @@ void worker_readdir(int rank){
           strncat(full_path, "/", 1);
         }
         strncat(full_path, dit->d_name, PATHSIZE_PLUS);
-        enqueue_path(&new_input_list, full_path, &new_input_list_count);
+        enqueue_path(&new_input_list_head, &new_input_list_tail, full_path, &new_input_list_count);
       }
     }
     if (closedir(dip) == -1){
@@ -687,9 +688,9 @@ void worker_readdir(int rank){
   }
 
 
-  do{
-  send_manager_new_input(rank, 1000, &new_input_list, &new_input_list_count);
-  } while (new_input_list);
+  while(new_input_list_count != 0){
+    send_manager_new_input(rank, 1000, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
+  }
 
   free(workbuf);
   send_manager_work_done(rank);

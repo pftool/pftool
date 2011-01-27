@@ -8,9 +8,9 @@
 
 /* Function Prototypes */
 //manager rank operations
-void manager(int rank, char *jid, int nproc, path_node *input_queue, int input_queue_count, int work_type);
+void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, int work_type);
 void manager_workdone(int *proc_status);
-int manager_add_paths(path_node **input_queue, int *input_queue_count);
+int manager_add_paths(path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
 
 //worker rank operations
 void worker(int rank);

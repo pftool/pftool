@@ -101,7 +101,7 @@ def main():
 
   #temp
   host_list = ["gpfst10"]
-  pfls_num_proc = 5
+  pfls_num_proc = 7
 
   if len(host_list) == 0:
     print"""
