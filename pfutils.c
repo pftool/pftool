@@ -260,20 +260,23 @@ int processing_complete(int *proc_status, int nproc){
 void enqueue_path(path_node **head, path_node **tail, char *path, int *count){
   //stick a path on the end of the queue
   path_node *new_node = malloc(sizeof(path_node));
-  path_node *temp_node = *head;
-  
   strncpy(new_node->path, path, PATHSIZE_PLUS);  
   new_node->next = NULL;
   
-  if (temp_node == NULL){
+  if (*head == NULL){
     *head = new_node;
+    *tail = *head;
   }
   else{
+    (*tail)->next = new_node;
+    *tail = (*tail)->next;
+  }
+  /*  
     while (temp_node->next != NULL){
       temp_node = temp_node->next;
     }   
     temp_node->next = new_node;
-  }
+  }*/
   *count += 1;
 } 
 
