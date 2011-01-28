@@ -95,6 +95,7 @@ def main():
     commands.append(item)
 
   #temp
+  #host_list = ["gpfst1","gpfst2","gpfst3","gpfst4","gpfst5","gpfst6","gpfst7","gpfst8","gpfst9","gpfst10"]
   host_list = ["gpfst10"]
   pfls_num_proc = 16
 

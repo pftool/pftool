@@ -30,6 +30,7 @@ extern char *printmode (mode_t aflag, char *buf);
 extern void send_manager_nonfatal_inc();
 extern void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
 extern void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
+extern void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
 extern void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
 extern void send_manager_work_done();
 
@@ -49,6 +50,7 @@ extern int processing_complete(int *proc_status, int nproc);
 extern void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
 extern void dequeue_path(path_node **head, path_node **tail, int *count);
 extern void print_queue_path(path_node *head);
+extern void delete_queue_path(path_node **head, int *count);
 
 int main(int argc, char *argv[]){
   //general variables
@@ -59,9 +61,7 @@ int main(int argc, char *argv[]){
 
   //getopt
   int c;
-  int recurse = 0;
-  char jid[128];
-  int work_type;
+  struct options o;
 
   //queues
   path_node *input_queue_head = NULL, *input_queue_tail = NULL;
@@ -72,6 +72,11 @@ int main(int argc, char *argv[]){
   char *path_slice;
   struct stat src_stat, dest_stat;
   int statrc;
+
+  //initialize options
+  o.recurse = 0;
+  o.work_type = LSWORK;
+  strncpy(o.jid, "TestJob", 128);
 
   //Process using getopt
   while ((c = getopt(argc, argv, "p:c:j:rh")) != -1) 
@@ -85,10 +90,11 @@ int main(int argc, char *argv[]){
         strncpy(dest_path, optarg, PATHSIZE_PLUS);        
         break;
       case 'j':
-        strncpy(jid, optarg, 128);
+        strncpy(o.jid, optarg, 128);
+        break;
       case 'r':
         //Recurse
-        recurse = 1;
+        o.recurse = 1;
         break;
       case 'h':
         //Help -- incoming!
@@ -121,7 +127,7 @@ int main(int argc, char *argv[]){
   //Modifies the path based on recursion/wildcards
   if (rank == MANAGER_PROC){
     //wildcard
-    if (optind < argc && work_type == COPYWORK){
+    if (optind < argc && o.work_type == COPYWORK){
       statrc = lstat(dest_path, &dest_stat);
       if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)){
         printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
@@ -130,7 +136,7 @@ int main(int argc, char *argv[]){
       }
     }
     //recursion
-    else if (recurse){
+    else if (o.recurse){
       lstat(src_path, &src_stat);
       statrc = lstat(dest_path, &dest_stat);
       //src is a dir and there was no wildcard
@@ -199,7 +205,7 @@ int main(int argc, char *argv[]){
   
 
   if (rank == MANAGER_PROC){
-    manager(rank, jid, nproc, input_queue_head, input_queue_tail, input_queue_count, work_type);
+    manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count);
   }
   else if (rank != OUTPUT_PROC){
     worker(rank);
@@ -212,7 +218,7 @@ int main(int argc, char *argv[]){
 }
 
 
-void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, int work_type){
+void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count){
   MPI_Status status;
   int all_done = 0, message_ready = 0, probecount = 0;
   int prc, type_cmd;
@@ -221,14 +227,15 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
   int i;
   int *proc_status;
   struct timeval in, out;
-  int non_fatal = 0, reg_count = 0, dir_count = 0;
+  int temp_count = 0, non_fatal = 0, reg_count = 0, dir_count = 0, tape_count = 0;
 
   char message[MESSAGESIZE];
   char beginning_path[PATHSIZE_PLUS];
 
   path_node *work_queue_head = NULL, *work_queue_tail = NULL;
   path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
-  int work_queue_count = 0, dir_work_queue_count = 0;
+  path_node *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
+  int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0;
 
 
   //path stuff
@@ -242,7 +249,7 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
   }
   
 
-  sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", jid);
+  sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
   write_output(message);
   sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_path);
   write_output(message);
@@ -275,10 +282,14 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
         PRINT_PROC_DEBUG("=============\n");
 
         work_rank = get_free_rank(proc_status, 2, 2);
-        if (work_rank != -1 && dir_work_queue_count !=0){
+        if (work_rank != -1 && dir_work_queue_count !=0 && o.recurse){
           proc_status[work_rank] = 1;
           send_worker_readdir(work_rank, 100, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
         }
+        else if (!o.recurse){
+          delete_queue_path(&dir_work_queue_head, &dir_work_queue_count);
+        }
+       
 
         for(i = 0; i < (input_queue_count / 200) + 1; i++){
           work_rank = get_free_rank(proc_status, 3, 15);
@@ -310,9 +321,15 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
         break;
       case REGULARCMD:
         reg_count += manager_add_paths(rank, sending_rank, &work_queue_head, &work_queue_tail, &work_queue_count);
+        delete_queue_path(&work_queue_head, &work_queue_count);
         break;
       case DIRCMD:
         dir_count += manager_add_paths(rank, sending_rank, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
+        break;
+      case TAPECMD:
+        temp_count = manager_add_paths(rank, sending_rank, &tape_work_queue_head, &tape_work_queue_tail, &tape_work_queue_count);
+        reg_count += temp_count;
+        tape_count += temp_count;
         break;
       case INPUTCMD:
         manager_add_paths(rank, sending_rank, &input_queue_head, &input_queue_tail, &input_queue_count);
@@ -323,7 +340,7 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
     message_ready = 0;
     
     //are we finished?
-    if (input_queue_count == 0 && processing_complete(proc_status, nproc) == 0){
+    if (input_queue_count == 0 && dir_work_queue_count == 0 && processing_complete(proc_status, nproc) == 0){
       all_done = 1;
     }
     
@@ -336,6 +353,8 @@ void manager(int rank, char *jid, int nproc, path_node *input_queue_head, path_n
   sprintf(message, "INFO  FOOTER   =================================================================================\n");
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", reg_count);
+  write_output(message);
+  sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", tape_count);
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", dir_count);
   write_output(message);
@@ -519,7 +538,9 @@ void worker_stat(int rank, int sending_rank){
   //classification
   path_node *dir_list_head = NULL, *dir_list_tail = NULL;
   path_node *reg_list_head = NULL, *reg_list_tail = NULL; 
-  int dir_list_count = 0, reg_list_count = 0;
+  path_node *tape_list_head = NULL, *tape_list_tail = NULL; 
+  
+  int dir_list_count = 0, reg_list_count = 0, tape_list_count = 0;
 
   if (MPI_Recv(&stat_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive stat_count\n");
@@ -552,6 +573,9 @@ void worker_stat(int rank, int sending_rank){
 
     if (S_ISDIR(st.st_mode)){
       enqueue_path(&dir_list_head, &dir_list_tail, path, &dir_list_count);
+    }
+    else if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
+      enqueue_path(&tape_list_head, &tape_list_tail, path, &tape_list_count);
     }
     else{
       enqueue_path(&reg_list_head, &reg_list_tail, path, &reg_list_count);
@@ -600,6 +624,10 @@ void worker_stat(int rank, int sending_rank){
   }
   while (reg_list_count != 0){
     send_manager_regs(200, &reg_list_head, &reg_list_tail, &reg_list_count);
+  } 
+
+  while (tape_list_count != 0){
+    send_manager_tape(200, &tape_list_head, &tape_list_tail, &tape_list_count);
   } 
 
   //free malloc buffers

@@ -89,6 +89,7 @@ void send_path_list(int target_rank, int command, int num_send, path_node **list
   int path_count = 0, position = 0;
   int worksize, workcount;
 
+
   if (path_count >= *list_count){
     workcount = path_count;
   }
@@ -132,6 +133,11 @@ void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_
 void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count){
   //sends a chunk of regular files to the manager
   send_path_list(MANAGER_PROC, DIRCMD, num_send, dir_list_head, dir_list_tail, dir_list_count);
+}
+
+void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count){
+  //sends a chunk of regular files to the manager
+  send_path_list(MANAGER_PROC, TAPECMD, num_send, tape_list_head, tape_list_tail, tape_list_count);
 }
 
 void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count){
@@ -280,13 +286,14 @@ void print_queue_path(path_node *head){
     }
 }
 
-void delete_queue_path(path_node **head){
+void delete_queue_path(path_node **head, int *count){
   path_node *temp = *head;
   while(temp){
     *head = (*head)->next;
     free(temp);
     temp = *head;
   }
+  *count = 0;
 }
 
 

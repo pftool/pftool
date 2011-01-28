@@ -58,6 +58,7 @@ enum cmd_opcode {
   REGULARCMD,
   INPUTCMD,
   DIRCMD,
+  TAPECMD,
   WORKDONECMD,
   NONFATALINCCMD
 };
@@ -78,6 +79,14 @@ enum wrk_type{
 
 
 //Structs and typedefs
+//options{
+struct options{
+  int recurse;
+  int work_type;
+  char jid[128];
+};
+
+
 // A queue to store all of our input nodes
 struct path_queue{
   char path[PATHSIZE_PLUS];
@@ -102,6 +111,7 @@ int processing_complete(int *proc_status, int nproc);
 //function definitions for manager
 void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
 void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
+void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
 void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
 void send_manager_nonfatal_inc();
 void send_manager_work_done();
@@ -117,7 +127,7 @@ void send_worker_exit(int target_rank);
 void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
 void dequeue_path(path_node **head, path_node **tail, int *count);
 void print_queue_path(path_node *head);
-void delete_queue_path(path_node **head);
+void delete_queue_path(path_node **head, int *count);
 #endif
 
 
