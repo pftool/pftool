@@ -85,7 +85,7 @@ void send_command(int target_rank, int type_cmd){
   }
 }
 
-void send_path_list(int rank, int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count){
+void send_path_list(int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count){
   int path_count = 0, position = 0;
   int worksize, workcount;
 
@@ -107,13 +107,8 @@ void send_path_list(int rank, int target_rank, int command, int num_send, path_n
   //send the command to get started
   send_command(target_rank, command);
 
-  //send the rank
-  if (MPI_Send(&rank, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-
   //send the # of paths
-  if (MPI_Send(&path_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+  if (MPI_Send(&workcount, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
@@ -129,42 +124,33 @@ void send_manager_nonfatal_inc(){
   send_command(MANAGER_PROC, NONFATALINCCMD);
 }
 
-void send_manager_regs(int rank, int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count){
+void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count){
   //sends a chunk of regular files to the manager
-  send_path_list(rank, MANAGER_PROC, REGULARCMD, num_send, reg_list_head, reg_list_tail, reg_list_count);
+  send_path_list(MANAGER_PROC, REGULARCMD, num_send, reg_list_head, reg_list_tail, reg_list_count);
 }
 
-void send_manager_dirs(int rank, int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count){
+void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count){
   //sends a chunk of regular files to the manager
-  send_path_list(rank, MANAGER_PROC, DIRCMD, num_send, dir_list_head, dir_list_tail, dir_list_count);
+  send_path_list(MANAGER_PROC, DIRCMD, num_send, dir_list_head, dir_list_tail, dir_list_count);
 }
 
-void send_manager_new_input(int rank, int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count){
+void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count){
   //sends additional input files to the manager
-  send_path_list(rank, MANAGER_PROC, INPUTCMD, num_send, new_input_list_head, new_input_list_tail, new_input_list_count);
+  send_path_list(MANAGER_PROC, INPUTCMD, num_send, new_input_list_head, new_input_list_tail, new_input_list_count);
 }
 
-void send_manager_work_done(int rank){
+void send_manager_work_done(){
   //the worker is finished processing, notify the manager
   send_command(MANAGER_PROC, WORKDONECMD);
-
-  //send the rank
-  if (MPI_Send(&rank, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
 }
 
 //worker
-void write_output(int rank, char *message){
+void write_output(char *message){
   //write a single line using the outputproc
 
   //set the command type
   send_command(OUTPUT_PROC, OUTCMD);
 
-  //send the rank
-  if (MPI_Send(&rank, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
   //send the message
   if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
@@ -172,17 +158,12 @@ void write_output(int rank, char *message){
 }
 
 
-void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count){
+void write_buffer_output(char *buffer, int buffer_size, int buffer_count){
   //write a buffer to the output proc
 
   //set the command type
   send_command(OUTPUT_PROC, BUFFEROUTCMD);
 
-  //send the rank
-  if (MPI_Send(&rank, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    MPI_Abort(MPI_COMM_WORLD, -1); 
-  }
-  
   //send the size of the buffer
   if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
@@ -193,14 +174,14 @@ void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_cou
   }
 }
 
-void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count){
+void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count){
   //send a worker a list of paths to stat
-  send_path_list(rank, target_rank, NAMECMD, num_send, input_queue_head, input_queue_tail, input_queue_count);
+  send_path_list(target_rank, NAMECMD, num_send, input_queue_head, input_queue_tail, input_queue_count);
 }
 
-void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count){
+void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count){
   //send a worker a list of paths to stat
-  send_path_list(rank, target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
+  send_path_list(target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
 
 }
 
@@ -211,7 +192,7 @@ void send_worker_exit(int target_rank){
 
 
 //functions that use workers
-void errsend(int rank, int fatal, char *error_text){
+void errsend(int fatal, char *error_text){
   //send an error message to the outputproc. Die if fatal.
   char errormsg[MESSAGESIZE];
 
@@ -222,7 +203,7 @@ void errsend(int rank, int fatal, char *error_text){
     snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n",error_text);
   }
   
-  write_output(rank, errormsg);
+  write_output(errormsg);
 
   if (fatal){
     MPI_Abort(MPI_COMM_WORLD, -1); 

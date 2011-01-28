@@ -92,25 +92,25 @@ char *printmode (mode_t aflag, char *buf);
 
 //local functions
 void send_command(int target_rank, int type_cmd);
-void send_path_list(int rank, int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count);
+void send_path_list(int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count);
 
 //worker utility functions
-void errsend(int rank, int fatal, char *error_text);
+void errsend(int fatal, char *error_text);
 int get_free_rank(int *proc_status, int start_range, int end_range);
 int processing_complete(int *proc_status, int nproc);
 
 //function definitions for manager
-void send_manager_regs(int rank, int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
-void send_manager_dirs(int rank, int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
-void send_manager_new_input(int rank, int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
+void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
+void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
+void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
 void send_manager_nonfatal_inc();
-void send_manager_work_done(int rank);
+void send_manager_work_done();
 
 //function definitions for workers
-void write_output(int rank, char *message);
-void write_buffer_output(int rank, char *buffer, int buffer_size, int buffer_count);
-void send_worker_stat_path(int rank, int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
-void send_worker_readdir(int rank, int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
+void write_output(char *message);
+void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
+void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
+void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues
