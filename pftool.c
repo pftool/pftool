@@ -25,6 +25,9 @@
 //External Declarations
 extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
+extern char *get_base_path(const char *path, int wildcard);
+extern char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse);
+extern char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse);
 
 //manager
 extern void send_manager_nonfatal_inc();
@@ -39,6 +42,7 @@ extern void write_output(char *message);
 extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 extern void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
 extern void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
+extern void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count);
 extern void send_worker_exit();
 
 //functions that use workers
@@ -68,14 +72,13 @@ int main(int argc, char *argv[]){
   int input_queue_count = 0;
   
   //paths
-  char src_path[PATHSIZE_PLUS], dest_path[PATHSIZE_PLUS], temp_path[PATHSIZE_PLUS], temp_path2[PATHSIZE_PLUS];
-  char *path_slice;
-  struct stat src_stat, dest_stat;
+  char src_path[PATHSIZE_PLUS], dest_path[PATHSIZE_PLUS];
+  struct stat dest_stat;
   int statrc;
 
   //initialize options
   o.recurse = 0;
-  o.work_type = LSWORK;
+  o.work_type = COPYWORK;
   strncpy(o.jid, "TestJob", 128);
 
   //Process using getopt
@@ -135,57 +138,8 @@ int main(int argc, char *argv[]){
         return -1;
       }
     }
-    //recursion
-    else if (o.recurse){
-      lstat(src_path, &src_stat);
-      statrc = lstat(dest_path, &dest_stat);
-      //src is a dir and there was no wildcard
-      if (statrc < 0 && S_ISDIR(src_stat.st_mode)){
-        mkdir(dest_path, S_IRWXU);
-      }
-      //The dest is a dir
-      else if (S_ISDIR(dest_stat.st_mode)) { 
-        strcpy(temp_path, src_path);
-        while (temp_path[strlen(temp_path) - 1] == '/') {
-          temp_path[strlen(temp_path) - 1] = '\0';
-        }    
-        if (strstr(temp_path, "/")) {
-          path_slice = strrchr(temp_path, '/') + 1; 
-        }    
-        else {
-          path_slice = (char *) temp_path;
-        }    
-        if (dest_path[strlen(dest_path) - 1] != '/') {
-          snprintf(temp_path2, PATHSIZE_PLUS, "%s/%s", dest_path, path_slice);
-        }    
-        else {
-          snprintf(temp_path2, PATHSIZE_PLUS, "%s%s", dest_path, path_slice);
-        }
-        strcpy(dest_path, temp_path2);
-      }    
-      if (S_ISDIR(src_stat.st_mode)){
-        mkdir(dest_path, S_IRWXU);
-      }
-    }
   }
-
-  MPI_Bcast(dest_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);    
       
-  statrc = lstat(src_path, &src_stat);
-  //src exists
-  if (statrc == 0) {
-    if (S_ISDIR(src_stat.st_mode) && src_path[strlen(src_path) - 1] != '/') {
-      strncat(src_path, "/", PATHSIZE_PLUS);
-    }
-  }
-
-  statrc = lstat(dest_path, &dest_stat);
-  //dest exists
-  if (statrc == 0) {
-    if (S_ISDIR(dest_stat.st_mode) && dest_path[strlen(dest_path) - 1] != '/') {
-      strncat(dest_path, "/", PATHSIZE_PLUS);
-    }
-  }
 
   //process remaining optind for * and multiple src files
   // stick them on the input_queue
@@ -195,20 +149,20 @@ int main(int argc, char *argv[]){
       enqueue_path(&input_queue_head, &input_queue_tail, argv[i], &input_queue_count);
     }
   }
-  else{
+  else if (rank == MANAGER_PROC){
     enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
   }
   
   if (rank == OUTPUT_PROC){
-    worker(rank);
+    worker(rank, o);
   } 
   
 
   if (rank == MANAGER_PROC){
-    manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count);
+    manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
   }
   else if (rank != OUTPUT_PROC){
-    worker(rank);
+    worker(rank, o);
   }
 
   //Program Finished
@@ -218,7 +172,7 @@ int main(int argc, char *argv[]){
 }
 
 
-void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count){
+void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, const char *dest_path){
   MPI_Status status;
   int all_done = 0, message_ready = 0, probecount = 0;
   int prc, type_cmd;
@@ -230,16 +184,49 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   int temp_count = 0, non_fatal = 0, reg_count = 0, dir_count = 0, tape_count = 0;
 
   char message[MESSAGESIZE];
-  char beginning_path[PATHSIZE_PLUS];
+  char beginning_path[PATHSIZE_PLUS], base_path[PATHSIZE_PLUS];
 
+  path_node *iter = NULL;
   path_node *work_queue_head = NULL, *work_queue_tail = NULL;
   path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
   path_node *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
   int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0;
+  int mpi_ret_code;
 
 
   //path stuff
+  int wildcard = 0;
+  if (input_queue_count > 1){
+    wildcard = 1;
+  }
+  
+  //setup paths
   strncpy(beginning_path, input_queue_head->path, PATHSIZE_PLUS);
+  strncpy(base_path, get_base_path(beginning_path, wildcard), PATHSIZE_PLUS);
+  dest_path = get_dest_path(beginning_path, dest_path, o.recurse);
+  
+  printf("==> %s\n", dest_path);
+
+  mpi_ret_code = MPI_Bcast(strndup(dest_path, PATHSIZE_PLUS), PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  if (mpi_ret_code < 0){
+    errsend(FATAL, "Failed to Bcast dest_path");
+  }
+  mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  if (mpi_ret_code < 0){
+    errsend(FATAL, "Failed to Bcast base_path");
+  }
+  //printf("==> %s -- %s\n",beginning_path, base_path);
+
+  iter = input_queue_head;
+  if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1){
+    while (iter != NULL){
+      if (strstr(iter->path, base_path) == NULL){
+        errsend(FATAL, "All source paths must be derived from the same base path for a recursive copy.");
+      }
+      iter = iter->next;
+    }
+  }
+  
 
   //proc stuff
   proc_status = malloc(nproc * sizeof(int));
@@ -282,7 +269,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         PRINT_PROC_DEBUG("=============\n");
 
         work_rank = get_free_rank(proc_status, 2, 2);
-        if (work_rank != -1 && dir_work_queue_count !=0 && o.recurse){
+        if (work_rank > -1 && dir_work_queue_count !=0 && o.recurse){
           proc_status[work_rank] = 1;
           send_worker_readdir(work_rank, 100, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
         }
@@ -292,12 +279,18 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
        
 
         for(i = 0; i < (input_queue_count / 200) + 1; i++){
-          work_rank = get_free_rank(proc_status, 3, 15);
+          work_rank = get_free_rank(proc_status, 3, 13);
           //first run through the remaining stat_queue
-          if (work_rank != -1 && input_queue_count != 0){
+          if (work_rank > -1 && input_queue_count != 0){
             proc_status[work_rank] = 1;
             send_worker_stat_path(work_rank, 200, &input_queue_head, &input_queue_tail, &input_queue_count);
           }
+        }
+
+        work_rank = get_free_rank(proc_status, 14, 15);
+        if (work_rank > -1 && work_queue_count > 0){
+          proc_status[work_rank] = 1;
+          send_worker_copy_path(work_rank, 200, &work_queue_head, &work_queue_tail, &work_queue_count);
         }
 
       }
@@ -321,7 +314,12 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         break;
       case REGULARCMD:
         reg_count += manager_add_paths(rank, sending_rank, &work_queue_head, &work_queue_tail, &work_queue_count);
-        delete_queue_path(&work_queue_head, &work_queue_count);
+        iter = work_queue_head;
+        /*while (iter != NULL){
+          printf("%s + %s ==> %s\n", iter->path, dest_path, get_output_path(base_path, iter->path, dest_path, o.recurse));
+          iter = iter->next;
+        }
+        delete_queue_path(&work_queue_head, &work_queue_count);*/
         break;
       case DIRCMD:
         dir_count += manager_add_paths(rank, sending_rank, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
@@ -330,6 +328,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         temp_count = manager_add_paths(rank, sending_rank, &tape_work_queue_head, &tape_work_queue_tail, &tape_work_queue_count);
         reg_count += temp_count;
         tape_count += temp_count;
+        delete_queue_path(&tape_work_queue_head, &tape_work_queue_count);
         break;
       case INPUTCMD:
         manager_add_paths(rank, sending_rank, &input_queue_head, &input_queue_tail, &input_queue_count);
@@ -407,7 +406,7 @@ void manager_workdone(int rank, int sending_rank, int *proc_status){
   proc_status[sending_rank] = 0;
 }
 
-void worker(int rank){
+void worker(int rank, struct options o){
   MPI_Status status;
   int sending_rank;
   int all_done = 0, message_ready = 0, probecount = 0;
@@ -416,7 +415,18 @@ void worker(int rank){
 
   int type_cmd;
   char *workbuf= malloc(WORKSIZE * sizeof(char));
+  int mpi_ret_code;
+  char dest_path[PATHSIZE_PLUS], base_path[PATHSIZE_PLUS];
 
+
+  mpi_ret_code = MPI_Bcast(dest_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  if (mpi_ret_code < 0){
+    errsend(FATAL, "Failed to Receive Bcast dest_path");
+  }
+  mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  if (mpi_ret_code < 0){
+    errsend(FATAL, "Failed to Receive Bcast base_path");
+  }
 
   //change this to get request first, process, then get work    
   while ( all_done == 0){
@@ -458,6 +468,9 @@ void worker(int rank){
         break;
       case DIRCMD:
         worker_readdir(rank, sending_rank);
+        break;
+      case COPYCMD:
+        worker_copylist(rank, sending_rank, base_path, dest_path, o.recurse);
         break;
       default:
         break;
@@ -695,7 +708,7 @@ void worker_readdir(int rank, int sending_rank){
 
 
   while(new_input_list_count != 0){
-    send_manager_new_input(200, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
+    send_manager_new_input(100, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
   }
 
   free(workbuf);
@@ -703,3 +716,44 @@ void worker_readdir(int rank, int sending_rank){
 
 }
 
+void worker_copylist(int rank, int sending_rank, const char *base_path, const char *dest_path, int recurse){
+  //When a worker is told to copy, it comes here
+  MPI_Status status;
+
+  char *workbuf, *writebuf;
+  int worksize, writesize;
+  int position, out_position;
+  int read_count;
+  char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
+  char copymsg[MESSAGESIZE];//, errmsg[MESSAGESIZE];
+
+  
+  int i;
+
+  if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    errsend(FATAL, "Failed to receive read_count\n");
+  }
+  worksize = PATHSIZE_PLUS * read_count;
+  workbuf = (char *) malloc(worksize * sizeof(char));
+
+  writesize = MESSAGESIZE * read_count;
+  writebuf = (char *) malloc(writesize * sizeof(char));  
+
+  //gather the path to stat
+  if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    errsend(FATAL, "Failed to receive workbuf\n");
+  }
+  
+  position = 0;
+  out_position = 0;
+  for (i = 0; i < read_count; i++){
+    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(out_path, get_output_path(base_path, path, dest_path, recurse), PATHSIZE_PLUS);
+    //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
+    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)1, (long long)1, out_path);
+    MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+  }
+  
+  write_buffer_output(writebuf, writesize, read_count); 
+  send_manager_work_done(rank);
+}

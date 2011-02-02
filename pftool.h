@@ -8,16 +8,17 @@
 
 /* Function Prototypes */
 //manager rank operations
-void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count);
+void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, const char *dest_path);
 void manager_workdone(int rank, int sending_rank, int *proc_status);
 int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_node **queue_tail, int *queue_count);
 
 //worker rank operations
-void worker(int rank);
+void worker(int rank, struct options o);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
 void worker_stat(int rank, int sending_rank);
 void worker_readdir(int rank, int sending_rank);
+void worker_copylist(int rank, int sending_rank, const char *base_path, const char *dest_path, int recurse);
 
 #define ANYFS     0
 #define PANASASFS 1

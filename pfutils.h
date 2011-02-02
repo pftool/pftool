@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <libgen.h>
 #include <unistd.h>
 #include <gpfs.h>
 #include "mpi.h"
@@ -88,6 +89,11 @@ struct options{
 
 
 // A queue to store all of our input nodes
+/*struct path_link{
+  char path[PATHSIZE_PLUS];
+  struct stat st;
+};*/
+
 struct path_queue{
   char path[PATHSIZE_PLUS];
   struct path_queue *next;
@@ -98,6 +104,9 @@ typedef struct path_queue path_node;
 //Function Declarations
 void usage();
 char *printmode (mode_t aflag, char *buf);
+char *get_base_path(const char *path, int wildcard);
+char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse);
+char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse);
 
 //local functions
 void send_command(int target_rank, int type_cmd);
@@ -121,6 +130,7 @@ void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
 void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
+void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues

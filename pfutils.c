@@ -77,6 +77,107 @@ char *printmode (mode_t aflag, char *buf){
   return buf; 
 }
 
+char *get_base_path(const char *path, int wildcard){
+  //wild card is a boolean
+  char base_path[PATHSIZE_PLUS], dir_name[PATHSIZE_PLUS];
+  char errmsg[MESSAGESIZE];
+  struct stat st;
+  int rc;
+
+  rc = lstat(path, &st);
+  if (rc < 0){
+    sprintf(errmsg, "Failed to stat %s\n", path);
+    errsend(FATAL, errmsg);
+  }
+
+  strncpy(dir_name, dirname(strdup(path)), PATHSIZE_PLUS);
+  
+  if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)){
+    strncpy(base_path, path, PATHSIZE_PLUS);
+  }
+  else if (S_ISDIR(st.st_mode) && wildcard == 0){
+    strncpy(base_path, path, PATHSIZE_PLUS);
+  }
+  else{
+    strncpy(base_path, dir_name, PATHSIZE_PLUS);
+  }
+  while(base_path[strlen(base_path) - 1] == '/'){
+    base_path[strlen(base_path) - 1] = '\0'; 
+  }
+
+  return strndup(base_path, PATHSIZE_PLUS);
+}
+
+char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse){
+  int rc;
+  struct stat beg_st, dest_st;
+  char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
+  char *path_slice;
+
+  strncpy(final_dest_path, dest_path, PATHSIZE_PLUS);
+  strncpy(temp_path, beginning_path, PATHSIZE_PLUS);
+
+  while (temp_path[strlen(temp_path)-1] == '/'){
+    temp_path[strlen(temp_path)-1] = '\0';
+  }
+
+  //recursion special cases
+  if (recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0){
+    rc = lstat(beginning_path, &beg_st);
+    if (rc < 0){
+      errsend(FATAL, "Unable to stat beginning_path in get_dest_path.\n");
+    }
+
+    rc = lstat(dest_path, &dest_st);
+    if (rc >= 0 && S_ISDIR(dest_st.st_mode) && S_ISDIR(beg_st.st_mode)){
+      if (strstr(temp_path, "/") == NULL){
+        path_slice = (char *)temp_path;
+      }
+      else{
+        path_slice = strrchr(temp_path, '/') + 1;
+      }
+      if (final_dest_path[strlen(final_dest_path)-1] != '/'){
+        strncat(final_dest_path, "/", PATHSIZE_PLUS);
+      }
+      strncat(final_dest_path, path_slice, PATHSIZE_PLUS);
+    }
+  }
+  return strndup(final_dest_path, PATHSIZE_PLUS);
+}
+
+char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse){
+  char output_path[PATHSIZE_PLUS];
+  char *path_slice;
+
+  //remove a trailing slash
+  strncpy(output_path, dest_path, PATHSIZE_PLUS);
+  while (output_path[strlen(output_path) - 1] == '/'){
+    output_path[strlen(output_path) - 1] = '\0';
+  }
+
+  //path_slice = strstr(src_path, base_path);
+  if (recurse == 0){
+    if(strstr(src_path, "/") != NULL){
+      path_slice = (char *) strrchr(src_path, '/')+1;
+    }
+    else{
+      path_slice = (char *) src_path;
+    }
+  }
+  else{
+    if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0){
+      path_slice = (char *) src_path;
+    }
+    else{
+      path_slice = strndup(src_path + strlen(base_path) + 1, PATHSIZE_PLUS);
+    }
+  }
+  strncat(output_path, "/", PATHSIZE_PLUS);
+  strncat(output_path, path_slice, PATHSIZE_PLUS);
+  return strndup(output_path, PATHSIZE_PLUS);
+
+}
+
 //local functions only
 void send_command(int target_rank, int type_cmd){
   //Tell a rank it's time to begin processing
@@ -188,8 +289,13 @@ void send_worker_stat_path(int target_rank, int num_send, path_node **input_queu
 void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count){
   //send a worker a list of paths to stat
   send_path_list(target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
-
 }
+
+void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count){
+  //send a worker a list of paths to stat
+  send_path_list(target_rank, COPYCMD, num_send, work_queue_head, work_queue_tail, work_queue_count);
+}
+
 
 void send_worker_exit(int target_rank){
   //order a rank to exit
