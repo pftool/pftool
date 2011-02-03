@@ -52,9 +52,10 @@ extern int processing_complete(int *proc_status, int nproc);
 
 //queues 
 extern void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
-extern void dequeue_path(path_node **head, path_node **tail, int *count);
 extern void print_queue_path(path_node *head);
 extern void delete_queue_path(path_node **head, int *count);
+extern void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count);
+extern void dequeue_node(path_node **head, path_node **tail, int *count);
 
 int main(int argc, char *argv[]){
   //general variables
@@ -78,7 +79,8 @@ int main(int argc, char *argv[]){
 
   //initialize options
   o.recurse = 0;
-  o.work_type = COPYWORK;
+  o.work_type = LSWORK;
+  //o.work_type = COPYWORK;
   strncpy(o.jid, "TestJob", 128);
 
   //Process using getopt
@@ -153,15 +155,10 @@ int main(int argc, char *argv[]){
     enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
   }
   
-  if (rank == OUTPUT_PROC){
-    worker(rank, o);
-  } 
-  
-
   if (rank == MANAGER_PROC){
     manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
   }
-  else if (rank != OUTPUT_PROC){
+  else{
     worker(rank, o);
   }
 
@@ -201,16 +198,16 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   }
   
   //setup paths
-  strncpy(beginning_path, input_queue_head->path, PATHSIZE_PLUS);
+  strncpy(beginning_path, input_queue_head->data.path, PATHSIZE_PLUS);
   strncpy(base_path, get_base_path(beginning_path, wildcard), PATHSIZE_PLUS);
   dest_path = get_dest_path(beginning_path, dest_path, o.recurse);
   
-  printf("==> %s\n", dest_path);
-
+  //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
   mpi_ret_code = MPI_Bcast(strndup(dest_path, PATHSIZE_PLUS), PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Bcast dest_path");
   }
+  //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the base_path: %s\n", rank, base_path);
   mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Bcast base_path");
@@ -220,7 +217,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   iter = input_queue_head;
   if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1){
     while (iter != NULL){
-      if (strstr(iter->path, base_path) == NULL){
+      if (strstr(iter->data.path, base_path) == NULL){
         errsend(FATAL, "All source paths must be derived from the same base path for a recursive copy.");
       }
       iter = iter->next;
@@ -279,7 +276,9 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
        
 
         for(i = 0; i < (input_queue_count / 200) + 1; i++){
-          work_rank = get_free_rank(proc_status, 3, 13);
+          //work_rank = get_free_rank(proc_status, 3, 13);
+          work_rank = get_free_rank(proc_status, 3, 4);
+
           //first run through the remaining stat_queue
           if (work_rank > -1 && input_queue_count != 0){
             proc_status[work_rank] = 1;
@@ -287,16 +286,19 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
           }
         }
 
-        work_rank = get_free_rank(proc_status, 14, 15);
-        if (work_rank > -1 && work_queue_count > 0){
-          proc_status[work_rank] = 1;
-          send_worker_copy_path(work_rank, 200, &work_queue_head, &work_queue_tail, &work_queue_count);
+        if (o.work_type == COPYWORK){
+          work_rank = get_free_rank(proc_status, 14, 15);
+          if (work_rank > -1 && work_queue_count > 0){
+            proc_status[work_rank] = 1;
+            send_worker_copy_path(work_rank, 200, &work_queue_head, &work_queue_tail, &work_queue_count);
+          }
         }
 
       }
     }   
 
     //grab message type
+    PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type\n", rank);
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
       errsend(FATAL, "Failed to receive type_cmd\n");
     }   
@@ -372,6 +374,7 @@ int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_n
   MPI_Status status;
   int path_count;
 
+  path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS];
   char *workbuf;
   int worksize, position;
@@ -379,24 +382,28 @@ int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_n
   int i;  
 
   //gather the # of files
+  PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
   if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
       errsend(FATAL, "Failed to receive path_count\n");
   }
-  worksize = PATHSIZE_PLUS * path_count;
+  worksize =  path_count * sizeof(path_node);
   workbuf = (char *) malloc(worksize * sizeof(char));
   
   //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
       errsend(FATAL, "Failed to receive worksize\n");
   }
   
   position = 0;
   for (i = 0; i < path_count; i++){
-    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Unpacking the work_node from rank %d\n", rank, sending_rank);
+    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node->data.path, PATHSIZE_PLUS); 
     enqueue_path(queue_head, queue_tail, path, queue_count);
-
   }
   free(workbuf);
+  free(work_node);
 
   return path_count;
 
@@ -414,15 +421,16 @@ void worker(int rank, struct options o){
   
 
   int type_cmd;
-  char *workbuf= malloc(WORKSIZE * sizeof(char));
   int mpi_ret_code;
   char dest_path[PATHSIZE_PLUS], base_path[PATHSIZE_PLUS];
 
 
+  //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
   mpi_ret_code = MPI_Bcast(dest_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Receive Bcast dest_path");
   }
+  //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the base_path\n", rank);
   mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Receive Bcast base_path");
@@ -447,6 +455,7 @@ void worker(int rank, struct options o){
     }
 
     //grab message type
+    PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd\n", rank);
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive type_cmd\n");
     }
@@ -478,7 +487,6 @@ void worker(int rank, struct options o){
     message_ready = 0;
     //process message
   }
-  free(workbuf);
 }
 
 void worker_output(int rank, int sending_rank){
@@ -488,6 +496,7 @@ void worker_output(int rank, int sending_rank){
   char msg[MESSAGESIZE];
 
   //gather the message to print
+  PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from %d\n", rank, sending_rank);
   if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive msg\n");
   }
@@ -509,6 +518,7 @@ void worker_buffer_output(int rank, int sending_rank){
   int i;
 
   //gather the message_count
+  PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Receiving the message_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&message_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive message_count\n");
   }
@@ -517,12 +527,14 @@ void worker_buffer_output(int rank, int sending_rank){
   buffer = (char *) malloc(buffersize * sizeof(char));
   
   //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Receiving the buffer from %d\n", rank, sending_rank);
   if (MPI_Recv(buffer, buffersize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive buffer\n");
   }
 
   position = 0;
   for (i = 0; i < message_count; i++){
+    PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
     printf("Rank %d: %s", sending_rank, msg);
   }
@@ -537,6 +549,7 @@ void worker_stat(int rank, int sending_rank){
   int worksize, writesize;
   int position, out_position;
   int stat_count;
+  path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
 
@@ -555,16 +568,18 @@ void worker_stat(int rank, int sending_rank){
   
   int dir_list_count = 0, reg_list_count = 0, tape_list_count = 0;
 
+  PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&stat_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive stat_count\n");
   }
-  worksize = PATHSIZE_PLUS * stat_count;
+  worksize = sizeof(path_node) * stat_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
   
   writesize = MESSAGESIZE * stat_count;
   writebuf = (char *) malloc(writesize * sizeof(char));
 
   //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the workbuf from %d\n", rank, sending_rank);
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive workbuf\n");
   }
@@ -572,7 +587,9 @@ void worker_stat(int rank, int sending_rank){
   position = 0;
   out_position = 0;
   for (i = 0; i < stat_count; i++){
-    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    PRINT_MPI_DEBUG("rank %d: worker_stat() Unpacking the work_node %d\n", rank, sending_rank);
+    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node->data.path, PATHSIZE_PLUS);
    
 
     if (lstat(path, &st) == -1) {
@@ -657,8 +674,10 @@ void worker_readdir(int rank, int sending_rank){
   int worksize;
   int position, out_position;
   int read_count;
+  path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
   char errmsg[MESSAGESIZE];
+
 
   DIR *dip;
   struct dirent *dit;
@@ -668,13 +687,15 @@ void worker_readdir(int rank, int sending_rank){
   path_node *new_input_list_head = NULL, *new_input_list_tail = NULL;
   int new_input_list_count = 0;
 
+  PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the read_count %d\n", rank, sending_rank);
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive read_count\n");
   }
-  worksize = PATHSIZE_PLUS * read_count;
+  worksize = read_count * sizeof(path_node);
   workbuf = (char *) malloc(worksize * sizeof(char));
 
   //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the workbuf %d\n", rank, sending_rank);
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive workbuf\n");
   }
@@ -682,7 +703,9 @@ void worker_readdir(int rank, int sending_rank){
   position = 0;
   out_position = 0;
   for (i = 0; i < read_count; i++){
-    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
+    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node->data.path, PATHSIZE_PLUS);
     if ((dip = opendir(path)) == NULL){
       snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
       errsend(FATAL, errmsg);
@@ -694,7 +717,8 @@ void worker_readdir(int rank, int sending_rank){
           strncat(full_path, "/", 1);
         }
         strncat(full_path, dit->d_name, PATHSIZE_PLUS);
-        enqueue_path(&new_input_list_head, &new_input_list_tail, full_path, &new_input_list_count);
+        strncpy(work_node->data.path, full_path, PATHSIZE_PLUS);
+        enqueue_node(&new_input_list_head, &new_input_list_tail, work_node, &new_input_list_count);
       }
       if (new_input_list_count % 200 == 0){
         send_manager_new_input(200, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
@@ -711,6 +735,7 @@ void worker_readdir(int rank, int sending_rank){
     send_manager_new_input(100, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
   }
 
+  free(work_node);
   free(workbuf);
   send_manager_work_done(rank);
 
@@ -724,22 +749,26 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, const ch
   int worksize, writesize;
   int position, out_position;
   int read_count;
+  
+  path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
   char copymsg[MESSAGESIZE];//, errmsg[MESSAGESIZE];
 
   
   int i;
 
+  PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive read_count\n");
   }
-  worksize = PATHSIZE_PLUS * read_count;
+  worksize = read_count * sizeof(path_node);
   workbuf = (char *) malloc(worksize * sizeof(char));
 
   writesize = MESSAGESIZE * read_count;
   writebuf = (char *) malloc(writesize * sizeof(char));  
 
   //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n", rank, sending_rank);
   if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive workbuf\n");
   }
@@ -747,7 +776,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, const ch
   position = 0;
   out_position = 0;
   for (i = 0; i < read_count; i++){
-    MPI_Unpack(workbuf, worksize, &position, path, PATHSIZE_PLUS, MPI_CHAR, MPI_COMM_WORLD);
+    PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
+    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node->data.path, PATHSIZE_PLUS);
     strncpy(out_path, get_output_path(base_path, path, dest_path, recurse), PATHSIZE_PLUS);
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
     sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)1, (long long)1, out_path);

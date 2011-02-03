@@ -198,13 +198,13 @@ void send_path_list(int target_rank, int command, int num_send, path_node **list
     workcount = *list_count;
   }
 
-  worksize = workcount * PATHSIZE_PLUS;
+  worksize = workcount * sizeof(path_node);
   char *workbuf = (char *) malloc(worksize * sizeof(char));
 
   while(path_count < workcount){
     path_count++;
-    MPI_Pack((*list_head)->path, PATHSIZE_PLUS, MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
-    dequeue_path(list_head, list_tail, list_count);
+    MPI_Pack(*list_head, sizeof(path_node), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+    dequeue_node(list_head, list_tail, list_count);
   }
   //send the command to get started
   send_command(target_rank, command);
@@ -353,7 +353,7 @@ int processing_complete(int *proc_status, int nproc){
 void enqueue_path(path_node **head, path_node **tail, char *path, int *count){
   //stick a path on the end of the queue
   path_node *new_node = malloc(sizeof(path_node));
-  strncpy(new_node->path, path, PATHSIZE_PLUS);  
+  strncpy(new_node->data.path, path, PATHSIZE_PLUS);  
   new_node->next = NULL;
   
   if (*head == NULL){
@@ -373,21 +373,11 @@ void enqueue_path(path_node **head, path_node **tail, char *path, int *count){
   *count += 1;
 } 
 
-void dequeue_path(path_node **head, path_node **tail, int *count){
-  //remove a path from the front of the queue
-  path_node *temp_node = *head;
-  if (temp_node == NULL){
-    return;
-  }
-  *head = temp_node->next;
-  free(temp_node);
-  *count -= 1;
-}
 
 void print_queue_path(path_node *head){
     //print the entire queue
     while(head != NULL){
-      printf("%s\n", head->path);
+      printf("%s\n", head->data.path);
       head = head->next;
     }
 }
@@ -402,4 +392,30 @@ void delete_queue_path(path_node **head, int *count){
   *count = 0;
 }
 
+void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count){
+  path_node *temp_node = malloc(sizeof(path_node));
+  temp_node->data = new_node->data;
+  temp_node->next = NULL;
 
+  if (*head == NULL){
+    *head = temp_node;
+    *tail = *head;
+  }
+  else{
+    (*tail)->next = temp_node;
+    *tail = (*tail)->next;
+  }
+  *count += 1;
+}
+
+
+void dequeue_node(path_node **head, path_node **tail, int *count){
+  //remove a path from the front of the queue
+  path_node *temp_node = *head;
+  if (temp_node == NULL){
+    return;
+  }
+  *head = temp_node->next;
+  free(temp_node);
+  *count -= 1;
+}

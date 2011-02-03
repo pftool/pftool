@@ -3,7 +3,8 @@
 
 
 //define debugs
-#define POLL_DEBUG
+//#define POLL_DEBUG
+//#define MPI_DEBUG
 //#define PROC_DEBUG
 
 //define debug print statements
@@ -19,5 +20,12 @@
 #else
 #define PRINT_PROC_DEBUG(format, args...)
 #endif
+
+#ifdef MPI_DEBUG 
+#define PRINT_MPI_DEBUG(format, args...) printf("MPI_DEBUG: "format, ##args);
+#else
+#define PRINT_MPI_DEBUG(format, args...)
+#endif
+
 
 #endif

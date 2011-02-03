@@ -89,13 +89,14 @@ struct options{
 
 
 // A queue to store all of our input nodes
-/*struct path_link{
+struct path_link{
   char path[PATHSIZE_PLUS];
   struct stat st;
-};*/
+};
 
 struct path_queue{
-  char path[PATHSIZE_PLUS];
+  //char path[PATHSIZE_PLUS];
+  struct path_link data;
   struct path_queue *next;
 };
 
@@ -135,9 +136,10 @@ void send_worker_exit(int target_rank);
 
 //function definitions for queues
 void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
-void dequeue_path(path_node **head, path_node **tail, int *count);
 void print_queue_path(path_node *head);
 void delete_queue_path(path_node **head, int *count);
+void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count);
+void dequeue_node(path_node **head, path_node **tail, int *count);
 #endif
 
 
