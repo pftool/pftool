@@ -85,7 +85,6 @@ enum wrk_type{
 struct options{
   int recurse;
   int work_type;
-  int dest_is_dir;
   char jid[128];
 };
 
@@ -108,8 +107,8 @@ typedef struct path_queue path_node;
 void usage();
 char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
-char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse);
-char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse, int dest_is_dir);
+void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse);
+char *get_output_path(const char *base_path, path_node *src_node, path_node *dest_node, int recurse);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 
 

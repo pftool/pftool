@@ -108,7 +108,7 @@ char *get_base_path(const char *path, int wildcard){
   return strndup(base_path, PATHSIZE_PLUS);
 }
 
-char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse){
+void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse){
   int rc;
   struct stat beg_st, dest_st;
   char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
@@ -142,38 +142,49 @@ char *get_dest_path(const char *beginning_path, const char *dest_path, int recur
       }
       strncat(final_dest_path, path_slice, PATHSIZE_PLUS);
     }
+
+    rc = lstat(final_dest_path, &dest_st);
+    if (S_ISDIR(beg_st.st_mode)){   
+      mkdir(final_dest_path, S_IRWXU);
+    }
   }
-  return strndup(final_dest_path, PATHSIZE_PLUS);
+
+
+  rc = lstat(final_dest_path, &dest_st);
+  if (rc >= 0){
+    (*dest_node)->data.st = dest_st;
+  }
+  strncpy((*dest_node)->data.path, final_dest_path, PATHSIZE_PLUS);
 }
 
-char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse, int dest_is_dir){
+char *get_output_path(const char *base_path, path_node *src_node, path_node *dest_node, int recurse){
   char output_path[PATHSIZE_PLUS];
   char *path_slice;
 
   //remove a trailing slash
-  strncpy(output_path, dest_path, PATHSIZE_PLUS);
+  strncpy(output_path, dest_node->data.path, PATHSIZE_PLUS);
   while (output_path[strlen(output_path) - 1] == '/'){
     output_path[strlen(output_path) - 1] = '\0';
   }
 
   //path_slice = strstr(src_path, base_path);
   if (recurse == 0){
-    if(strstr(src_path, "/") != NULL){
-      path_slice = (char *) strrchr(src_path, '/')+1;
+    if(strstr(src_node->data.path, "/") != NULL){
+      path_slice = (char *) strrchr(src_node->data.path, '/')+1;
     }
     else{
-      path_slice = (char *) src_path;
+      path_slice = (char *) src_node->data.path;
     }
   }
   else{
     if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0){
-      path_slice = (char *) src_path;
+      path_slice = (char *) src_node->data.path;
     }
     else{
-      path_slice = strndup(src_path + strlen(base_path) + 1, PATHSIZE_PLUS);
+      path_slice = strndup(src_node->data.path + strlen(base_path) + 1, PATHSIZE_PLUS);
     }
   }
-  if(dest_is_dir == 1){
+  if (S_ISDIR(dest_node->data.st.st_mode)){
     strncat(output_path, "/", PATHSIZE_PLUS);
     strncat(output_path, path_slice, PATHSIZE_PLUS);
   }
@@ -202,6 +213,16 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   }
 
   dest_fd = fopen(dest_file, "w");
+  if (dest_fd == NULL){
+    rc = mkdir(dirname(strdup(dest_file)), S_IRWXU);
+    if (rc != 0){
+      sprintf(errormsg, "Failed to open file %s for write", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    dest_fd = fopen(dest_file, "w");
+  }
+
   if (dest_fd == NULL){
     sprintf(errormsg, "Failed to open file %s for write", dest_file);
     errsend(NONFATAL, errormsg);

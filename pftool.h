@@ -19,7 +19,7 @@ void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
 void worker_stat(int rank, int sending_rank);
 void worker_readdir(int rank, int sending_rank);
-void worker_copylist(int rank, int sending_rank, const char *base_path, const char *dest_path, struct options o);
+void worker_copylist(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse);
 
 #define ANYFS     0
 #define PANASASFS 1
