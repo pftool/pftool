@@ -27,7 +27,8 @@ extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
 extern char *get_base_path(const char *path, int wildcard);
 extern char *get_dest_path(const char *beginning_path, const char *dest_path, int recurse);
-extern char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse);
+extern char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse, int dest_is_dir);
+extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 
 //manager
 extern void send_manager_nonfatal_inc();
@@ -79,8 +80,8 @@ int main(int argc, char *argv[]){
 
   //initialize options
   o.recurse = 0;
-  //o.work_type = LSWORK;
-  o.work_type = COPYWORK;
+  o.work_type = LSWORK;
+  //o.work_type = COPYWORK;
   strncpy(o.jid, "TestJob", 128);
 
   //Process using getopt
@@ -93,6 +94,13 @@ int main(int argc, char *argv[]){
       case 'c':
         //Get the destination path
         strncpy(dest_path, optarg, PATHSIZE_PLUS);        
+        statrc = lstat(dest_path, &dest_stat);
+        if (statrc >= 0 && S_ISDIR(dest_stat.st_mode)){
+          o.dest_is_dir = 1;
+        }
+        else{
+          o.dest_is_dir = 0;
+        }
         break;
       case 'j':
         strncpy(o.jid, optarg, 128);
@@ -141,6 +149,7 @@ int main(int argc, char *argv[]){
       }
     }
   }
+ 
       
 
   //process remaining optind for * and multiple src files
@@ -187,7 +196,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   path_node *work_queue_head = NULL, *work_queue_tail = NULL;
   path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
   path_node *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
-  int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0;
+  int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0, num_copied_files = 0, num_copied_bytes = 0;
   int mpi_ret_code;
 
 
@@ -293,6 +302,9 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
             send_worker_copy_path(work_rank, 200, &work_queue_head, &work_queue_tail, &work_queue_count);
           }
         }
+        else{
+          delete_queue_path(&work_queue_head, &work_queue_count);
+        }
 
       }
     }   
@@ -314,14 +326,12 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         //non fatal errsend encountered
         non_fatal++;
         break;
+      case COPYSTATSCMD:
+        manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
+        break;
       case REGULARCMD:
         reg_count += manager_add_paths(rank, sending_rank, &work_queue_head, &work_queue_tail, &work_queue_count);
         iter = work_queue_head;
-        /*while (iter != NULL){
-          printf("%s + %s ==> %s\n", iter->path, dest_path, get_output_path(base_path, iter->path, dest_path, o.recurse));
-          iter = iter->next;
-        }
-        delete_queue_path(&work_queue_head, &work_queue_count);*/
         break;
       case DIRCMD:
         dir_count += manager_add_paths(rank, sending_rank, &dir_work_queue_head, &dir_work_queue_tail, &dir_work_queue_count);
@@ -409,6 +419,26 @@ int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_n
 
 }
 
+void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, int *num_copied_bytes){
+  MPI_Status status;
+  int num_files, num_bytes;
+  //gather the # of copied files
+  PRINT_MPI_DEBUG("rank %d: manager_add_copy_stats() Receiving num_copied_files from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_files, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+  
+  //gather the # of copied byes
+  PRINT_MPI_DEBUG("rank %d: manager_add_copy_stats() Receiving num_copied_files from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_bytes, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+
+  *num_copied_files += num_files;
+  *num_copied_bytes += num_bytes;
+
+}
+
 void manager_workdone(int rank, int sending_rank, int *proc_status){
   proc_status[sending_rank] = 0;
 }
@@ -479,7 +509,7 @@ void worker(int rank, struct options o){
         worker_readdir(rank, sending_rank);
         break;
       case COPYCMD:
-        worker_copylist(rank, sending_rank, base_path, dest_path, o.recurse);
+        worker_copylist(rank, sending_rank, base_path, dest_path, o);
         break;
       default:
         break;
@@ -558,7 +588,6 @@ void worker_stat(int rank, int sending_rank){
   struct tm sttm;
   int sourcefs;
   char sourcefsc[5], modebuf[15], timebuf[30];
-  
   int i;
 
   //classification
@@ -743,7 +772,7 @@ void worker_readdir(int rank, int sending_rank){
 
 }
 
-void worker_copylist(int rank, int sending_rank, const char *base_path, const char *dest_path, int recurse){
+void worker_copylist(int rank, int sending_rank, const char *base_path, const char *dest_path, struct options o){
   //When a worker is told to copy, it comes here
   MPI_Status status;
 
@@ -756,9 +785,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, const ch
   char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
   char copymsg[MESSAGESIZE];//, errmsg[MESSAGESIZE];
   struct stat st;
-
+  int num_copied_files = 0, num_copied_bytes = 0;
   
-  int i;
+  int i, rc;
 
   PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -782,14 +811,20 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, const ch
     PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
     MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
     strncpy(path, work_node->data.path, PATHSIZE_PLUS);
-    strncpy(out_path, get_output_path(base_path, path, dest_path, recurse), PATHSIZE_PLUS);
+    strncpy(out_path, get_output_path(base_path, path, dest_path, o.recurse, o.dest_is_dir), PATHSIZE_PLUS);
     st = work_node->data.st;
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
-    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)0, (long long)st.st_size, out_path);
-    MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+    rc = copy_file(path, out_path, 0, st.st_size, st);
+    if (rc >= 0){
+      sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)0, (long long)st.st_size, out_path);
+      MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+      num_copied_files +=1;
+      num_copied_bytes += st.st_size;
+    }
   }
   
   write_buffer_output(writebuf, writesize, read_count); 
+  send_manager_copy_stats(num_copied_files, num_copied_bytes);
   send_manager_work_done(rank);
 
   free(work_node);

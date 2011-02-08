@@ -133,6 +133,7 @@ char *get_dest_path(const char *beginning_path, const char *dest_path, int recur
       if (strstr(temp_path, "/") == NULL){
         path_slice = (char *)temp_path;
       }
+    
       else{
         path_slice = strrchr(temp_path, '/') + 1;
       }
@@ -145,7 +146,7 @@ char *get_dest_path(const char *beginning_path, const char *dest_path, int recur
   return strndup(final_dest_path, PATHSIZE_PLUS);
 }
 
-char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse){
+char *get_output_path(const char *base_path, const char *src_path, const char *dest_path, int recurse, int dest_is_dir){
   char output_path[PATHSIZE_PLUS];
   char *path_slice;
 
@@ -172,10 +173,103 @@ char *get_output_path(const char *base_path, const char *src_path, const char *d
       path_slice = strndup(src_path + strlen(base_path) + 1, PATHSIZE_PLUS);
     }
   }
-  strncat(output_path, "/", PATHSIZE_PLUS);
-  strncat(output_path, path_slice, PATHSIZE_PLUS);
+  if(dest_is_dir == 1){
+    strncat(output_path, "/", PATHSIZE_PLUS);
+    strncat(output_path, path_slice, PATHSIZE_PLUS);
+  }
   return strndup(output_path, PATHSIZE_PLUS);
 
+}
+
+int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st){
+  //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
+  int rc, num_bytes;
+  int bufsize = 1048576;
+  char *buf = malloc(bufsize * sizeof(char));
+  char errormsg[MESSAGESIZE];
+  FILE *src_fd, *dest_fd;  
+  int mode;
+
+  if ((src_st.st_size - offset) < bufsize){
+    bufsize = src_st.st_size - offset;
+  } 
+
+  src_fd = fopen(src_file, "r");
+  if (src_fd == NULL){
+    sprintf(errormsg, "Failed to open file %s for read", src_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  dest_fd = fopen(dest_file, "w");
+  if (dest_fd == NULL){
+    sprintf(errormsg, "Failed to open file %s for write", dest_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  rc = fseek(src_fd, offset, SEEK_SET);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to fseek file: %s offset: %ld", src_file, offset);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+
+  rc = fseek(dest_fd, offset, SEEK_SET);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to fseek file: %s offset: %ld", dest_file, offset);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  num_bytes = fread(buf, 1, bufsize, src_fd);
+  if (num_bytes != bufsize){
+    sprintf(errormsg, "Failed to read file: %s", src_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+
+  num_bytes = fwrite(buf, 1, bufsize, dest_fd);
+  if (num_bytes != bufsize){
+    sprintf(errormsg, "Failed to write file: %s", dest_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  mode = src_st.st_mode & 07777;
+
+  rc = fclose(src_fd);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to close file: %s", src_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  rc = fclose(dest_fd);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to close file: %s", dest_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  rc = chown(dest_file, src_st.st_uid, src_st.st_gid);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file, src_st.st_uid, src_st.st_gid);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  rc = chmod(dest_file, mode);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+
+  free(buf);
+  return 0;
 }
 
 //local functions only
@@ -224,6 +318,20 @@ void send_path_list(int target_rank, int command, int num_send, path_node **list
 //manager
 void send_manager_nonfatal_inc(){
   send_command(MANAGER_PROC, NONFATALINCCMD);
+}
+
+void send_manager_copy_stats(int num_copied_files, int num_copied_bytes){
+  send_command(MANAGER_PROC, COPYSTATSCMD);
+  
+  //send the # of paths
+  if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+  //send the # of paths
+  if (MPI_Send(&num_copied_bytes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
 }
 
 void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count){
