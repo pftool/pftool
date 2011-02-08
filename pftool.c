@@ -191,6 +191,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
   path_node *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
   int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0, num_copied_files = 0, num_copied_bytes = 0;
+    
   int mpi_ret_code;
 
 
@@ -511,10 +512,10 @@ void worker(int rank, struct options o){
         all_done = 1;
         break;
       case NAMECMD:
-        worker_stat(rank, sending_rank);
+        worker_stat(rank, sending_rank, dest_node);
         break;
       case DIRCMD:
-        worker_readdir(rank, sending_rank);
+        worker_readdir(rank, sending_rank, base_path, dest_node, o.recurse);
         break;
       case COPYCMD:
         worker_copylist(rank, sending_rank, base_path, dest_node, o.recurse);
@@ -580,14 +581,14 @@ void worker_buffer_output(int rank, int sending_rank){
   free(buffer);
 }
 
-void worker_stat(int rank, int sending_rank){
+void worker_stat(int rank, int sending_rank, path_node *dest_node){
   //When a worker is told to stat, it comes here
   MPI_Status status;
 
   char *workbuf, *writebuf;
   int worksize, writesize;
   int position, out_position;
-  int stat_count;
+  int stat_count, write_count;
   path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
@@ -613,7 +614,8 @@ void worker_stat(int rank, int sending_rank){
   worksize = sizeof(path_node) * stat_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
   
-  writesize = MESSAGESIZE * stat_count;
+  write_count = stat_count;
+  writesize = MESSAGESIZE * write_count;
   writebuf = (char *) malloc(writesize * sizeof(char));
 
   //gather the path to stat
@@ -640,7 +642,11 @@ void worker_stat(int rank, int sending_rank){
     memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
     strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
-    if (S_ISDIR(st.st_mode)){
+    if (st.st_ino == dest_node->data.st.st_ino){
+      write_count--;
+      continue;
+    }
+    else if (S_ISDIR(st.st_mode)){
       enqueue_node(&dir_list_head, &dir_list_tail, work_node, &dir_list_count);
     }
     else if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
@@ -685,7 +691,13 @@ void worker_stat(int rank, int sending_rank){
     //write_output(rank, statrecord);
     
   } 
-  write_buffer_output(writebuf, writesize, stat_count);
+
+  //incase we tried to copy a file into itself
+  if (write_count != stat_count){
+    writesize = MESSAGESIZE * write_count;
+    writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+  }
+  write_buffer_output(writebuf, writesize, write_count);
 
   
   while(dir_list_count != 0){
@@ -706,7 +718,7 @@ void worker_stat(int rank, int sending_rank){
   send_manager_work_done(rank);  
 }
 
-void worker_readdir(int rank, int sending_rank){
+void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse){
   //When a worker is told to readdir, it comes here
   MPI_Status status;
 
@@ -717,6 +729,7 @@ void worker_readdir(int rank, int sending_rank){
   path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
   char errmsg[MESSAGESIZE];
+  char mkdir_path[PATHSIZE_PLUS];
 
 
   DIR *dip;
@@ -750,6 +763,8 @@ void worker_readdir(int rank, int sending_rank){
       snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
       errsend(FATAL, errmsg);
     }
+    strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
+    mkdir(mkdir_path, S_IRWXU);
     while ((dit = readdir(dip)) != NULL){
       if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
         strncpy(full_path, path, PATHSIZE_PLUS);

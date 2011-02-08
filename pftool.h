@@ -17,8 +17,8 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, i
 void worker(int rank, struct options o);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
-void worker_stat(int rank, int sending_rank);
-void worker_readdir(int rank, int sending_rank);
+void worker_stat(int rank, int sending_rank, path_node *dest_node);
+void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse);
 
 #define ANYFS     0

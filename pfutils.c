@@ -154,6 +154,9 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_node 
   if (rc >= 0){
     (*dest_node)->data.st = dest_st;
   }
+  else{
+    (*dest_node)->data.st.st_mode = 0;
+  }
   strncpy((*dest_node)->data.path, final_dest_path, PATHSIZE_PLUS);
 }
 
@@ -213,15 +216,6 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   }
 
   dest_fd = fopen(dest_file, "w");
-  if (dest_fd == NULL){
-    rc = mkdir(dirname(strdup(dest_file)), S_IRWXU);
-    if (rc != 0){
-      sprintf(errormsg, "Failed to open file %s for write", dest_file);
-      errsend(NONFATAL, errormsg);
-      return -1;
-    }
-    dest_fd = fopen(dest_file, "w");
-  }
 
   if (dest_fd == NULL){
     sprintf(errormsg, "Failed to open file %s for write", dest_file);

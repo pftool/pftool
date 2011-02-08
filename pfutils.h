@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <gpfs.h>
 #include "mpi.h"
+#include <errno.h>
 
 //panasas
 #include "pan_fs_client_sdk.h"
