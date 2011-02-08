@@ -203,6 +203,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   char errormsg[MESSAGESIZE];
   FILE *src_fd, *dest_fd;  
   int mode;
+  struct utimbuf ut;
 
   if ((src_st.st_size - offset) < bufsize){
     bufsize = src_st.st_size - offset;
@@ -282,6 +283,15 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     errsend(NONFATAL, errormsg);
     return -1;
   }
+
+  ut.actime = src_st.st_atime;
+  ut.modtime = src_st.st_mtime;
+  rc = utime(dest_file, &ut);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
+    errsend(NONFATAL, errormsg);
+  }
+  
 
   free(buf);
   return 0;
