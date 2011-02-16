@@ -18,7 +18,7 @@ void worker(int rank, struct options o);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
 void worker_stat(int rank, int sending_rank, path_node *dest_node);
-void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse);
+void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse, int mkdir);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse);
 
 #define ANYFS     0
@@ -26,6 +26,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
 #define GPFSFS    2
 #define NULLFS    3
 #define FUSEFS    4 
+
+#define MESSAGEBUFFER 200
 
 
 #define FUSE_SUPER_MAGIC 0x65735546 
@@ -39,5 +41,11 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
 
 #define WAIT_TIME    1
 #define SANITY_TIMER  300 
+
+enum wrk_type{
+  COPYWORK = 0,
+  LSWORK,
+  COMPAREWORK
+};
 
 #endif

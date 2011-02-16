@@ -91,9 +91,34 @@ def main():
 
   src = args[:-1]
   dest = args[-1]
+
+  base_name = os.path.dirname(src[0])
+  if "-r" in commands:
+    for i in src:
+      if os.path.dirname(i) != base_name:
+        print "ERROR: All sources for a recursive copy must be contained within the same directory."
+        usage()
+        sys.exit(2)
+
+  base_dest_name = os.path.dirname(dest)
+  if base_dest_name and not os.path.exists(base_dest_name):
+    print "ERROR: %s - No such file or directory"%(dest)  
+    usage()
+    sys.exit(2)
   
+  for i in src:
+    if not os.path.exists(i):
+      print "ERROR: cannot stat '%s': No such file or directory"%(i)
+      usage()
+      sys.exit(2)
+
+
 
   jid = get_jid()
+
+  #0 = cp work
+  commands.append("-w")
+  commands.append("0")
 
   commands.append("-j")
   commands.append(jid)
@@ -117,6 +142,7 @@ def main():
 * Contact:  ICN Consulting Office (5-4444 option 3)               *
 *******************************************************************
 """
+    sys.exit(0)
 
   pftool = ROOT_PATH("pftool")#"/usr/local/gpfstools/bin/pftool"
   mpigo = "/usr/local/gpfstools/openmpi/bin/mpirun"

@@ -85,8 +85,17 @@ def main():
 
   src = args
   
+  for i in src:
+    if not os.path.exists(i):
+      print "ERROR: cannot stat '%s': No such file or directory"%(i)
+      usage()
+      sys.exit(2)
 
   jid = get_jid()
+
+  #1 = ls work
+  commands.append("-w")
+  commands.append("1")
 
   commands.append("-j")
   commands.append(jid)

@@ -80,14 +80,13 @@ char *printmode (mode_t aflag, char *buf){
 char *get_base_path(const char *path, int wildcard){
   //wild card is a boolean
   char base_path[PATHSIZE_PLUS], dir_name[PATHSIZE_PLUS];
-  char errmsg[MESSAGESIZE];
   struct stat st;
   int rc;
 
   rc = lstat(path, &st);
   if (rc < 0){
-    sprintf(errmsg, "Failed to stat %s\n", path);
-    errsend(FATAL, errmsg);
+    fprintf(stderr, "Failed to stat path %s\n", path);
+    MPI_Abort(MPI_COMM_WORLD, -1);
   }
 
   strncpy(dir_name, dirname(strdup(path)), PATHSIZE_PLUS);
@@ -108,11 +107,12 @@ char *get_base_path(const char *path, int wildcard){
   return strndup(base_path, PATHSIZE_PLUS);
 }
 
-void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse){
+void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse, int makedir){
   int rc;
   struct stat beg_st, dest_st;
   char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
   char *path_slice;
+
 
   strncpy(final_dest_path, dest_path, PATHSIZE_PLUS);
   strncpy(temp_path, beginning_path, PATHSIZE_PLUS);
@@ -120,6 +120,7 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_node 
   while (temp_path[strlen(temp_path)-1] == '/'){
     temp_path[strlen(temp_path)-1] = '\0';
   }
+
 
   //recursion special cases
   if (recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0){
@@ -144,7 +145,7 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_node 
     }
 
     rc = lstat(final_dest_path, &dest_st);
-    if (S_ISDIR(beg_st.st_mode)){   
+    if (S_ISDIR(beg_st.st_mode) && makedir == 1){   
       mkdir(final_dest_path, S_IRWXU);
     }
   }
@@ -197,26 +198,31 @@ char *get_output_path(const char *base_path, path_node *src_node, path_node *des
 
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
-  int rc, num_bytes;
-  int bufsize = 1048576;
-  char *buf = malloc(bufsize * sizeof(char));
+  int rc;
+  char *buf;
   char errormsg[MESSAGESIZE];
   FILE *src_fd, *dest_fd;  
   int mode;
   struct utimbuf ut;
 
-  if ((src_st.st_size - offset) < bufsize){
-    bufsize = src_st.st_size - offset;
+  if ((src_st.st_size - offset) < length){
+    length = src_st.st_size - offset;
   } 
 
-  src_fd = fopen(src_file, "r");
+  buf = malloc(length * sizeof(char));
+  memset(buf, 0, sizeof(buf));
+
+  src_fd = fopen(src_file, "rb");
   if (src_fd == NULL){
     sprintf(errormsg, "Failed to open file %s for read", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  dest_fd = fopen(dest_file, "w");
+  //first create
+  dest_fd = fopen(dest_file, "a");
+  fclose(dest_fd);
+  dest_fd = fopen(dest_file, "r+");
 
   if (dest_fd == NULL){
     sprintf(errormsg, "Failed to open file %s for write", dest_file);
@@ -239,16 +245,17 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     return -1;
   }
 
-  num_bytes = fread(buf, 1, bufsize, src_fd);
-  if (num_bytes != bufsize){
+  fread(buf, 1, length, src_fd);
+
+  /*fgets(buf, length, src_fd);
+  if (ferror(src_fd)){
     sprintf(errormsg, "Failed to read file: %s", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
-  }
-
-
-  num_bytes = fwrite(buf, 1, bufsize, dest_fd);
-  if (num_bytes != bufsize){
+  }*/
+  
+  fputs(buf, dest_fd);
+  if (ferror(dest_fd)){
     sprintf(errormsg, "Failed to write file: %s", dest_file);
     errsend(NONFATAL, errormsg);
     return -1;
@@ -310,8 +317,8 @@ void send_path_list(int target_rank, int command, int num_send, path_node **list
   int worksize, workcount;
 
 
-  if (path_count >= *list_count){
-    workcount = path_count;
+  if (num_send <= *list_count){
+    workcount = num_send;
   }
   else{
     workcount = *list_count;
@@ -419,7 +426,7 @@ void send_worker_stat_path(int target_rank, int num_send, path_node **input_queu
   send_path_list(target_rank, NAMECMD, num_send, input_queue_head, input_queue_tail, input_queue_count);
 }
 
-void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count){
+void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count, int makedir){
   //send a worker a list of paths to stat
   send_path_list(target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
 }
@@ -516,6 +523,7 @@ void print_queue_path(path_node *head){
 }
 
 void delete_queue_path(path_node **head, int *count){
+  //delete the entire queue;
   path_node *temp = *head;
   while(temp){
     *head = (*head)->next;
@@ -526,6 +534,7 @@ void delete_queue_path(path_node **head, int *count){
 }
 
 void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count){
+  //enqueue a node using an existing node (does a new allocate, but allows us to pass nodes instead of paths)
   path_node *temp_node = malloc(sizeof(path_node));
   temp_node->data = new_node->data;
   temp_node->next = NULL;

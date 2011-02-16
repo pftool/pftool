@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <gpfs.h>
 #include "mpi.h"
+#include "sglib.h"
 #include <errno.h>
 
 //panasas
@@ -66,11 +67,6 @@ enum cmd_opcode {
   COPYSTATSCMD
 };
 
-enum wrk_type{
-  COPYWORK = 1,
-  LSWORK = 2,
-  COMPAREWORK = 3
-};
 
 //for our MPI communications 
 #define MANAGER_PROC  0
@@ -94,6 +90,8 @@ struct options{
 struct path_link{
   char path[PATHSIZE_PLUS];
   struct stat st;
+  off_t offset;
+  off_t length;
 };
 
 struct path_queue{
@@ -108,7 +106,7 @@ typedef struct path_queue path_node;
 void usage();
 char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
-void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse);
+void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse, int makedir);
 char *get_output_path(const char *base_path, path_node *src_node, path_node *dest_node, int recurse);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 
@@ -135,7 +133,7 @@ void send_manager_work_done();
 void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
-void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count);
+void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count, int makedir);
 void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count);
 void send_worker_exit(int target_rank);
 
