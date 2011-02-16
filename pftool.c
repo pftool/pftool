@@ -36,6 +36,7 @@ extern void send_manager_regs(int num_send, path_node **reg_list_head, path_node
 extern void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
 extern void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
 extern void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
+extern void send_manager_new_buffer(path_node *buffer, int *buffer_count);
 extern void send_manager_work_done();
 
 //worker
@@ -612,6 +613,10 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
   char path[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
 
+  /*path_node work_node;
+  path_node workbuffer[MESSAGEBUFFER];
+  int buffer_count;*/
+
   struct stat st;
   struct statfs stfs;
   struct tm sttm;
@@ -761,26 +766,22 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse, int makedir){
   //When a worker is told to readdir, it comes here
   MPI_Status status;
-
   char *workbuf;
   int worksize;
   int position, out_position;
   int read_count;
-  path_node *work_node = malloc(sizeof(path_node));
   char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
   char errmsg[MESSAGESIZE];
   char mkdir_path[PATHSIZE_PLUS];
 
-  //path_node workbuffer[MESSAGEBUFFER];
-
+  path_node work_node;
+  path_node workbuffer[MESSAGEBUFFER];
+  int buffer_count;
 
   DIR *dip;
   struct dirent *dit;
   
   int i;
-
-  path_node *new_input_list_head = NULL, *new_input_list_tail = NULL;
-  int new_input_list_count = 0;
 
   PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the read_count %d\n", rank, sending_rank);
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -799,14 +800,14 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
   out_position = 0;
   for (i = 0; i < read_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
-    strncpy(path, work_node->data.path, PATHSIZE_PLUS);
+    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node.data.path, PATHSIZE_PLUS);
     if ((dip = opendir(path)) == NULL){
       snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
       errsend(FATAL, errmsg);
     }
     if (makedir == 1){
-      strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
+      //strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
       mkdir(mkdir_path, S_IRWXU);
     }
     while ((dit = readdir(dip)) != NULL){
@@ -816,13 +817,13 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
           strncat(full_path, "/", 1);
         }
         strncat(full_path, dit->d_name, PATHSIZE_PLUS);
-        strncpy(work_node->data.path, full_path, PATHSIZE_PLUS);
-        //workbuffer[new_input_list_count] = work_node;
-        
-        enqueue_node(&new_input_list_head, &new_input_list_tail, work_node, &new_input_list_count);
+        strncpy(work_node.data.path, full_path, PATHSIZE_PLUS);
+        workbuffer[buffer_count] = work_node;
+        buffer_count++;
       }
-      if (new_input_list_count % MESSAGEBUFFER == 0){
-        send_manager_new_input(MESSAGEBUFFER, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
+      
+      if (buffer_count % MESSAGEBUFFER == 0){
+        send_manager_new_buffer(workbuffer, &buffer_count);
       }
     }
     if (closedir(dip) == -1){
@@ -832,11 +833,10 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
   }
 
 
-  while(new_input_list_count != 0){
-    send_manager_new_input(MESSAGEBUFFER, &new_input_list_head, &new_input_list_tail, &new_input_list_count);
+  while(buffer_count != 0){
+    send_manager_new_buffer(workbuffer, &buffer_count);
   }
 
-  free(work_node);
   free(workbuf);
   send_manager_work_done(rank);
 

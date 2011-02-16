@@ -27,7 +27,6 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
 #define NULLFS    3
 #define FUSEFS    4 
 
-#define MESSAGEBUFFER 200
 
 
 #define FUSE_SUPER_MAGIC 0x65735546 

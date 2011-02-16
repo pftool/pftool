@@ -340,10 +340,41 @@ void send_path_list(int target_rank, int command, int num_send, path_node **list
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
-  //recalculate worksize
   if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
+  free(workbuf);
+}
+
+void send_path_buffer(int target_rank, int command, path_node *buffer, int *buffer_count){
+  int i;
+  int position = 0;
+  int worksize;
+  char *workbuf;
+  path_node work_node;
+
+  if (*buffer_count > MESSAGEBUFFER){
+    errsend(FATAL, "send_path_buffer: buffer_count is incorrectly > MESSAGEBUFFER\n");
+  }
+  worksize = *buffer_count * sizeof(path_node);
+  workbuf = (char *) malloc(worksize * sizeof(char)); 
+  
+  for (i = 0; i < *buffer_count; i++){
+    work_node = buffer[i];
+    MPI_Pack(&work_node, sizeof(path_node), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+  }
+
+  
+  send_command(target_rank, command);
+  
+  if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+  if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  *buffer_count = 0;
   free(workbuf);
 }
 
@@ -379,6 +410,10 @@ void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_
 void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count){
   //sends a chunk of regular files to the manager
   send_path_list(MANAGER_PROC, TAPECMD, num_send, tape_list_head, tape_list_tail, tape_list_count);
+}
+
+void send_manager_new_buffer(path_node *buffer, int *buffer_count){
+  send_path_buffer(MANAGER_PROC, INPUTCMD, buffer, buffer_count);
 }
 
 void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count){

@@ -27,6 +27,7 @@
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
+#define MESSAGEBUFFER 200
 
 #define MAX_STAT  600 
 #define MAXFILES 50000
@@ -114,6 +115,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 //local functions
 void send_command(int target_rank, int type_cmd);
 void send_path_list(int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count);
+void send_path_buffer(int target_rank, int command, path_node *buffer, int *buffer_count);
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
@@ -125,6 +127,7 @@ void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_
 void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
 void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
 void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
+void send_manager_new_buffer(path_node *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_copy_stats(int num_copied_files, int num_copied_bytes);
 void send_manager_work_done();
