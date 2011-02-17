@@ -26,25 +26,24 @@
 extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
 extern char *get_base_path(const char *path, int wildcard);
-extern void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse, int mkdir);
-extern char *get_output_path(const char *base_path, path_node *src_node, path_node *dest_node, int recurse);
+extern void get_dest_path(const char *beginning_path, const char *dest_path, path_list **dest_node, int recurse, int mkdir);
+extern char *get_output_path(const char *base_path, path_list *src_node, path_list *dest_node, int recurse);
 extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 
 //manager
 extern void send_manager_nonfatal_inc();
-extern void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
-extern void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
-extern void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
-extern void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
-extern void send_manager_new_buffer(path_node *buffer, int *buffer_count);
+extern void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
+extern void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
+extern void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
+extern void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_work_done();
 
 //worker
 extern void write_output(char *message);
 extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
-extern void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
-extern void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count, int makedir);
-extern void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count);
+extern void send_worker_stat_path(int target_rank, int num_send, path_list **input_queue_head, path_list **input_queue_tail, int *input_queue_count);
+extern void send_worker_readdir(int target_rank, int num_send, path_list **dir_work_queue_head, path_list **dir_work_queue_tail, int *dir_work_queue_count, int makedir);
+extern void send_worker_copy_path(int target_rank, int num_send, path_list **work_queue_head, path_list **work_queue_tail, int *work_queue_count);
 extern void send_worker_exit();
 
 //functions that use workers
@@ -53,11 +52,11 @@ extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
 
 //queues 
-extern void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
-extern void print_queue_path(path_node *head);
-extern void delete_queue_path(path_node **head, int *count);
-extern void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count);
-extern void dequeue_node(path_node **head, path_node **tail, int *count);
+extern void enqueue_path(path_list **head, path_list **tail, char *path, int *count);
+extern void print_queue_path(path_list *head);
+extern void delete_queue_path(path_list **head, int *count);
+extern void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count);
+extern void dequeue_node(path_list **head, path_list **tail, int *count);
 
 int main(int argc, char *argv[]){
   //general variables
@@ -71,7 +70,7 @@ int main(int argc, char *argv[]){
   struct options o;
 
   //queues
-  path_node *input_queue_head = NULL, *input_queue_tail = NULL;
+  path_list *input_queue_head = NULL, *input_queue_tail = NULL;
   int input_queue_count = 0;
   
   //paths
@@ -174,7 +173,7 @@ int main(int argc, char *argv[]){
 }
 
 
-void manager(int rank, struct options o, int nproc, path_node *input_queue_head, path_node *input_queue_tail, int input_queue_count, const char *dest_path){
+void manager(int rank, struct options o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path){
   MPI_Status status;
   int all_done = 0, message_ready = 0, probecount = 0;
   int prc, type_cmd;
@@ -189,12 +188,12 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   char message[MESSAGESIZE], errmsg[MESSAGESIZE];
   char beginning_path[PATHSIZE_PLUS], base_path[PATHSIZE_PLUS], temp_path[PATHSIZE_PLUS];
   struct stat st;
-  path_node *dest_node = malloc(sizeof(path_node));
+  path_list *dest_node = malloc(sizeof(path_list));
 
-  path_node *iter = NULL;
-  path_node *work_queue_head = NULL, *work_queue_tail = NULL;
-  path_node *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
-  path_node *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
+  path_list *iter = NULL;
+  path_list *work_queue_head = NULL, *work_queue_tail = NULL;
+  path_list *dir_work_queue_head = NULL, *dir_work_queue_tail = NULL;
+  path_list *tape_work_queue_head = NULL, *tape_work_queue_tail = NULL;
   int work_queue_count = 0, dir_work_queue_count = 0, tape_work_queue_count = 0, num_copied_files = 0, num_copied_bytes = 0;
     
   int mpi_ret_code, rc;
@@ -217,7 +216,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   get_dest_path(beginning_path, dest_path, &dest_node, o.recurse, makedir);
   
   //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
-  mpi_ret_code = MPI_Bcast(dest_node, sizeof(path_node), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(dest_node, sizeof(path_list), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Bcast dest_path");
   }
@@ -296,14 +295,15 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         }
        
         //work_rank = get_free_rank(proc_status, 3, 13);
-        while((work_rank = get_free_rank(proc_status, 4, 15)) != -1 && input_queue_count != 0){
+        //while((work_rank = get_free_rank(proc_status, 4, 15)) != -1 && input_queue_count != 0){
+          work_rank = get_free_rank(proc_status, 4, 15);
 
           //first run through the remaining stat_queue
           if (work_rank > -1 && input_queue_count != 0){
             proc_status[work_rank] = 1;
             send_worker_stat_path(work_rank, MESSAGEBUFFER, &input_queue_head, &input_queue_tail, &input_queue_count);
           }
-        }
+        //}
 
         if (o.work_type == COPYWORK){
           work_rank = get_free_rank(proc_status, 13, 15);
@@ -317,7 +317,7 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
         }
 
       }
-      usleep(10);
+      usleep(1);
     }   
 
     //grab message type
@@ -403,11 +403,11 @@ void manager(int rank, struct options o, int nproc, path_node *input_queue_head,
   
 }
 
-int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_node **queue_tail, int *queue_count){
+int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count){
   MPI_Status status;
   int path_count;
 
-  path_node *work_node = malloc(sizeof(path_node));
+  path_list *work_node = malloc(sizeof(path_list));
   char path[PATHSIZE_PLUS];
   char *workbuf;
   int worksize, position;
@@ -419,7 +419,7 @@ int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_n
   if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
       errsend(FATAL, "Failed to receive path_count\n");
   }
-  worksize =  path_count * sizeof(path_node);
+  worksize =  path_count * sizeof(path_list);
   workbuf = (char *) malloc(worksize * sizeof(char));
   
   //gather the path to stat
@@ -431,7 +431,7 @@ int manager_add_paths(int rank, int sending_rank, path_node **queue_head, path_n
   position = 0;
   for (i = 0; i < path_count; i++){
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Unpacking the work_node from rank %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    MPI_Unpack(workbuf, worksize, &position, &work_node->data, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
     strncpy(path, work_node->data.path, PATHSIZE_PLUS); 
     enqueue_node(queue_head, queue_tail, work_node, queue_count);
   }
@@ -477,7 +477,7 @@ void worker(int rank, struct options o){
   int type_cmd;
   int mpi_ret_code;
   char base_path[PATHSIZE_PLUS];
-  path_node *dest_node = malloc(sizeof(path_node));
+  path_list *dest_node = malloc(sizeof(path_list));
 
 
   if (o.work_type == COPYWORK){
@@ -485,7 +485,7 @@ void worker(int rank, struct options o){
   }
 
   //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
-  mpi_ret_code = MPI_Bcast(dest_node, sizeof(path_node), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(dest_node, sizeof(path_list), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   if (mpi_ret_code < 0){
     errsend(FATAL, "Failed to Receive Bcast dest_path");
   }
@@ -556,11 +556,11 @@ void worker_output(int rank, int sending_rank){
   char msg[MESSAGESIZE];
 
   //gather the message to print
-  PRINT_MPI_DEBUG("rank %2d: worker_output() Receiving the message from %d\n", rank, sending_rank);
+  PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from %d\n", rank, sending_rank);
   if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive msg\n");
   }
-  printf("Rank %d: %s", sending_rank, msg);
+  printf("Rank %2d: %s", sending_rank, msg);
   
 }
 
@@ -578,7 +578,7 @@ void worker_buffer_output(int rank, int sending_rank){
   int i;
 
   //gather the message_count
-  PRINT_MPI_DEBUG("rank %2d: worker_buffer_output() Receiving the message_count from %d\n", rank, sending_rank);
+  PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Receiving the message_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&message_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive message_count\n");
   }
@@ -596,12 +596,12 @@ void worker_buffer_output(int rank, int sending_rank){
   for (i = 0; i < message_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
-    printf("Rank %d: %s", sending_rank, msg);
+    printf("Rank %2d: %s", sending_rank, msg);
   }
   free(buffer);
 }
 
-void worker_stat(int rank, int sending_rank, path_node *dest_node){
+void worker_stat(int rank, int sending_rank, path_list *dest_node){
   //When a worker is told to stat, it comes here
   MPI_Status status;
 
@@ -609,13 +609,11 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
   int worksize, writesize;
   int position, out_position;
   int stat_count, write_count;
-  path_node *work_node = malloc(sizeof(path_node));
+  //path_list *work_node = malloc(sizeof(path_list));
   char path[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
 
-  /*path_node work_node;
-  path_node workbuffer[MESSAGEBUFFER];
-  int buffer_count;*/
+  path_item work_node;
 
   struct stat st;
   struct statfs stfs;
@@ -629,17 +627,15 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
   int chunk_curr_offset = 0;
 
   //classification
-  path_node *dir_list_head = NULL, *dir_list_tail = NULL;
-  path_node *reg_list_head = NULL, *reg_list_tail = NULL; 
-  path_node *tape_list_head = NULL, *tape_list_tail = NULL; 
-  
-  int dir_list_count = 0, reg_list_count = 0, tape_list_count = 0;
+  path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER];
+  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0;
+
 
   PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&stat_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive stat_count\n");
   }
-  worksize = sizeof(path_node) * stat_count;
+  worksize = sizeof(path_item) * stat_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
   
   write_count = stat_count;
@@ -656,8 +652,8 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
   out_position = 0;
   for (i = 0; i < stat_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_stat() Unpacking the work_node %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
-    strncpy(path, work_node->data.path, PATHSIZE_PLUS);
+    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node.path, PATHSIZE_PLUS);
    
 
     if (lstat(path, &st) == -1) {
@@ -665,7 +661,7 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
       errsend(FATAL, errortext);
     }
 
-    work_node->data.st = st;
+    work_node.st = st;
     printmode(st.st_mode, modebuf);
     memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
     strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
@@ -675,10 +671,12 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
       continue;
     }
     else if (S_ISDIR(st.st_mode)){
-      enqueue_node(&dir_list_head, &dir_list_tail, work_node, &dir_list_count);
+      dirbuffer[dir_buffer_count] = work_node;
+      dir_buffer_count++;
     }
     else if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
-      enqueue_node(&tape_list_head, &tape_list_tail, work_node, &tape_list_count);
+      tapebuffer[tape_buffer_count] = work_node;
+      tape_buffer_count++;
     }
     else{
       chunk_curr_offset = 0;
@@ -694,10 +692,12 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
         }
         enqueue_node(&reg_list_head, &reg_list_tail, work_node, &reg_list_count);
       }*/
-      work_node->data.offset = 0;
-      chunk_size = work_node->data.st.st_size;
-      work_node->data.length = chunk_size;
-      enqueue_node(&reg_list_head, &reg_list_tail, work_node, &reg_list_count);
+      work_node.offset = 0;
+      chunk_size = work_node.st.st_size;
+      work_node.length = chunk_size;
+      
+      regbuffer[reg_buffer_count] = work_node;
+      reg_buffer_count++;
       
     }
 
@@ -745,25 +745,24 @@ void worker_stat(int rank, int sending_rank, path_node *dest_node){
   write_buffer_output(writebuf, writesize, write_count);
 
   
-  while(dir_list_count != 0){
-    send_manager_dirs(MESSAGEBUFFER, &dir_list_head, &dir_list_tail, &dir_list_count);
+  while(dir_buffer_count != 0){
+    send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
   }
-  while (reg_list_count != 0){
-    send_manager_regs(MESSAGEBUFFER, &reg_list_head, &reg_list_tail, &reg_list_count);
+  while (reg_buffer_count != 0){
+    send_manager_regs_buffer(regbuffer, &reg_buffer_count);
   } 
 
-  while (tape_list_count != 0){
-    send_manager_tape(MESSAGEBUFFER, &tape_list_head, &tape_list_tail, &tape_list_count);
+  while (tape_buffer_count != 0){
+    send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
 
   //free malloc buffers
-  free(work_node);
   free(workbuf);
   free(writebuf);
   send_manager_work_done(rank);  
 }
 
-void worker_readdir(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse, int makedir){
+void worker_readdir(int rank, int sending_rank, const char *base_path, path_list *dest_node, int recurse, int makedir){
   //When a worker is told to readdir, it comes here
   MPI_Status status;
   char *workbuf;
@@ -774,9 +773,9 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
   char errmsg[MESSAGESIZE];
   char mkdir_path[PATHSIZE_PLUS];
 
-  path_node work_node;
-  path_node workbuffer[MESSAGEBUFFER];
-  int buffer_count;
+  path_item work_node;
+  path_item workbuffer[MESSAGEBUFFER];
+  int buffer_count = 0;
 
   DIR *dip;
   struct dirent *dit;
@@ -787,7 +786,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive read_count\n");
   }
-  worksize = read_count * sizeof(path_node);
+  worksize = read_count * sizeof(path_list);
   workbuf = (char *) malloc(worksize * sizeof(char));
 
   //gather the path to stat
@@ -800,8 +799,8 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
   out_position = 0;
   for (i = 0; i < read_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
-    strncpy(path, work_node.data.path, PATHSIZE_PLUS);
+    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
+    strncpy(path, work_node.path, PATHSIZE_PLUS);
     if ((dip = opendir(path)) == NULL){
       snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
       errsend(FATAL, errmsg);
@@ -817,7 +816,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
           strncat(full_path, "/", 1);
         }
         strncat(full_path, dit->d_name, PATHSIZE_PLUS);
-        strncpy(work_node.data.path, full_path, PATHSIZE_PLUS);
+        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
         workbuffer[buffer_count] = work_node;
         buffer_count++;
       }
@@ -842,7 +841,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_node
 
 }
 
-void worker_copylist(int rank, int sending_rank, const char *base_path, path_node *dest_node, int recurse){
+void worker_copylist(int rank, int sending_rank, const char *base_path, path_list *dest_node, int recurse){
   //When a worker is told to copy, it comes here
   MPI_Status status;
 
@@ -851,7 +850,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
   int position, out_position;
   int read_count;
   
-  path_node *work_node = malloc(sizeof(path_node));
+  path_list *work_node = malloc(sizeof(path_list));
   char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
   char copymsg[MESSAGESIZE];//, errmsg[MESSAGESIZE];
   off_t offset, length;
@@ -863,7 +862,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive read_count\n");
   }
-  worksize = read_count * sizeof(path_node);
+  worksize = read_count * sizeof(path_list);
   workbuf = (char *) malloc(worksize * sizeof(char));
 
   writesize = MESSAGESIZE * read_count;
@@ -879,7 +878,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_nod
   out_position = 0;
   for (i = 0; i < read_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, work_node, sizeof(path_node), MPI_CHAR, MPI_COMM_WORLD);
+    MPI_Unpack(workbuf, worksize, &position, &work_node->data, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
     strncpy(path, work_node->data.path, PATHSIZE_PLUS);
     strncpy(out_path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)

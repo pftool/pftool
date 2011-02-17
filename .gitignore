@@ -8,3 +8,4 @@ setstgpool
 *.pyc
 dsmerror.log
 temp/
+test*/

@@ -35,7 +35,7 @@
 #define QSIZE           75000                                                                                                                                                                                                                                                                                      
 #define QSIZE_INCREASED 1000
 #define QSIZE_SOFTQUOTA 25000
-#define PACKSIZE  200 
+#define PACKSIZE  300 
 #define WORKSIZE (QSIZE * PACKSIZE * 10)
 
 
@@ -95,27 +95,29 @@ struct path_link{
   off_t length;
 };
 
+typedef struct path_link path_item;
+
 struct path_queue{
   //char path[PATHSIZE_PLUS];
   struct path_link data;
   struct path_queue *next;
 };
 
-typedef struct path_queue path_node;
+typedef struct path_queue path_list;
 
 //Function Declarations
 void usage();
 char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
-void get_dest_path(const char *beginning_path, const char *dest_path, path_node **dest_node, int recurse, int makedir);
-char *get_output_path(const char *base_path, path_node *src_node, path_node *dest_node, int recurse);
+void get_dest_path(const char *beginning_path, const char *dest_path, path_list **dest_node, int recurse, int makedir);
+char *get_output_path(const char *base_path, path_list *src_node, path_list *dest_node, int recurse);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 
 
 //local functions
 void send_command(int target_rank, int type_cmd);
-void send_path_list(int target_rank, int command, int num_send, path_node **list_head, path_node **list_tail, int *list_count);
-void send_path_buffer(int target_rank, int command, path_node *buffer, int *buffer_count);
+void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
+void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
@@ -123,11 +125,10 @@ int get_free_rank(int *proc_status, int start_range, int end_range);
 int processing_complete(int *proc_status, int nproc);
 
 //function definitions for manager
-void send_manager_regs(int num_send, path_node **reg_list_head, path_node **reg_list_tail, int *reg_list_count);
-void send_manager_dirs(int num_send, path_node **dir_list_head, path_node **dir_list_tail, int *dir_list_count);
-void send_manager_tape(int num_send, path_node **tape_list_head, path_node **tape_list_tail, int *tape_list_count);
-void send_manager_new_input(int num_send, path_node **new_input_list_head, path_node **new_input_list_tail, int *new_input_list_count);
-void send_manager_new_buffer(path_node *buffer, int *buffer_count);
+void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
+void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
+void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
+void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_copy_stats(int num_copied_files, int num_copied_bytes);
 void send_manager_work_done();
@@ -135,17 +136,17 @@ void send_manager_work_done();
 //function definitions for workers
 void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
-void send_worker_stat_path(int target_rank, int num_send, path_node **input_queue_head, path_node **input_queue_tail, int *input_queue_count);
-void send_worker_readdir(int target_rank, int num_send, path_node **dir_work_queue_head, path_node **dir_work_queue_tail, int *dir_work_queue_count, int makedir);
-void send_worker_copy_path(int target_rank, int num_send, path_node **work_queue_head, path_node **work_queue_tail, int *work_queue_count);
+void send_worker_stat_path(int target_rank, int num_send, path_list **input_queue_head, path_list **input_queue_tail, int *input_queue_count);
+void send_worker_readdir(int target_rank, int num_send, path_list **dir_work_queue_head, path_list **dir_work_queue_tail, int *dir_work_queue_count, int makedir);
+void send_worker_copy_path(int target_rank, int num_send, path_list **work_queue_head, path_list **work_queue_tail, int *work_queue_count);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues
-void enqueue_path(path_node **head, path_node **tail, char *path, int *count);
-void print_queue_path(path_node *head);
-void delete_queue_path(path_node **head, int *count);
-void enqueue_node(path_node **head, path_node **tail, path_node *new_node, int *count);
-void dequeue_node(path_node **head, path_node **tail, int *count);
+void enqueue_path(path_list **head, path_list **tail, char *path, int *count);
+void print_queue_path(path_list *head);
+void delete_queue_path(path_list **head, int *count);
+void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count);
+void dequeue_node(path_list **head, path_list **tail, int *count);
 #endif
 
 
