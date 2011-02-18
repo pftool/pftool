@@ -107,7 +107,7 @@ char *get_base_path(const char *path, int wildcard){
   return strndup(base_path, PATHSIZE_PLUS);
 }
 
-void get_dest_path(const char *beginning_path, const char *dest_path, path_list **dest_node, int recurse, int makedir){
+void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int recurse, int makedir){
   int rc;
   struct stat beg_st, dest_st;
   char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
@@ -153,42 +153,42 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_list 
 
   rc = lstat(final_dest_path, &dest_st);
   if (rc >= 0){
-    (*dest_node)->data.st = dest_st;
+    (*dest_node).st = dest_st;
   }
   else{
-    (*dest_node)->data.st.st_mode = 0;
+    (*dest_node).st.st_mode = 0;
   }
-  strncpy((*dest_node)->data.path, final_dest_path, PATHSIZE_PLUS);
+  strncpy((*dest_node).path, final_dest_path, PATHSIZE_PLUS);
 }
 
-char *get_output_path(const char *base_path, path_list *src_node, path_list *dest_node, int recurse){
+char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, int recurse){
   char output_path[PATHSIZE_PLUS];
   char *path_slice;
 
   //remove a trailing slash
-  strncpy(output_path, dest_node->data.path, PATHSIZE_PLUS);
+  strncpy(output_path, dest_node.path, PATHSIZE_PLUS);
   while (output_path[strlen(output_path) - 1] == '/'){
     output_path[strlen(output_path) - 1] = '\0';
   }
 
   //path_slice = strstr(src_path, base_path);
   if (recurse == 0){
-    if(strstr(src_node->data.path, "/") != NULL){
-      path_slice = (char *) strrchr(src_node->data.path, '/')+1;
+    if(strstr(src_node.path, "/") != NULL){
+      path_slice = (char *) strrchr(src_node.path, '/')+1;
     }
     else{
-      path_slice = (char *) src_node->data.path;
+      path_slice = (char *) src_node.path;
     }
   }
   else{
     if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0){
-      path_slice = (char *) src_node->data.path;
+      path_slice = (char *) src_node.path;
     }
     else{
-      path_slice = strndup(src_node->data.path + strlen(base_path) + 1, PATHSIZE_PLUS);
+      path_slice = strndup(src_node.path + strlen(base_path) + 1, PATHSIZE_PLUS);
     }
   }
-  if (S_ISDIR(dest_node->data.st.st_mode)){
+  if (S_ISDIR(dest_node.st.st_mode)){
     strncat(output_path, "/", PATHSIZE_PLUS);
     strncat(output_path, path_slice, PATHSIZE_PLUS);
   }
@@ -221,6 +221,11 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 
   //first create
   dest_fd = fopen(dest_file, "a");
+  if (dest_fd == NULL){
+    sprintf(errormsg, "Failed to open file %s for write", dest_file);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
   fclose(dest_fd);
   dest_fd = fopen(dest_file, "r+");
 
@@ -378,6 +383,22 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
   free(workbuf);
 }
 
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize){
+  int size = (*workbuflist)->size;
+
+  int worksize = sizeof(path_item) * size;
+  send_command(target_rank, command);
+
+  if (MPI_Send(&size, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+
+  if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  dequeue_buf_list(workbuflist, workbufsize);
+}
+
 //manager
 void send_manager_nonfatal_inc(){
   send_command(MANAGER_PROC, NONFATALINCCMD);
@@ -453,21 +474,20 @@ void write_buffer_output(char *buffer, int buffer_size, int buffer_count){
   }
 }
 
-void send_worker_stat_path(int target_rank, int num_send, path_list **input_queue_head, path_list **input_queue_tail, int *input_queue_count){
-  //send a worker a list of paths to stat
-  send_path_list(target_rank, NAMECMD, num_send, input_queue_head, input_queue_tail, input_queue_count);
+void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
+  //send a worker a list buffers with paths to stat
+  send_buffer_list(target_rank, NAMECMD, workbuflist, workbufsize);
 }
 
-void send_worker_readdir(int target_rank, int num_send, path_list **dir_work_queue_head, path_list **dir_work_queue_tail, int *dir_work_queue_count, int makedir){
-  //send a worker a list of paths to stat
-  send_path_list(target_rank, DIRCMD, num_send, dir_work_queue_head, dir_work_queue_tail, dir_work_queue_count);
+void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
+  //send a worker a buffer list of paths to stat
+  send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
 }
 
-void send_worker_copy_path(int target_rank, int num_send, path_list **work_queue_head, path_list **work_queue_tail, int *work_queue_count){
-  //send a worker a list of paths to stat
-  send_path_list(target_rank, COPYCMD, num_send, work_queue_head, work_queue_tail, work_queue_count);
+void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
+  //send a worker a list buffers with paths to copy 
+  send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
 }
-
 
 void send_worker_exit(int target_rank){
   //order a rank to exit
@@ -592,4 +612,80 @@ void dequeue_node(path_list **head, path_list **tail, int *count){
   *head = temp_node->next;
   free(temp_node);
   *count -= 1;
+}
+
+
+void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size){
+  work_buf_list *current_pos = *workbuflist;
+  work_buf_list *new_buf_item = malloc(sizeof(work_buf_list));
+
+  new_buf_item->buf = buffer;
+  new_buf_item->size = buffer_size;
+  new_buf_item->next = NULL;  
+
+
+  if (current_pos == NULL){
+    *workbuflist = new_buf_item;
+    (*workbufsize)++;
+    return;
+  }
+
+  
+  while (current_pos->next != NULL){
+    current_pos = current_pos->next;
+  }
+  current_pos->next = new_buf_item;
+  
+  (*workbufsize)++;
+
+}
+
+void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize){
+  work_buf_list *current_pos;
+  
+  if (*workbuflist == NULL){
+    return;
+  }
+
+  current_pos = (*workbuflist)->next;
+  free((*workbuflist)->buf);
+  free(*workbuflist);
+  *workbuflist = current_pos;
+
+  (*workbufsize)--;
+
+}
+
+void delete_buf_list(work_buf_list **workbuflist, int *workbufsize){
+  
+  while (*workbuflist){
+    dequeue_buf_list(workbuflist, workbufsize);
+  }
+  *workbufsize = 0;
+}
+
+void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize){
+    path_list *iter = head;
+    int position;
+  
+    char *buffer;
+    int buffer_size = 0;
+    int worksize;    
+
+    
+    worksize = sizeof(path_item) * MESSAGEBUFFER;
+    buffer = (char *)malloc(worksize);
+  
+    position = 0;
+    while (iter != NULL){
+      MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
+      iter = iter->next;
+      buffer_size++;
+      if (buffer_size % MESSAGEBUFFER == 0){
+        enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+        buffer_size = 0;
+        buffer = (char *)malloc(worksize);
+      }
+    }
+    enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
 }
