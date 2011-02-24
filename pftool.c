@@ -642,10 +642,15 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
   //When a worker is told to stat, it comes here
   MPI_Status status;
 
-  char *workbuf, *writebuf;
-  int worksize, writesize;
+  char *workbuf;
+  int worksize;
   int position, out_position;
-  int stat_count, write_count;
+  int stat_count;
+
+  char *writebuf;
+  int writesize;
+  int write_count = 0;
+  int write_count_max = 100;
   
   char path[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
@@ -675,8 +680,8 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
   worksize = sizeof(path_item) * stat_count;
   workbuf = (char *) malloc(worksize * sizeof(char));
   
-  write_count = stat_count;
-  writesize = MESSAGESIZE * write_count;
+  //write_count = stat_count;
+  writesize = MESSAGESIZE * write_count_max;
   writebuf = (char *) malloc(writesize * sizeof(char));
 
   //gather the path to stat
@@ -770,15 +775,22 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
       sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
     }
     MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+    write_count++;
+    if (write_count % write_count_max == 0){
+      write_buffer_output(writebuf, writesize, write_count);
+      out_position = 0;
+      write_count = 0;
+    }
     //write_output(rank, statrecord);
+    
     
   } 
 
   //incase we tried to copy a file into itself
-  if (write_count != stat_count){
-    writesize = MESSAGESIZE * write_count;
-    writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
-  }
+  //if (write_count != stat_count){
+  writesize = MESSAGESIZE * write_count;
+  writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+  //}
   write_buffer_output(writebuf, writesize, write_count);
 
   
