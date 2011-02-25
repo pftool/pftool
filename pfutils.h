@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <gpfs.h>
 #include "mpi.h"
-#include "sglib.h"
+#include "hashtbl.h"
 #include <errno.h>
 
 //panasas

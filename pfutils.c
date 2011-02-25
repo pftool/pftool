@@ -619,6 +619,10 @@ void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffe
   work_buf_list *current_pos = *workbuflist;
   work_buf_list *new_buf_item = malloc(sizeof(work_buf_list));
 
+  if (*workbufsize < 0){
+    *workbufsize = 0;
+  }
+
   new_buf_item->buf = buffer;
   new_buf_item->size = buffer_size;
   new_buf_item->next = NULL;  

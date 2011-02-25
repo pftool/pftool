@@ -20,6 +20,7 @@ void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
 void worker_stat(int rank, int sending_rank, path_item dest_node);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int mkdir);
+void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse);
 
 

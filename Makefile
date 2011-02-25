@@ -13,9 +13,8 @@ DCFLAGS 		= -O -D$(GPFS_TYPE)
 
 all: pftool 
 
-pftool: pftool.o pfutils.o recall_api.o
-	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB) pftool.o pfutils.o recall_api.o -o pftool
-
+pftool: pftool.o pfutils.o recall_api.o hashtbl.o
+	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB) pftool.o pfutils.o recall_api.o hashtbl.o -o pftool
 
 pftool.o: pftool.c pftool.h pfutils.o
 	$(MPICC) $(CFLAGS) $(MYSQINCS) -c pftool.c
@@ -26,6 +25,8 @@ pfutils.o: pfutils.c pfutils.h
 recall_api.o: recall_api.c recall_api.h
 	$(MPICC) $(CFLAGS) $(DCFLAGS) -c recall_api.c
 
+hashtbl.o: hashtbl.c hashtbl.h
+	$(MPICC) $(CFLAGS) -c hashtbl.c
 
 
 clean:
