@@ -198,77 +198,102 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
 
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
+  MPI_Status status;
   int rc;
+  //1 MB copy size
+  int blocksize = 1048576, completed = 0;
   char *buf;
   char errormsg[MESSAGESIZE];
-  FILE *src_fd, *dest_fd;  
+
+  //FILE *src_fd, *dest_fd;  
+  char source_file[PATHSIZE_PLUS], destination_file[PATHSIZE_PLUS];
+  MPI_File src_fd, dest_fd;
+
   int mode;
   struct utimbuf ut;
 
+  //can't be const for MPI_IO
+  strncpy(source_file, src_file, PATHSIZE_PLUS);
+  strncpy(destination_file, dest_file, PATHSIZE_PLUS);
+
+  //incase someone accidently set and offset+length that exceeds the file bounds
   if ((src_st.st_size - offset) < length){
     length = src_st.st_size - offset;
   } 
 
-  buf = malloc(length * sizeof(char));
+  //a file less then 1 MB
+  if (length < blocksize){
+    blocksize = length;
+  }
+
+  buf = malloc(blocksize * sizeof(char));
   memset(buf, 0, sizeof(buf));
 
-  src_fd = fopen(src_file, "rb");
-  if (src_fd == NULL){
+  //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
+
+  
+
+  //open the source file for reading in binary mode
+  rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
+  if (rc != 0){
     sprintf(errormsg, "Failed to open file %s for read", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  //first create
-  dest_fd = fopen(dest_file, "a");
-  if (dest_fd == NULL){
-    sprintf(errormsg, "Failed to open file %s for write", dest_file);
-    errsend(NONFATAL, errormsg);
-    return -1;
-  }
-  fclose(dest_fd);
-  dest_fd = fopen(dest_file, "r+");
-
-  if (dest_fd == NULL){
+  //first create a file and open it for appending (file doesn't exist)
+  rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
+  if (rc != 0){
     sprintf(errormsg, "Failed to open file %s for write", dest_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  rc = fseek(src_fd, offset, SEEK_SET);
+  //seek to the specified offset for the source
+  rc = MPI_File_seek(src_fd, offset, MPI_SEEK_SET);
   if (rc != 0){
     sprintf(errormsg, "Failed to fseek file: %s offset: %ld", src_file, offset);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-
-  rc = fseek(dest_fd, offset, SEEK_SET);
+  //seek to the specified offset for the dest;
+  rc = MPI_File_seek(dest_fd, offset, MPI_SEEK_SET);
   if (rc != 0){
     sprintf(errormsg, "Failed to fseek file: %s offset: %ld", dest_file, offset);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  fread(buf, 1, length, src_fd);
+  while (completed != length){
+    //1 MB is too big
+    if ((length - completed) < blocksize){
+      blocksize = length - completed;
+    }
 
-  /*fgets(buf, length, src_fd);
-  if (ferror(src_fd)){
-    sprintf(errormsg, "Failed to read file: %s", src_file);
-    errsend(NONFATAL, errormsg);
-    return -1;
-  }*/
-  
-  fputs(buf, dest_fd);
-  if (ferror(dest_fd)){
-    sprintf(errormsg, "Failed to write file: %s", dest_file);
-    errsend(NONFATAL, errormsg);
-    return -1;
+    
+    rc = MPI_File_read(src_fd, buf, blocksize, MPI_BYTE, &status);
+    if (rc != 0){
+      sprintf(errormsg, "Failed to fread file: %s", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+
+    rc = MPI_File_write(dest_fd, buf, blocksize, MPI_BYTE, &status );
+    if (rc != 0){
+      sprintf(errormsg, "Failed to write file: %s", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+
+    completed += blocksize;
   }
 
-  mode = src_st.st_mode & 07777;
 
-  rc = fclose(src_fd);
+  MPI_File_close(&dest_fd);
+  MPI_File_close(&src_fd);
+  
+  /*rc = fclose(src_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", src_file);
     errsend(NONFATAL, errormsg);
@@ -280,7 +305,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     sprintf(errormsg, "Failed to close file: %s", dest_file);
     errsend(NONFATAL, errormsg);
     return -1;
-  }
+  }*/
 
   rc = chown(dest_file, src_st.st_uid, src_st.st_gid);
   if (rc != 0){
@@ -289,6 +314,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     return -1;
   }
 
+  mode = src_st.st_mode & 07777;
   rc = chmod(dest_file, mode);
   if (rc != 0){
     sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
@@ -303,7 +329,6 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
     errsend(NONFATAL, errormsg);
   }
-  
 
   free(buf);
   return 0;

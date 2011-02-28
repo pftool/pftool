@@ -307,13 +307,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           }
         //}
 
-        //for (i = 0; i < 3; i ++){
+        for (i = 0; i < 3; i ++){
           work_rank = get_free_rank(proc_status, 2, 15);
           if (work_rank > -1 && input_buf_list_size != 0){
             proc_status[work_rank] = 1;
             send_worker_stat_path(work_rank, &input_buf_list, &input_buf_list_size);
           }
-        //}
+        }
 
         if (o.work_type == COPYWORK){
           work_rank = get_free_rank(proc_status, 13, 15);
@@ -515,6 +515,9 @@ void worker(int rank, struct options o){
   char base_path[PATHSIZE_PLUS];
   path_item dest_node;
 
+  //variables stored by the 'accumulator' proc
+   
+
 
   if (o.work_type == COPYWORK){
     makedir = 1;
@@ -664,7 +667,8 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
   int i;
 
   //chunks
-  int chunk_size = 1;
+  int chunk_size = 1048576;
+  //int chunk_size = 1;
   int chunk_curr_offset = 0;
 
   //classification
@@ -714,38 +718,42 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
     else if (S_ISDIR(st.st_mode)){
       dirbuffer[dir_buffer_count] = work_node;
       dir_buffer_count++;
-      if (dir_buffer_count % MESSAGEBUFFER == 10){
+      if (dir_buffer_count % 2 == 0){
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
     }
     else if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
       tapebuffer[tape_buffer_count] = work_node;
       tape_buffer_count++;
+      if (tape_buffer_count % MESSAGEBUFFER == 0){
+        send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+      }
     }
     else{
       chunk_curr_offset = 0;
-      /*while (chunk_curr_offset < work_node->data.st.st_size - 1){
-        work_node->data.offset = chunk_curr_offset;
-        if ((chunk_curr_offset + chunk_size) >=  work_node->data.st.st_size){
-          work_node->data.length = work_node->data.st.st_size - chunk_curr_offset;
-          chunk_curr_offset = work_node->data.st.st_size - 1; 
+      while (chunk_curr_offset < work_node.st.st_size){
+        work_node.offset = chunk_curr_offset;
+        if ((chunk_curr_offset + chunk_size) >=  work_node.st.st_size){
+          work_node.length = work_node.st.st_size - chunk_curr_offset;
+          chunk_curr_offset = work_node.st.st_size; 
         }
         else{
-          work_node->data.length = chunk_size;
+          work_node.length = chunk_size;
           chunk_curr_offset += chunk_size;
         }
-        enqueue_node(&reg_list_head, &reg_list_tail, work_node, &reg_list_count);
-      }*/
-      work_node.offset = 0;
-      chunk_size = work_node.st.st_size;
-      work_node.length = chunk_size;
+        regbuffer[reg_buffer_count] = work_node;
+        reg_buffer_count++;
+        if (reg_buffer_count % MESSAGEBUFFER == 0){
+          send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+        }      
+      }
+      //work_node.offset = 0;
+      //chunk_size = work_node.st.st_size;
+      //work_node.length = chunk_size;
       
-      regbuffer[reg_buffer_count] = work_node;
-      reg_buffer_count++;
+      //regbuffer[reg_buffer_count] = work_node;
+      //reg_buffer_count++;
 
-      if (reg_buffer_count % MESSAGEBUFFER == 0){
-        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-      }      
 
     }
 

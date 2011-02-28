@@ -25,6 +25,7 @@ pfutils.o: pfutils.c pfutils.h
 recall_api.o: recall_api.c recall_api.h
 	$(MPICC) $(CFLAGS) $(DCFLAGS) -c recall_api.c
 
+
 hashtbl.o: hashtbl.c hashtbl.h
 	$(MPICC) $(CFLAGS) -c hashtbl.c
 
