@@ -297,7 +297,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         PRINT_PROC_DEBUG("=============\n");
 
         //for (i = 0; i < nproc - 2; i ++){
-          work_rank = get_free_rank(proc_status, 2, 15);
+          work_rank = get_free_rank(proc_status, 3, 15);
           if (o.recurse && work_rank != -1 && dir_buf_list_size != 0){
             proc_status[work_rank] = 1;
             send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
@@ -308,7 +308,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         //}
 
         for (i = 0; i < 3; i ++){
-          work_rank = get_free_rank(proc_status, 2, 15);
+          work_rank = get_free_rank(proc_status, 3, 15);
           if (work_rank > -1 && input_buf_list_size != 0){
             proc_status[work_rank] = 1;
             send_worker_stat_path(work_rank, &input_buf_list, &input_buf_list_size);
@@ -316,7 +316,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         }
 
         if (o.work_type == COPYWORK){
-          work_rank = get_free_rank(proc_status, 13, 15);
+          work_rank = get_free_rank(proc_status, 3, 15);
           if (work_rank > -1 && work_buf_list_size > 0){
             proc_status[work_rank] = 1;
             send_worker_copy_path(work_rank, &work_buf_list, &work_buf_list_size);
@@ -516,8 +516,13 @@ void worker(int rank, struct options o){
   path_item dest_node;
 
   //variables stored by the 'accumulator' proc
-   
+  /*HASHTBL *chunk_hash;
 
+  if (rank == ACCUM_PROC){
+    if(!(chunk_hash=hashtbl_create(16, NULL))) {
+      errsend(FATAL, "hashtbl_create() failed\n");
+    }
+  }*/
 
   if (o.work_type == COPYWORK){
     makedir = 1;
@@ -571,7 +576,7 @@ void worker(int rank, struct options o){
         all_done = 1;
         break;
       case NAMECMD:
-        worker_stat(rank, sending_rank, dest_node);
+        worker_stat(rank, sending_rank, base_path, dest_node, o.recurse, o.work_type);
         break;
       case DIRCMD:
         //worker_readdir_stat(rank, sending_rank, base_path, dest_node, o.recurse, makedir);
@@ -586,6 +591,11 @@ void worker(int rank, struct options o){
     message_ready = 0;
     //process message
   }
+}
+
+void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash){
+  //if (hashtbl_get());
+
 }
 
 void worker_output(int rank, int sending_rank){
@@ -640,7 +650,7 @@ void worker_buffer_output(int rank, int sending_rank){
   free(buffer);
 }
 
-void worker_stat(int rank, int sending_rank, path_item dest_node){
+void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int work_type){
   //When a worker is told to stat, it comes here
   MPI_Status status;
 
@@ -654,22 +664,24 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
   int write_count = 0;
   int write_count_max = 100;
   
-  char path[PATHSIZE_PLUS];
+  char path[PATHSIZE_PLUS], outpath[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
 
-  path_item work_node;
+  path_item work_node, out_node;
 
-  struct stat st;
-  struct statfs stfs;
+  struct stat st, out_st;
   struct tm sttm;
-  int sourcefs;
-  char sourcefsc[5], modebuf[15], timebuf[30];
+  int sourcefs = -1, outfs = -1;
+  char sourcefsc[5], outfsc[5], modebuf[15], timebuf[30];
+  //for truncing an existing out file
+  MPI_File out_fd;
   int i;
 
   //chunks
-  int chunk_size = 1048576;
+  //1 GB
+  off_t chunk_size = 107374182400;
   //int chunk_size = 1;
-  int chunk_curr_offset = 0;
+  off_t chunk_curr_offset = 0;
 
   //classification
   path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER];
@@ -718,7 +730,7 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
     else if (S_ISDIR(st.st_mode)){
       dirbuffer[dir_buffer_count] = work_node;
       dir_buffer_count++;
-      if (dir_buffer_count % 2 == 0){
+      if (dir_buffer_count % 15 == 0){
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
     }
@@ -729,58 +741,68 @@ void worker_stat(int rank, int sending_rank, path_item dest_node){
         send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
       }
     }
+    else if (S_ISLNK(st.st_mode)){
+      //handle symlinks here
+    }
     else{
       chunk_curr_offset = 0;
-      while (chunk_curr_offset < work_node.st.st_size){
-        work_node.offset = chunk_curr_offset;
-        if ((chunk_curr_offset + chunk_size) >=  work_node.st.st_size){
-          work_node.length = work_node.st.st_size - chunk_curr_offset;
-          chunk_curr_offset = work_node.st.st_size; 
+      outfs = -1;
+      if (work_type == COPYWORK){
+        strncpy(outpath, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
+        //if the out path exists
+        if (lstat(outpath, &out_st) == 0){
+          strncpy(out_node.path, outpath, PATHSIZE_PLUS);
+          out_node.st = out_st;
+          get_stat_fs_info(&out_node, &outfs, outfsc);
+          if (S_ISLNK(out_st.st_mode)){
+            //handle truncing symlinks
+          }
+          else{
+            //trunc out file if it exists and is not a symlink
+            MPI_File_open(MPI_COMM_SELF, out_node.path, MPI_MODE_WRONLY, MPI_INFO_NULL, &out_fd);
+            MPI_File_set_size(out_fd, 0);
+            MPI_File_close(&out_fd);
+          }
+        
         }
-        else{
-          work_node.length = chunk_size;
-          chunk_curr_offset += chunk_size;
+      }
+
+      //parallel filesystem can do n-to-1
+      if (outfs ==  GPFS_SUPER_MAGIC || outfs == PAN_FS_CLIENT_MAGIC){
+        while (chunk_curr_offset < work_node.st.st_size){
+          work_node.offset = chunk_curr_offset;
+          if ((chunk_curr_offset + chunk_size) >  work_node.st.st_size){
+            work_node.length = work_node.st.st_size - chunk_curr_offset;
+            chunk_curr_offset = work_node.st.st_size; 
+          }
+          else{
+            work_node.length = chunk_size;
+            chunk_curr_offset += chunk_size;
+          }
+          regbuffer[reg_buffer_count] = work_node;
+          reg_buffer_count++;
+          if (reg_buffer_count % MESSAGEBUFFER == 0){
+            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+          }      
         }
+      }
+      //regular filesystem
+      else{
+        work_node.offset = 0;
+        chunk_size = work_node.st.st_size;
+        work_node.length = chunk_size;
+        
         regbuffer[reg_buffer_count] = work_node;
         reg_buffer_count++;
         if (reg_buffer_count % MESSAGEBUFFER == 0){
           send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-        }      
+        } 
       }
-      //work_node.offset = 0;
-      //chunk_size = work_node.st.st_size;
-      //work_node.length = chunk_size;
-      
-      //regbuffer[reg_buffer_count] = work_node;
-      //reg_buffer_count++;
 
 
     }
 
-    if (!S_ISLNK(st.st_mode)){
-      if (statfs(path, &stfs) < 0) { 
-        snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-        errsend(FATAL, errortext);
-      } 
-
-      if (stfs.f_type == GPFS_SUPER_MAGIC) {
-        sourcefs = GPFSFS;
-        sprintf(sourcefsc, "G");
-      }
-      else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
-        sourcefs = PANASASFS;
-        sprintf(sourcefsc, "P");
-      }
-      else{
-        sourcefs = ANYFS;
-        sprintf(sourcefsc, "A");
-      }
-  }
-  else{
-    //symlink
-    sourcefs = GPFSFS;
-    sprintf(sourcefsc, "G");
-  }
+    get_stat_fs_info(&work_node, &sourcefs, sourcefsc);
 
     if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
       sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
@@ -904,7 +926,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
 
 }
 
-void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir){
+/*void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir){
   //regular MPI_Status
   MPI_Status status;
 
@@ -1121,7 +1143,7 @@ void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path
   free(writebuf);
   free(workbuf);
   send_manager_work_done(rank);
-}
+}*/
 
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse){
   //When a worker is told to copy, it comes here
@@ -1137,6 +1159,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   char copymsg[MESSAGESIZE];
   off_t offset, length;
   int num_copied_files = 0, num_copied_bytes = 0;
+
+  //path_item chunks_copied[MESSAGEBUFFER];
   
   int i, rc;
 

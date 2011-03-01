@@ -2,7 +2,6 @@
 #define      __PSTAT_H
 
 #include <signal.h>
-#include <dirent.h>
 #include <getopt.h>
 #include "pfutils.h"
 
@@ -16,19 +15,15 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, i
 
 //worker rank operations
 void worker(int rank, struct options o);
+void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
-void worker_stat(int rank, int sending_rank, path_item dest_node);
+void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int work_type);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int mkdir);
 void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse);
 
 
-#define ANYFS     0
-#define PANASASFS 1
-#define GPFSFS    2
-#define NULLFS    3
-#define FUSEFS    4 
 
 
 

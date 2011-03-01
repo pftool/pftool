@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
+#include <dirent.h>
 #include <libgen.h>
 #include <unistd.h>
 #include <gpfs.h>
@@ -27,8 +29,13 @@
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
-#define MESSAGEBUFFER 500 
+#define MESSAGEBUFFER 400 
 
+#define ANYFS     0
+#define PANASASFS 1
+#define GPFSFS    2
+#define NULLFS    3
+#define FUSEFS    4 
 
 #define FUSE_SUPER_MAGIC 0x65735546
 #define GPFS_FILE        0x47504653
@@ -44,6 +51,7 @@ typedef unsigned long long int uint_64;
 //mpi_commands
 enum cmd_opcode {                                                                                                                                                                                                                                                                                                  
   EXITCMD = 1,
+  UPDCHUNKCMD,
   OUTCMD,
   BUFFEROUTCMD,
   NAMECMD,
@@ -63,6 +71,7 @@ enum cmd_opcode {
 //for our MPI communications 
 #define MANAGER_PROC  0
 #define OUTPUT_PROC   1
+#define ACCUM_PROC   2
 
 //errsend
 #define FATAL 1
@@ -118,6 +127,7 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
+void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int get_free_rank(int *proc_status, int start_range, int end_range);
 int processing_complete(int *proc_status, int nproc);
 
@@ -131,6 +141,7 @@ void send_manager_copy_stats(int num_copied_files, int num_copied_bytes);
 void send_manager_work_done();
 
 //function definitions for workers
+void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

@@ -470,6 +470,10 @@ void send_manager_work_done(){
 }
 
 //worker
+void update_chunk(path_item *buffer, int *buffer_count){
+  send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
+}
+
 void write_output(char *message){
   //write a single line using the outputproc
 
@@ -539,6 +543,36 @@ void errsend(int fatal, char *error_text){
   }
   else{
     send_manager_nonfatal_inc();
+  }
+}
+
+void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc){
+  struct statfs stfs;
+  char errortext[MESSAGESIZE];
+
+  if (!S_ISLNK(work_node->st.st_mode)){
+    if (statfs(work_node->path, &stfs) < 0) { 
+      snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", work_node->path);
+      errsend(FATAL, errortext);
+    } 
+
+    if (stfs.f_type == GPFS_SUPER_MAGIC) {
+      *sourcefs = GPFSFS;
+      sprintf(sourcefsc, "G");
+    }
+    else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
+      *sourcefs = PANASASFS;
+      sprintf(sourcefsc, "P");
+    }
+    else{
+      *sourcefs = ANYFS;
+      sprintf(sourcefsc, "A");
+    }
+  }
+  else{
+    //symlink
+    *sourcefs = GPFSFS;
+    sprintf(sourcefsc, "G");
   }
 }
 
