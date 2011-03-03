@@ -32,6 +32,7 @@ extern int copy_file(const char *src_file, const char *dest_file, off_t offset, 
 
 //manager
 extern void send_manager_nonfatal_inc();
+extern void send_manager_chunk_busy();
 extern void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
@@ -349,6 +350,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         //non fatal errsend encountered
         non_fatal++;
         break;
+      case CHUNKBUSYCMD:
+        proc_status[ACCUM_PROC] = 1;
+        break;
       case COPYSTATSCMD:
         manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
         break;
@@ -396,6 +400,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   sprintf(message, "INFO  FOOTER   Total Files Copied: %d\n", num_copied_files);
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Bytes Copied: %d\n", num_copied_bytes);
+  write_output(message);
+  sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %d\n", (num_copied_bytes/(1024*1024)));
   write_output(message);
   if (elapsed_time == 1){
     sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
@@ -673,6 +679,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
   }
   send_manager_copy_stats(num_copied_files, num_copied_bytes);
   free(workbuf);
+  send_manager_work_done(rank);
 }
 
 void worker_output(int rank, int sending_rank){
@@ -1091,8 +1098,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   write_buffer_output(writebuf, writesize, read_count); 
 
   if (buffer_count > 0){
+    send_manager_chunk_busy();
     update_chunk(chunks_copied, &buffer_count);
-    usleep(100);
   }
   send_manager_copy_stats(num_copied_files, num_copied_bytes);
   send_manager_work_done(rank);

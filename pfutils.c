@@ -441,6 +441,10 @@ void send_manager_nonfatal_inc(){
   send_command(MANAGER_PROC, NONFATALINCCMD);
 }
 
+void send_manager_chunk_busy(){
+  send_command(MANAGER_PROC, CHUNKBUSYCMD);
+}
+
 void send_manager_copy_stats(int num_copied_files, int num_copied_bytes){
   send_command(MANAGER_PROC, COPYSTATSCMD);
   
