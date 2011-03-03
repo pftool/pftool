@@ -64,7 +64,8 @@ enum cmd_opcode {
   TAPECMD,
   WORKDONECMD,
   NONFATALINCCMD,
-  COPYSTATSCMD
+  COPYSTATSCMD,
+  EXAMINEDSTATSCMD
 };
 
 
@@ -117,6 +118,7 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int recurse, int makedir);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, int recurse);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
+int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 
 
 //local functions
@@ -138,6 +140,7 @@ void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
 void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_copy_stats(int num_copied_files, int num_copied_bytes);
+void send_manager_examined_stats(int num_examined);
 void send_manager_work_done();
 
 //function definitions for workers

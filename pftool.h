@@ -12,12 +12,14 @@ void manager_workdone(int rank, int sending_rank, int *proc_status);
 int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 int manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, int *num_copied_bytes);
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined);
 
 //worker rank operations
 void worker(int rank, struct options o);
 void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
+void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, int recurse);
 void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int work_type);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int mkdir);
 void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir);

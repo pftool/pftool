@@ -209,8 +209,6 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   char source_file[PATHSIZE_PLUS], destination_file[PATHSIZE_PLUS];
   MPI_File src_fd, dest_fd;
 
-  int mode;
-  struct utimbuf ut;
 
   //can't be const for MPI_IO
   strncpy(source_file, src_file, PATHSIZE_PLUS);
@@ -290,22 +288,37 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   }
 
 
-  MPI_File_close(&dest_fd);
-  MPI_File_close(&src_fd);
-  
-  /*rc = fclose(src_fd);
+  rc = MPI_File_close(&src_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  rc = fclose(dest_fd);
+  MPI_File_close(&dest_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", dest_file);
     errsend(NONFATAL, errormsg);
     return -1;
-  }*/
+  }
+  
+
+  free(buf);
+  if (offset == 0 && length == src_st.st_size){
+    printf("here!\n");
+    if (update_stats(src_file, dest_file, src_st) != 0){
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+int update_stats(const char *src_file, const char *dest_file, struct stat src_st){
+  int rc;
+  char errormsg[MESSAGESIZE];
+  int mode;
+  struct utimbuf ut;
 
   rc = chown(dest_file, src_st.st_uid, src_st.st_gid);
   if (rc != 0){
@@ -328,10 +341,10 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   if (rc != 0){
     sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
     errsend(NONFATAL, errormsg);
+    return -1;
   }
-
-  free(buf);
   return 0;
+
 }
 
 //local functions only
@@ -441,6 +454,16 @@ void send_manager_copy_stats(int num_copied_files, int num_copied_bytes){
   if (MPI_Send(&num_copied_bytes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
+}
+
+void send_manager_examined_stats(int num_examined){
+  send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
+
+  //send the # of paths
+  if (MPI_Send(&num_examined, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+  
 }
 
 
