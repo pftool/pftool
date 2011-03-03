@@ -305,7 +305,6 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 
   free(buf);
   if (offset == 0 && length == src_st.st_size){
-    printf("here!\n");
     if (update_stats(src_file, dest_file, src_st) != 0){
       return -1;
     }
