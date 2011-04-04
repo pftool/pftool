@@ -87,9 +87,10 @@ int main(int argc, char *argv[]){
 
   //initialize options
   o.recurse = 0;
+  strncpy(o.jid, "TestJob", 128);
+  o.work_type = LSWORK;
   //o.work_type = LSWORK;
   //o.work_type = COPYWORK;
-  strncpy(o.jid, "TestJob", 128);
 
   //Process using getopt
   while ((c = getopt(argc, argv, "p:c:j:w:rh")) != -1) 
@@ -401,8 +402,10 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Bytes Copied: %d\n", num_copied_bytes);
   write_output(message);
-  sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %d\n", (num_copied_bytes/(1024*1024)));
-  write_output(message);
+  if ((num_copied_bytes/(1024*1024)) > 0 ){
+    sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %d\n", (num_copied_bytes/(1024*1024)));
+    write_output(message);
+  }
   if (elapsed_time == 1){
     sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
   }
@@ -410,9 +413,12 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
   }
   write_output(message);
-  sprintf(message, "INFO  FOOTER   Data Rate: %d MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
-  write_output(message);
-  for (i = 1; i < nproc; i++){
+  
+  if((num_copied_bytes/(1024*1024)) > 0 ){
+    sprintf(message, "INFO  FOOTER   Data Rate: %d MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
+    write_output(message);
+  }
+  for(i = 1; i < nproc; i++){
     send_worker_exit(i);
   }
 
@@ -622,7 +628,6 @@ void worker(int rank, struct options o){
 }
 
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, int recurse){
-  //if (hashtbl_get());
   MPI_Status status;
   int path_count;
 
@@ -765,13 +770,13 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
 
   //chunks
   //1 GB
-  //off_t chunk_size = 107374182400;
-  int chunk_size = 1024;
+  off_t chunk_size = 107374182400;
+  //int chunk_size = 1024;
   off_t chunk_curr_offset = 0;
 
   //classification
-  path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER];
-  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0;
+  path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER], fusebuffer[MESSAGEBUFFER];
+  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0, fuse_buffer_count = 0;
 
 
   PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
@@ -804,6 +809,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       errsend(FATAL, errortext);
     }
 
+    work_node.is_fuse = 0;
     work_node.st = st;
     printmode(st.st_mode, modebuf);
     memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
@@ -1083,7 +1089,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     if (rc >= 0){
       sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
       MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
-      //FIXME: this needs to be kept track of independently for chunked files
+      //file is not 'chunked'
       if (offset == 0 && length == work_node.st.st_size){ 
         num_copied_files +=1;
         num_copied_bytes += length;
@@ -1097,11 +1103,15 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   
   write_buffer_output(writebuf, writesize, read_count); 
 
+  //update the chunk information
   if (buffer_count > 0){
     send_manager_chunk_busy();
     update_chunk(chunks_copied, &buffer_count);
   }
-  send_manager_copy_stats(num_copied_files, num_copied_bytes);
+  //for all non-chunked files
+  if (num_copied_files > 0 || num_copied_bytes > 0){
+    send_manager_copy_stats(num_copied_files, num_copied_bytes);
+  }
   send_manager_work_done(rank);
 
   free(workbuf);

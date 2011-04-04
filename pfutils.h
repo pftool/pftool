@@ -95,6 +95,7 @@ struct path_link{
   struct stat st;
   off_t offset;
   off_t length;
+  int is_fuse;
 };
 typedef struct path_link path_item;
 
