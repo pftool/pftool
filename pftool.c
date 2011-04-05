@@ -49,6 +49,8 @@ extern void send_worker_exit();
 
 //functions that use workers
 extern void errsend(int fatal, char *error_text);
+extern int is_fuse_chunk(const char *path);
+extern void set_fuse_chunk_data(path_item *work_node);
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
 
@@ -88,9 +90,7 @@ int main(int argc, char *argv[]){
   //initialize options
   o.recurse = 0;
   strncpy(o.jid, "TestJob", 128);
-  o.work_type = LSWORK;
   //o.work_type = LSWORK;
-  //o.work_type = COPYWORK;
 
   //Process using getopt
   while ((c = getopt(argc, argv, "p:c:j:w:rh")) != -1) 
@@ -753,8 +753,10 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   int write_count = 0;
   int write_count_max = 100;
   
-  char path[PATHSIZE_PLUS], outpath[PATHSIZE_PLUS];
+  char *link_result = NULL;
+  char linkname[PATHSIZE_PLUS];
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
+  int numchars;
 
   path_item work_node, out_node, dirname_node;
 
@@ -763,20 +765,22 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   int sourcefs = -1, outfs = -1;
   char sourcefsc[5], outfsc[5], modebuf[15], timebuf[30];
   //for truncing an existing out file
-  MPI_File out_fd;
+  MPI_File out_fd;  
+  int trunc = 0;
   int num_examined = 0;
   int rc;
   int i;
 
   //chunks
   //1 GB
-  off_t chunk_size = 107374182400;
+  off_t chunk_size = 0;
+  off_t chunk_size_save = 107374182400;
   //int chunk_size = 1024;
   off_t chunk_curr_offset = 0;
 
   //classification
-  path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER], fusebuffer[MESSAGEBUFFER];
-  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0, fuse_buffer_count = 0;
+  path_item dirbuffer[MESSAGEBUFFER], regbuffer[MESSAGEBUFFER], tapebuffer[MESSAGEBUFFER];
+  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0;
 
 
   PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
@@ -801,19 +805,15 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   for (i = 0; i < stat_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_stat() Unpacking the work_node %d\n", rank, sending_rank);
     MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-    strncpy(path, work_node.path, PATHSIZE_PLUS);
    
 
-    if (lstat(path, &st) == -1) {
-      snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", path);
+    if (lstat(work_node.path, &st) == -1) {
+      snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", work_node.path);
       errsend(FATAL, errortext);
     }
 
-    work_node.is_fuse = 0;
+    work_node.ftype = REGULARFILE;
     work_node.st = st;
-    printmode(st.st_mode, modebuf);
-    memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
-    strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
     if (st.st_ino == dest_node.st.st_ino){
       write_count--;
@@ -833,25 +833,67 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
       }
     }
-    else if (S_ISLNK(st.st_mode)){
-      //handle symlinks here
-    }
     else{
+      if (S_ISLNK(st.st_mode)){
+        link_result = canonicalize_file_name(work_node.path);
+        if (link_result){
+          strncpy(linkname, link_result, PATHSIZE_PLUS);
+          if (is_fuse_chunk(linkname) || work_type == COPYWORK){
+            if (lstat(linkname, &st) == -1) {
+              snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
+              errsend(FATAL, errortext);
+            }
+            work_node.st = st;
+          }
+          if (is_fuse_chunk(linkname) == 1){
+            work_node.ftype = FUSEFILE;
+          }
+          else{
+            //handle symlinks here
+            work_node.ftype = LINKFILE;
+          }
+        }       
+        else{
+          snprintf(errortext, MESSAGESIZE, "Failed to stat path '%s': No such file or directory", work_node.path);
+          errsend(NONFATAL, errortext);
+        }
+      }
+      //do this for all regular files AND fuse+symylinks
       chunk_curr_offset = 0;
       outfs = -1;
       if (work_type == COPYWORK){
-        strncpy(outpath, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
-        strncpy(out_node.path, outpath, PATHSIZE_PLUS);
+        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
 
 
         //if the out path exists
-        if (lstat(outpath, &out_st) == 0){
+        if (lstat(out_node.path, &out_st) == 0){
           out_node.st = out_st;
           get_stat_fs_info(&out_node, &outfs, outfsc);
           if (S_ISLNK(out_st.st_mode)){
-            //handle truncing symlinks
+            numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
+            if (numchars < 0){
+              snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
+              errsend(FATAL, errortext);
+            }
+            if (is_fuse_chunk(linkname) == 1){
+              //it's a fuse file trunc
+              trunc = 1;
+            }
+            else{
+              //it's a regular symlink, unlink
+              rc = unlink(out_node.path);
+              if (rc < 0){
+                snprintf(errortext, MESSAGESIZE, "Failed to unlink %s", out_node.path);
+                errsend(FATAL, errortext);
+              }
+            }
           }
           else{
+            //it's a regular file trunc
+            trunc = 1;
+          }
+          //trunc
+          if (trunc == 1){
             //trunc out file if it exists and is not a symlink
             rc = MPI_File_open(MPI_COMM_SELF, out_node.path, MPI_MODE_WRONLY, MPI_INFO_NULL, &out_fd);
             if (rc != 0){
@@ -871,15 +913,23 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
           }
         }
         //path doesn't exist get info from parent
-        else if (lstat(dirname(outpath), &dirname_st) == 0){
-          strncpy(dirname_node.path, dirname(outpath), PATHSIZE_PLUS);
+        else if (lstat(dirname(out_node.path), &dirname_st) == 0){
+          strncpy(dirname_node.path, dirname(out_node.path), PATHSIZE_PLUS);
           dirname_node.st = dirname_st;
           get_stat_fs_info(&dirname_node, &outfs, outfsc);
         }
       }
 
       //parallel filesystem can do n-to-1
-      if (outfs ==  GPFSFS || outfs == PANASASFS){
+      if (outfs == GPFSFS || outfs == PANASASFS){
+        if (work_node.ftype == FUSEFILE){
+          set_fuse_chunk_data(&work_node);
+          chunk_size = work_node.length;
+        }
+        else{
+          chunk_size = chunk_size_save;
+        }
+
         while (chunk_curr_offset < work_node.st.st_size){
           work_node.offset = chunk_curr_offset;
           if ((chunk_curr_offset + chunk_size) >  work_node.st.st_size){
@@ -915,12 +965,15 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
     }
 
     get_stat_fs_info(&work_node, &sourcefs, sourcefsc);
+    printmode(st.st_mode, modebuf);
+    memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
+    strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
     if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
-      sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
+      sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, work_node.path);
     }
     else{
-      sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, path);
+      sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21lld %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, (long long) st.st_size, timebuf, work_node.path);
     }
     MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
     write_count++;
@@ -929,7 +982,6 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       out_position = 0;
       write_count = 0;
     }
-    //write_output(rank, statrecord);
     
     
   } 
@@ -951,7 +1003,6 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   while (tape_buffer_count != 0){
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
-
   send_manager_examined_stats(num_examined);
 
   //free malloc buffers

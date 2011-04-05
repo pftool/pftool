@@ -26,16 +26,6 @@ void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse);
 
 
-
-
-
-#define FUSE_SUPER_MAGIC 0x65735546 
-#define GPFS_FILE        0x47504653 
-#define FUSE_FILE        0x65735546 
-#define PANFS_FILE       0xaad7aaea
-#define EXT2_FILE        0xEF53
-#define EXT3_FILE        0xEF53 
-
 #define NULL_DEVICE      "/dev/null"  
 
 #define WAIT_TIME    1

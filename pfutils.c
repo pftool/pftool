@@ -572,6 +572,50 @@ void errsend(int fatal, char *error_text){
   }
 }
 
+int is_fuse_chunk(const char *path){
+  //pass in a symlink's followed path to determine if it's a fuse file
+  struct statfs stfs;
+  char errortext[MESSAGESIZE];
+
+  if (statfs(path, &stfs) < 0) {
+    snprintf(errortext, MESSAGESIZE, "is_fuse_chunk: Failed to statfs path %s", path);
+    errsend(FATAL, errortext);
+  }
+  //if (strstr(path, "/fusemnt/")){
+  if (stfs.f_type == FUSE_SUPER_MAGIC){
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+
+void set_fuse_chunk_data(path_item *work_node){
+  int i;
+  char linkname[PATHSIZE_PLUS], baselinkname[PATHSIZE_PLUS];
+
+  const char delimiters[] =  ".";
+  char *current;
+
+  off_t length;
+ 
+
+  readlink(work_node->path, linkname, PATHSIZE_PLUS);
+  strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
+
+  current = strdupa(baselinkname);
+
+  strtok(current, delimiters);
+  for (i = 0; i < 2; i++){
+    strtok(NULL, delimiters);
+  }
+
+  length = atoi(strtok(NULL, delimiters));
+  work_node->offset = 0;
+  work_node->length = length;
+  
+}
+
 void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc){
   struct statfs stfs;
   char errortext[MESSAGESIZE];
@@ -581,7 +625,6 @@ void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc){
       snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", work_node->path);
       errsend(FATAL, errortext);
     } 
-
     if (stfs.f_type == GPFS_SUPER_MAGIC) {
       *sourcefs = GPFSFS;
       sprintf(sourcefsc, "G");
@@ -589,6 +632,11 @@ void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc){
     else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
       *sourcefs = PANASASFS;
       sprintf(sourcefsc, "P");
+    }
+    else if (work_node->ftype == FUSEFILE){
+      //fuse file
+      *sourcefs = GPFSFS;
+      sprintf(sourcefsc, "G");
     }
     else{
       *sourcefs = ANYFS;

@@ -79,6 +79,11 @@ enum cmd_opcode {
 #define FATAL 1
 #define NONFATAL 0
 
+enum filetype {
+  REGULARFILE = 0,
+  FUSEFILE,
+  LINKFILE
+};
 
 //Structs and typedefs
 //options{
@@ -95,7 +100,7 @@ struct path_link{
   struct stat st;
   off_t offset;
   off_t length;
-  int is_fuse;
+  enum filetype ftype;
 };
 typedef struct path_link path_item;
 
@@ -131,6 +136,8 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
+int is_fuse_chunk(const char *path);
+void set_fuse_chunk_data(path_item *work_node);
 void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int get_free_rank(int *proc_status, int start_range, int end_range);
 int processing_complete(int *proc_status, int nproc);

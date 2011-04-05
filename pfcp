@@ -151,7 +151,6 @@ def main():
   pfcpcmd += ["-host", ",".join(host_list), "-n", str(pfcp_num_proc), pftool]
   pfcpcmd += commands
 
-
   host = gethostname()
 
   print "Launched pfcp from host %s at: %s"%(host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
