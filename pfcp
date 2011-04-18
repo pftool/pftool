@@ -59,7 +59,7 @@ def main():
   pfcmd.add(*commands.commands)
 
   host = gethostname()
-  print "Launched pfcp from host %s at: %s"%(host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
+  print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   
   #write_log("[pfcp] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
   #write_log("[pfcp] [%s] CMD %s"%(jid, " ".join(pfcpcmd)))
@@ -67,7 +67,7 @@ def main():
 
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
-    print "ERROR: pfcp failed"
+    print "ERROR: %s failed"%sys.argv[0]
     #write_log("[pfcp] [%s] PFCP failed."%(jid), LOG_ERR)
 
   

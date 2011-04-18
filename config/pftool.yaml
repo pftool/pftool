@@ -1,6 +1,6 @@
 num_procs:
-  pfls: 12
-  pfcp: 12
+  pfls: 15
+  pfcp: 15
 
 pftool:
   fuse_dir: "/archive/fusemnt"
