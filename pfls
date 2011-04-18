@@ -1,147 +1,79 @@
-#!/usr/bin/env python
-import getpass, os, os.path,  datetime,time, sys, getopt, pwd, grp, subprocess
-from socket import gethostname
-from syslog import *
-
-ROOT = os.path.abspath(os.path.dirname(__file__))
-ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
-
-
-def write_log(message, priority = LOG_INFO):
-  openlog("PFTOOL-LOG", 0, LOG_USER)
-  syslog(priority, message)
-  closelog()
-
-def get_jid():
-  user = getpass.getuser()
-  c = time.gmtime()
-  
-  time_id = "%d%d%d%d%d%d"%(c.tm_sec, c.tm_min, c.tm_hour, c.tm_mday, 
-      c.tm_mon, c.tm_year)
-
-  hostname = gethostname()
-  jid = user+time_id+hostname
-  return jid
-
-
-def usage():
-  print """
-************************************************* pfls USAGE ***********************************************************
-pfls: list files in parallel using pftool (parallel file tool) 
-
-NAME
-     pfls -- list file(s) based on sourcePath in parallel  
-
-SYNOPSIS
-     pfls [-b biggerBytes] [-d userName] [-e groupName] [-f outputFile] [-g groupID] [-h] [-o olderDays] [-R] [-s smallerBytes] [-u userID] [-v] [-y youngerDays] sourcePath
-
-     sourcePath             : source file path, subdirectory, or file(s). Wildcards are allowed, but must resolve to < 2,700 files.  
-     -b biggerBytes         : only list files with a size of <biggerBytes> bytes or larger  
-     -d userName            : only list files owned by <userName>
-     -e groupName           : only list files having group name <groupName>
-     -f outputFile          : redirect program output to file <outputFile> 
-     -g groupID|groupName   : only compare files having group ID <groupID> or group name <groupName>
-     -h                     : print command usage informaton  
-     -o olderDays           : only list files older than <olderDays> days
-     -R                     : list directories recursively  
-     -s smallerBytes        : only list files with a size of <smallerBytes> bytes or smaller
-     -u userID|userName     : only compare files owned by <userID> or <userName>
-     -y youngerDays         : only list files younger than <youngerDays> days
-
-     Wildcard examples: *, *.yyy, *xxx*, *.*  
-
-     Examples:
-        pfls  fileA 
-        pfls  -v fileA* 
-        pfls  -b 1024 subdirA  
-        pfls  -R subdirA    
-
-
-Contact:  ICN Consulting Office (5-444 option 3)                                                                                                                                                                                                                                                                   
-************************************************* pfls USAGE ***********************************************************
-"""
+#!/usr/bin/env python2.6
+import os.path, sys, pwd, grp, subprocess
+from optparse import OptionParser
+from pfscripts import *
 
 def main():
-  try:
-    opts, args = getopt.getopt(sys.argv[1:], "hR")
-  except getopt.GetoptError, err:
-    print str(err)
-    usage()
-    sys.exit(2)
-  
+  parser = OptionParser()
+  parser.usage = "%prog [options] sourcePath destinationPath"
+  parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
+  parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
+  parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
+  (options, args) = parser.parse_args()
 
-  commands = []
+  config = parse_config()
 
-  arg_vals = {}
-  for o, a in opts:
-    arg_vals[o] = a
+  if len(args) < 2:
+    parser.error("Specify the source and destination file/dir information.")
 
-  if "-h" in arg_vals:
-      usage()
-      sys.exit(2)
-  elif "-R" in arg_vals:
-    commands.append("-r");
+  jid = get_jid()
+  src = args[:-1]
+  dest = args[-1]
+  commands = Commands()
+  commands.add("-w", Work.LS)
+  commands.add("-j", jid)
 
+  base_name = os.path.dirname(src[0])
+  if options.recurse:
+    commands.add("-r")
+    for i in src:
+      if os.path.dirname(i) != base_name:
+        parser.error("All sources for a recursive copy must be contained within the same directory.")
 
-  src = args
+  base_dest_name = os.path.dirname(dest)
+  if base_dest_name and not os.path.exists(base_dest_name):
+   parser.error("%s - No such file or directory"%(dest)) 
   
   for i in src:
     if not os.path.exists(i):
-      print "ERROR: cannot stat '%s': No such file or directory"%(i)
-      usage()
-      sys.exit(2)
+      parser.error("cannot stat '%s': No such file or directory"%(i))
+  
+  commands.add("-p", *src)
+  commands.add("-c", dest)
 
-  jid = get_jid()
-
-  #1 = ls work
-  commands.append("-w")
-  commands.append("1")
-
-  commands.append("-j")
-  commands.append(jid)
-  commands.append("-p")
-  for item in src:
-    commands.append(item)
-
-  #temp
-  #host_list = ["gpfst1","gpfst2","gpfst3","gpfst4","gpfst5","gpfst6","gpfst7","gpfst8","gpfst9","gpfst10"]
-  host_list = ["gpfst10"]
-  pfls_num_proc = 16
+  host_list = filter(lambda x: config["active_nodes"][x] == "ON", config["active_nodes"])
+  num_procs = config["num_procs"]["pfcp"]
 
   if len(host_list) == 0:
-    print"""
-*******************************************************************
-*                                                                 *
-* The Parallel Archive System is busy now. There is no available  *
-* host machine to run your pfcm job now.  Please try it later.    *
-*                                                                 *
-* Contact:  ICN Consulting Office (5-4444 option 3)               *
-*******************************************************************
-"""
-
-  pftool = ROOT_PATH("pftool")#"/usr/local/gpfstools/bin/pftool"
-  mpigo = "/usr/local/gpfstools/openmpi/bin/mpirun"
+    busy()
+    sys.exit(2)
   
-  pflscmd = mpigo.split()
-  pflscmd += ["-host", ",".join(host_list), "-n", str(pfls_num_proc), pftool]
-  pflscmd += commands
+  pftool = ROOT_PATH("pftool")
+  mpigo = "/usr/local/gpfstools/openmpi/bin/mpirun"
+
+  pfcmd = Commands()
+  pfcmd.add(mpigo)
+  pfcmd.add("-host", ",".join(host_list))
+  pfcmd.add("-n", num_procs)
+  pfcmd.add(pftool)
+  pfcmd.add(*commands.commands)
 
   host = gethostname()
-
-  print "Launched pfls from host %s at: %s"%(host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
+  print "Launched pfcp from host %s at: %s"%(host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   
-  #write_log("[pfls] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-  #write_log("[pfls] [%s] CMD %s"%(jid, " ".join(pflscmd)))
+  #write_log("[pfcp] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+  #write_log("[pfcp] [%s] CMD %s"%(jid, " ".join(pfcpcmd)))
 
 
-  status = subprocess.call(pflscmd)
+  status = subprocess.call(pfcmd.commands)
   if(status != 0):
-    print "ERROR: pfls failed"
-    #write_log("[pfls] [%s] pfls failed."%(jid), LOG_ERR)
+    print "ERROR: pfcp failed"
+    #write_log("[pfcp] [%s] PFCP failed."%(jid), LOG_ERR)
 
   
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  #write_log("[pfls] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+  #write_log("[pfcp] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+
 
 if __name__ == "__main__":
   main()
