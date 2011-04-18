@@ -89,6 +89,7 @@ enum filetype {
 //options{
 struct options{
   int recurse;
+  int different;
   int work_type;
   char jid[128];
 };

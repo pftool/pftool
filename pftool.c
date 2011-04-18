@@ -93,7 +93,7 @@ int main(int argc, char *argv[]){
   //o.work_type = LSWORK;
 
   //Process using getopt
-  while ((c = getopt(argc, argv, "p:c:j:w:rh")) != -1) 
+  while ((c = getopt(argc, argv, "p:c:j:w:rnh")) != -1) 
     switch(c){
       case 'p':
         //Get the source/beginning path
@@ -109,6 +109,9 @@ int main(int argc, char *argv[]){
       case 'w':
         o.work_type = atoi(optarg);
         break;
+      case 'n':
+        //different
+        o.different = 1;
       case 'r':
         //Recurse
         o.recurse = 1;
@@ -608,7 +611,7 @@ void worker(int rank, struct options o){
         all_done = 1;
         break;
       case NAMECMD:
-        worker_stat(rank, sending_rank, base_path, dest_node, o.recurse, o.work_type);
+        worker_stat(rank, sending_rank, base_path, dest_node, o);
         break;
       case DIRCMD:
         //worker_readdir_stat(rank, sending_rank, base_path, dest_node, o.recurse, makedir);
@@ -739,7 +742,7 @@ void worker_buffer_output(int rank, int sending_rank){
   free(buffer);
 }
 
-void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int work_type){
+void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o){
   //When a worker is told to stat, it comes here
   MPI_Status status;
 
@@ -759,6 +762,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   int numchars;
 
   path_item work_node, out_node, dirname_node;
+  int process = 1;
 
   struct stat st, out_st, dirname_st;
   struct tm sttm;
@@ -838,7 +842,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         link_result = canonicalize_file_name(work_node.path);
         if (link_result){
           strncpy(linkname, link_result, PATHSIZE_PLUS);
-          if (is_fuse_chunk(linkname) || work_type == COPYWORK){
+          if (is_fuse_chunk(linkname) || o.work_type == COPYWORK){
             if (lstat(linkname, &st) == -1) {
               snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
               errsend(FATAL, errortext);
@@ -861,54 +865,70 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       //do this for all regular files AND fuse+symylinks
       chunk_curr_offset = 0;
       outfs = -1;
-      if (work_type == COPYWORK){
-        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, recurse), PATHSIZE_PLUS);
+      if (o.work_type == COPYWORK){
+        process = 1;
+        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o.recurse), PATHSIZE_PLUS);
 
 
         //if the out path exists
         if (lstat(out_node.path, &out_st) == 0){
-          out_node.st = out_st;
-          get_stat_fs_info(&out_node, &outfs, outfsc);
-          if (S_ISLNK(out_st.st_mode)){
-            numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
-            if (numchars < 0){
-              snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
-              errsend(FATAL, errortext);
+          //Check if it's a valid match
+          if (o.different == 1){
+            //check size, mtime, mode, and owners 
+            if (work_node.st.st_size == out_st.st_size &&
+                work_node.st.st_mtime == out_st.st_mtime &&
+                work_node.st.st_mode == out_st.st_mode &&
+                work_node.st.st_uid == out_st.st_uid &&
+                work_node.st.st_gid == out_st.st_gid){
+              process = 0;
             }
-            if (is_fuse_chunk(linkname) == 1){
-              //it's a fuse file trunc
-              trunc = 1;
-            }
-            else{
-              //it's a regular symlink, unlink
-              rc = unlink(out_node.path);
-              if (rc < 0){
-                snprintf(errortext, MESSAGESIZE, "Failed to unlink %s", out_node.path);
+          }
+
+          if (process == 1){
+  
+            out_node.st = out_st;
+            get_stat_fs_info(&out_node, &outfs, outfsc);
+            if (S_ISLNK(out_st.st_mode)){
+              numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
+              if (numchars < 0){
+                snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
                 errsend(FATAL, errortext);
               }
+              if (is_fuse_chunk(linkname) == 1){
+                //it's a fuse file trunc
+                trunc = 1;
+              }
+              else{
+                //it's a regular symlink, unlink
+                rc = unlink(out_node.path);
+                if (rc < 0){
+                  snprintf(errortext, MESSAGESIZE, "Failed to unlink %s", out_node.path);
+                  errsend(FATAL, errortext);
+                }
+              }
             }
-          }
-          else{
-            //it's a regular file trunc
-            trunc = 1;
-          }
-          //trunc
-          if (trunc == 1){
-            //trunc out file if it exists and is not a symlink
-            rc = MPI_File_open(MPI_COMM_SELF, out_node.path, MPI_MODE_WRONLY, MPI_INFO_NULL, &out_fd);
-            if (rc != 0){
-              sprintf(errortext, "Failed to open file %s for write", out_node.path);
-              errsend(NONFATAL, errortext);
+            else{
+              //it's a regular file trunc
+              trunc = 1;
             }
-            rc = MPI_File_set_size(out_fd, 0);
-            if (rc != 0){
-              sprintf(errortext, "Failed to truncate file %s", out_node.path);
-              errsend(NONFATAL, errortext);
-            }
-            rc = MPI_File_close(&out_fd);
-            if (rc != 0){
-              sprintf(errortext, "Failed to close file %s", out_node.path);
-              errsend(NONFATAL, errortext);
+            //trunc
+            if (trunc == 1){
+              //trunc out file if it exists and is not a symlink
+              rc = MPI_File_open(MPI_COMM_SELF, out_node.path, MPI_MODE_WRONLY, MPI_INFO_NULL, &out_fd);
+              if (rc != 0){
+                sprintf(errortext, "Failed to open file %s for write", out_node.path);
+                errsend(NONFATAL, errortext);
+              }
+              rc = MPI_File_set_size(out_fd, 0);
+              if (rc != 0){
+                sprintf(errortext, "Failed to truncate file %s", out_node.path);
+                errsend(NONFATAL, errortext);
+              }
+              rc = MPI_File_close(&out_fd);
+              if (rc != 0){
+                sprintf(errortext, "Failed to close file %s", out_node.path);
+                errsend(NONFATAL, errortext);
+              }
             }
           }
         }
@@ -920,44 +940,46 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         }
       }
 
-      //parallel filesystem can do n-to-1
-      if (outfs == GPFSFS || outfs == PANASASFS){
-        if (work_node.ftype == FUSEFILE){
-          set_fuse_chunk_data(&work_node);
-          chunk_size = work_node.length;
-        }
-        else{
-          chunk_size = chunk_size_save;
-        }
-
-        while (chunk_curr_offset < work_node.st.st_size){
-          work_node.offset = chunk_curr_offset;
-          if ((chunk_curr_offset + chunk_size) >  work_node.st.st_size){
-            work_node.length = work_node.st.st_size - chunk_curr_offset;
-            chunk_curr_offset = work_node.st.st_size; 
+      if (process == 1){
+        //parallel filesystem can do n-to-1
+        if (outfs == GPFSFS || outfs == PANASASFS){
+          if (work_node.ftype == FUSEFILE){
+            set_fuse_chunk_data(&work_node);
+            chunk_size = work_node.length;
           }
           else{
-            work_node.length = chunk_size;
-            chunk_curr_offset += chunk_size;
+            chunk_size = chunk_size_save;
           }
+
+          while (chunk_curr_offset < work_node.st.st_size){
+            work_node.offset = chunk_curr_offset;
+            if ((chunk_curr_offset + chunk_size) >  work_node.st.st_size){
+              work_node.length = work_node.st.st_size - chunk_curr_offset;
+              chunk_curr_offset = work_node.st.st_size; 
+            }
+            else{
+              work_node.length = chunk_size;
+              chunk_curr_offset += chunk_size;
+            }
+            regbuffer[reg_buffer_count] = work_node;
+            reg_buffer_count++;
+            if (reg_buffer_count % MESSAGEBUFFER == 0){
+              send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+            }      
+          }
+        }
+        //regular filesystem
+        else{
+          work_node.offset = 0;
+          chunk_size = work_node.st.st_size;
+          work_node.length = chunk_size;
+          
           regbuffer[reg_buffer_count] = work_node;
           reg_buffer_count++;
           if (reg_buffer_count % MESSAGEBUFFER == 0){
             send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-          }      
+          } 
         }
-      }
-      //regular filesystem
-      else{
-        work_node.offset = 0;
-        chunk_size = work_node.st.st_size;
-        work_node.length = chunk_size;
-        
-        regbuffer[reg_buffer_count] = work_node;
-        reg_buffer_count++;
-        if (reg_buffer_count % MESSAGEBUFFER == 0){
-          send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-        } 
       }
     }
     if (! S_ISDIR(st.st_mode)){

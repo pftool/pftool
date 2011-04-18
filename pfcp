@@ -9,6 +9,7 @@ def main():
   parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
+  parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -37,6 +38,10 @@ def main():
   for i in src:
     if not os.path.exists(i):
       parser.error("cannot stat '%s': No such file or directory"%(i))
+
+  #parse additional options
+  if options.different:
+    commands.add("-n")
   
   commands.add("-p", *src)
   commands.add("-c", dest)
