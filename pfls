@@ -13,12 +13,9 @@ def main():
 
   config = parse_config()
 
-  if len(args) < 2:
-    parser.error("Specify the source and destination file/dir information.")
 
   jid = get_jid()
-  src = args[:-1]
-  dest = args[-1]
+  src = args
   commands = Commands()
   commands.add("-w", Work.LS)
   commands.add("-j", jid)
@@ -26,20 +23,8 @@ def main():
   base_name = os.path.dirname(src[0])
   if options.recurse:
     commands.add("-r")
-    for i in src:
-      if os.path.dirname(i) != base_name:
-        parser.error("All sources for a recursive copy must be contained within the same directory.")
 
-  base_dest_name = os.path.dirname(dest)
-  if base_dest_name and not os.path.exists(base_dest_name):
-   parser.error("%s - No such file or directory"%(dest)) 
-  
-  for i in src:
-    if not os.path.exists(i):
-      parser.error("cannot stat '%s': No such file or directory"%(i))
-  
   commands.add("-p", *src)
-  commands.add("-c", dest)
 
   host_list = filter(lambda x: config["active_nodes"][x] == "ON", config["active_nodes"])
   num_procs = config["num_procs"]["pfcp"]
