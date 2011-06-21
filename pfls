@@ -9,6 +9,7 @@ def main():
   parser.description = "%prog --  list file(s) based on sourcePath in parallel"
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="list directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
+  parser.add_option("-i", dest="input_list", help="input file list")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -20,11 +21,17 @@ def main():
   commands.add("-w", Work.LS)
   commands.add("-j", jid)
 
-  base_name = os.path.dirname(src[0])
-  if options.recurse:
-    commands.add("-r")
+  if options.input_list:
+    commands.add ("-i", options.input_list)
+  elif src:
+    base_name = os.path.dirname(src[0])
+    if options.recurse:
+      commands.add("-r")
 
-  commands.add("-p", *src)
+    commands.add("-p", *src)
+  else:
+    parser.error("please include a source path or input list")
+
 
   host_list = filter(lambda x: config["active_nodes"][x] == "ON", config["active_nodes"])
   num_procs = config["num_procs"]["pfcp"]

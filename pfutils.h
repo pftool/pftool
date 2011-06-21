@@ -47,6 +47,8 @@
 #define PNFS_FILE        0X00000000
 #define ANY_FILE         0X00000000 
 
+#define DevMinor(x) ((x)&0xFFFF)
+#define DevMajor(x) ((unsigned)(x)>>16)
 typedef unsigned long long int uint_64;
 //mpi_commands
 enum cmd_opcode {                                                                                                                                                                                                                                                                                                  
@@ -54,6 +56,7 @@ enum cmd_opcode {
   UPDCHUNKCMD,
   OUTCMD,
   BUFFEROUTCMD,
+  QUEUESIZECMD,
   NAMECMD,
   STATCMD,
   COMPARECMD,
@@ -82,7 +85,9 @@ enum cmd_opcode {
 enum filetype {
   REGULARFILE = 0,
   FUSEFILE,
-  LINKFILE
+  LINKFILE,
+  PREMIGRATEFILE,
+  MIGRATEFILE
 };
 
 //Structs and typedefs
@@ -91,6 +96,8 @@ struct options{
   int recurse;
   int different;
   int work_type;
+  char file_list[PATHSIZE_PLUS];
+  int use_file_list;
   char jid[128];
 };
 
@@ -122,6 +129,8 @@ typedef struct work_buffer_list work_buf_list;
 //Function Declarations
 void usage();
 char *printmode (mode_t aflag, char *buf);
+int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
+int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int recurse, int makedir);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, int recurse);
@@ -130,6 +139,8 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
 
 
 //local functions
+int request_response(int type_cmd);
+int request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
@@ -158,6 +169,7 @@ void send_manager_work_done();
 void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
+void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

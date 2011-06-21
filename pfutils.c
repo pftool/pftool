@@ -12,10 +12,6 @@
 #include <errno.h>
 #include <utime.h>
 
-/* special includes for gpfs and dmapi */
-//#include <gpfs.h>
-//#include <dmapi.h>
-
 #include "pfutils.h"
 #include "debug.h"
 
@@ -76,6 +72,232 @@ char *printmode (mode_t aflag, char *buf){
   buf[10] = '\0';
   return buf; 
 }
+
+void copy_byes_to_file (const char *b, int len, const char *out_path){
+  short str_index;
+  unsigned char *ptr;
+  FILE *out;
+
+  
+  ptr = (unsigned char *) b;  /* point to buffer location to start  */
+  
+  out = fopen(out_path, "w");
+  for (str_index = 0; str_index < len; str_index++){
+    fprintf(out, "%c", ptr[str_index]); 
+  }
+  fclose(out);
+}
+
+void hex_dump_bytes (char *b, int len, char *outhexbuf){
+  short str_index;
+  size_t buf_index;
+  char smsg[64];
+  char tmsg[3];
+  unsigned char *ptr;
+  int start = 0;
+
+  ptr = (unsigned char *) (b + start);  /* point to buffer location to start  */
+  buf_index = 0;
+
+  /* if last frame and more lines are required get number of lines */
+
+  memset (smsg, '\0', 64);
+
+  for (str_index = 0; str_index < 28; str_index++) {
+    sprintf (tmsg, "%02X", ptr[str_index]);
+    strncat (smsg, tmsg, 2);
+  }
+  sprintf (outhexbuf, "%s", smsg);
+}
+
+int read_inodes (const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray){
+  const gpfs_iattr_t *iattrP;
+  gpfs_iscan_t *iscanP = NULL;
+  gpfs_fssnap_handle_t *fsP = NULL;
+  int rc = 0;
+
+  fsP = gpfs_get_fssnaphandle_by_path (fnameP);
+  if (fsP == NULL) {
+    rc = errno;
+    fprintf (stderr, "gpfs_get_fshandle_by_path: %s\n", strerror (rc));
+    goto exit;
+  }
+
+  iscanP = gpfs_open_inodescan (fsP, NULL, NULL);
+  if (iscanP == NULL) {
+    rc = errno;
+    fprintf (stderr, "gpfs_open_inodescan: %s\n", strerror (rc));
+    goto exit;
+  }
+
+  if (startinode > 0) {
+    rc = gpfs_seek_inode (iscanP, startinode);
+    if (rc != 0) {
+      rc = errno;
+      fprintf (stderr, "gpfs_seek_inode: %s\n", strerror (rc));
+      goto exit;
+    }
+  }
+
+  while (1) {
+    rc = gpfs_next_inode (iscanP, endinode, &iattrP);
+    if (rc != 0) {
+      rc = errno;
+      fprintf (stderr, "gpfs_next_inode: %s\n", strerror (rc));
+      goto exit;
+    }
+    if ((iattrP == NULL) || (iattrP->ia_inode > endinode)) {
+      break;
+    }
+
+    if (iattrP->ia_xperm & GPFS_IAXPERM_DMATTR) {
+      dmarray[0] = 1;
+    }
+  }
+
+exit:
+  if (iscanP) {
+    gpfs_close_inodescan (iscanP);
+  }
+  if (fsP) {
+    gpfs_free_fssnaphandle (fsP);
+  }
+
+  return rc;
+}
+
+//dmapi lookup
+int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf){
+  char *version;
+  char *session_name = "lookupdmapi";
+  static dm_sessid_t dump_dmapi_session = DM_NO_SESSION;
+  typedef long long offset_t;
+  void *dmhandle = NULL;
+  size_t dmhandle_len = 0;
+  u_int nelemr;
+  dm_region_t regbufpr[4000];
+  u_int nelempr;
+  size_t dmattrsize;
+  char dmattrbuf[4000];
+  size_t dmattrsizep;
+  //struct dm_attrlist my_dm_attrlist[20]; 
+  struct dm_attrlist my_dm_attrlistM[20];
+  struct dm_attrlist my_dm_attrlistP[20];
+  //struct dm_attrname my_dm_attrname;
+  struct dm_attrname my_dm_attrnameM;
+  struct dm_attrname my_dm_attrnameP;
+  char localhexbuf[128];
+
+  if (dm_init_service (&version) < 0) {
+    printf ("Cant get a dmapi session\n");
+    exit (-1);
+  }
+
+  if (dm_create_session (DM_NO_SESSION, session_name, &dump_dmapi_session) != 0) {
+    printf ("create_session \n");
+    exit (-1);
+  }
+  //printf("-------------------------------------------------------------------------------------\n");
+  //printf("created new DMAPI session named '%s' for %s\n",session_name,version);
+
+  if (dm_path_to_handle ((char *) mypath, &dmhandle, &dmhandle_len) != 0) {
+    goto done;
+  }
+  /* I probably should get more managed regions and check them all but
+     I dont know how to find out how many I will have total
+   */
+  nelemr = 1;
+  if (dm_get_region (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, nelemr, regbufpr, &nelempr) != 0) {
+    printf ("dm_get_region faileds\n");
+    goto done;
+  }
+
+  PRINT_DMAPI_DEBUG ("regbufpr: number of managed regions = %d \n", nelempr);
+  PRINT_DMAPI_DEBUG ("regbufpr.rg_offset = %lld \n", regbufpr[0].rg_offset);
+  PRINT_DMAPI_DEBUG ("regbufpr.rg_size = %lld \n", regbufpr[0].rg_size);
+  PRINT_DMAPI_DEBUG ("regbufpr.rg_flags = %u\n", regbufpr[0].rg_flags);
+
+  if (regbufpr[0].rg_flags > 0) {
+    if (regbufpr[0].rg_flags & DM_REGION_READ) {
+
+      PRINT_DMAPI_DEBUG ("regbufpr: File %s is migrated - dmapi wants to be notified on at least read for this region at offset %lld\n", mypath, regbufpr[0].rg_offset);
+
+      dmarray[2] = 1;
+      dmattrsize = sizeof (my_dm_attrlistM);
+      if (dm_getall_dmattr (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, dmattrsize, my_dm_attrlistM, &dmattrsizep) != 0) {
+        PRINT_DMAPI_DEBUG ("dm_getall_dmattr failed path %s\n", mypath);
+        goto done;
+      }
+
+      //strncpy((char *) my_dm_attrlistM[0].al_name.an_chars,"\n\n\n\n\n\n\n",7); 
+      //strncpy((char *) my_dm_attrlistM[0].al_name.an_chars,"IBMObj",6); 
+
+      PRINT_DMAPI_DEBUG ("M dm_getall_dmattr attrs %x size %ld\n", my_dm_attrlistM->al_name.an_chars[0], dmattrsizep);
+
+      dmattrsize = sizeof (dmattrbuf);
+
+      strncpy ((char *) my_dm_attrnameM.an_chars, "IBMObj", 6);
+
+      PRINT_DMAPI_DEBUG ("MA dm_get_dmattr attr 0 %s\n", my_dm_attrnameM.an_chars);
+
+      if (dm_get_dmattr (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, &my_dm_attrnameM, dmattrsize, dmattrbuf, &dmattrsizep) != 0) {
+        goto done;
+      }
+
+      hex_dump_bytes (dmattrbuf, 28, localhexbuf);
+      //copy_byes_to_file (dmattrbuf, 28, "/gpfstmnt/users/agtorre/pftool-rewrite/dmattrbuf.out");
+
+      //HB 
+      PRINT_DMAPI_DEBUG ("M dmapi_lookup localhexbuf %s\n", localhexbuf);
+      strncpy (dmouthexbuf, localhexbuf, 128);
+
+    }
+    else {
+      // This is a pre-migrated file
+      // 
+      PRINT_DMAPI_DEBUG ("regbufpr: File %s is premigrated  - dmapi wants to be notified on write and/or trunc for this region at offset %lld\n", mypath, regbufpr[0].rg_offset);
+
+      // HB 0324-2009  
+      dmattrsize = sizeof (my_dm_attrlistP);
+      if (dm_getall_dmattr (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, dmattrsize, my_dm_attrlistP, &dmattrsizep) != 0) {
+        PRINT_DMAPI_DEBUG ("P dm_getall_dmattr failed path %s\n", mypath);
+        goto done;
+      }
+
+      //strncpy((char *) my_dm_attrlistP[0].al_name.an_chars,"IBMPMig",7); 
+      PRINT_DMAPI_DEBUG ("P dm_getall_dmattr attrs %x size %ld\n", my_dm_attrlistP->al_name.an_chars[0], dmattrsizep);
+
+      dmattrsize = sizeof (dmattrbuf);
+      strncpy ((char *) my_dm_attrnameP.an_chars, "IBMPMig", 7);
+
+      PRINT_DMAPI_DEBUG ("PA dm_get_dmattr attr 0 %s\n", my_dm_attrnameP.an_chars);
+
+      if (dm_get_dmattr (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, &my_dm_attrnameP, dmattrsize, dmattrbuf, &dmattrsizep) != 0) {
+        goto done;
+      }
+
+      hex_dump_bytes (dmattrbuf, 28, localhexbuf);
+      strncpy (dmouthexbuf, localhexbuf, 128);
+      dmarray[1] = 1;
+    }
+  }
+  else {
+    // printf("regbufpr: File is resident - no managed regions\n");
+    dmarray[0] = 1;
+  }
+done:
+  /* I know this done goto is crap but I am tired 
+     we now free up the dmapi resources and set our uid back to 
+     the original user
+   */
+  dm_handle_free (dmhandle, dmhandle_len);
+  if (dm_destroy_session (dump_dmapi_session) != 0) {
+  }
+  //printf("-------------------------------------------------------------------------------------\n");
+
+  return (0);
+}
+
 
 char *get_base_path(const char *path, int wildcard){
   //wild card is a boolean
@@ -347,12 +569,30 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
 }
 
 //local functions only
+int request_response(int type_cmd){
+  MPI_Status status;
+  int response;
+  send_command(MANAGER_PROC, type_cmd);
+  
+  if (MPI_Recv(&response, 1, MPI_INT, MANAGER_PROC, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive response\n");
+  }
+  return response;
+}
+
+int request_input_queuesize(){
+  return request_response(QUEUESIZECMD);
+
+}
+
 void send_command(int target_rank, int type_cmd){
   //Tell a rank it's time to begin processing
+  PRINT_MPI_DEBUG("target rank %d: Sending command %d to target rank %d\n", target_rank, type_cmd, target_rank);
   if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
+
 
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count){
   int path_count = 0, position = 0;
@@ -527,6 +767,13 @@ void write_buffer_output(char *buffer, int buffer_size, int buffer_count){
   if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
+}
+
+void send_worker_queue_count(int target_rank, int queue_count){
+  if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+  
 }
 
 void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){

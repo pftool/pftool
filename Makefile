@@ -11,7 +11,7 @@ DLIB 				= -lgpfs -ldmapi
 GPFS_TYPE 	= GPFS_LINUX 
 DCFLAGS 		= -O -D$(GPFS_TYPE)
 
-all: pftool 
+all: pftool  dmapilookup
 
 pftool: pftool.o pfutils.o recall_api.o hashtbl.o
 	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB) pftool.o pfutils.o recall_api.o hashtbl.o -o pftool
@@ -25,10 +25,14 @@ pfutils.o: pfutils.c pfutils.h
 recall_api.o: recall_api.c recall_api.h
 	$(MPICC) $(CFLAGS) $(DCFLAGS) -c recall_api.c
 
-
 hashtbl.o: hashtbl.c hashtbl.h
 	$(MPICC) $(CFLAGS) -c hashtbl.c
 
+dmapilookup: dmapilookup.o pfutils.o
+	$(MPICC) $(CFLAGS) $(DLIB) dmapilookup.o pfutils.o -o dmapilookup
+
+dmapilookup.o: dmapilookup.c 
+	$(MPICC) $(CFLAGS) $(DCFLAGS) -c dmapilookup.c
 
 clean:
 	- /bin/rm -f *~
