@@ -423,7 +423,8 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   MPI_Status status;
   int rc;
   //1 MB copy size
-  int blocksize = 1048576, completed = 0;
+  int blocksize = 1048576;
+  off_t completed = offset;
   char *buf;
   char errormsg[MESSAGESIZE];
 
@@ -469,37 +470,20 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     return -1;
   }
 
-  //seek to the specified offset for the source
-  rc = MPI_File_seek(src_fd, offset, MPI_SEEK_SET);
-  if (rc != 0){
-    sprintf(errormsg, "Failed to fseek file: %s offset: %ld", src_file, offset);
-    errsend(NONFATAL, errormsg);
-    return -1;
-  }
-
-  //seek to the specified offset for the dest;
-  rc = MPI_File_seek(dest_fd, offset, MPI_SEEK_SET);
-  if (rc != 0){
-    sprintf(errormsg, "Failed to fseek file: %s offset: %ld", dest_file, offset);
-    errsend(NONFATAL, errormsg);
-    return -1;
-  }
-
   while (completed != length){
     //1 MB is too big
     if ((length - completed) < blocksize){
       blocksize = length - completed;
     }
-
     
-    rc = MPI_File_read(src_fd, buf, blocksize, MPI_BYTE, &status);
+    rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
     if (rc != 0){
       sprintf(errormsg, "Failed to fread file: %s", dest_file);
       errsend(NONFATAL, errormsg);
       return -1;
     }
 
-    rc = MPI_File_write(dest_fd, buf, blocksize, MPI_BYTE, &status );
+    rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
     if (rc != 0){
       sprintf(errormsg, "Failed to write file: %s", dest_file);
       errsend(NONFATAL, errormsg);
@@ -685,7 +669,7 @@ void send_manager_chunk_busy(){
   send_command(MANAGER_PROC, CHUNKBUSYCMD);
 }
 
-void send_manager_copy_stats(int num_copied_files, int num_copied_bytes){
+void send_manager_copy_stats(int num_copied_files, double num_copied_bytes){
   send_command(MANAGER_PROC, COPYSTATSCMD);
   
   //send the # of paths
@@ -694,7 +678,7 @@ void send_manager_copy_stats(int num_copied_files, int num_copied_bytes){
   }
 
   //send the # of paths
-  if (MPI_Send(&num_copied_bytes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+  if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
