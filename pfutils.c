@@ -329,7 +329,7 @@ char *get_base_path(const char *path, int wildcard){
   return strndup(base_path, PATHSIZE_PLUS);
 }
 
-void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int recurse, int makedir){
+void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o){
   int rc;
   struct stat beg_st, dest_st;
   char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
@@ -345,14 +345,14 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_item 
 
 
   //recursion special cases
-  if (recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0){
+  if (o.recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0 && o.work_type != COMPAREWORK){
     rc = lstat(beginning_path, &beg_st);
     if (rc < 0){
       errsend(FATAL, "Unable to stat beginning_path in get_dest_path.\n");
     }
 
     rc = lstat(dest_path, &dest_st);
-    if (rc >= 0 && S_ISDIR(dest_st.st_mode) && S_ISDIR(beg_st.st_mode)){
+    if (rc >= 0 && S_ISDIR(dest_st.st_mode) && S_ISDIR(beg_st.st_mode) && num_paths == 1){
       if (strstr(temp_path, "/") == NULL){
         path_slice = (char *)temp_path;
       }
@@ -383,9 +383,10 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_item 
   strncpy((*dest_node).path, final_dest_path, PATHSIZE_PLUS);
 }
 
-char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, int recurse){
+char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o){
   char output_path[PATHSIZE_PLUS];
   char *path_slice;
+  
 
   //remove a trailing slash
   strncpy(output_path, dest_node.path, PATHSIZE_PLUS);
@@ -394,7 +395,7 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
   }
 
   //path_slice = strstr(src_path, base_path);
-  if (recurse == 0){
+  if (o.recurse == 0){
     if(strstr(src_node.path, "/") != NULL){
       path_slice = (char *) strrchr(src_node.path, '/')+1;
     }
@@ -420,27 +421,31 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
 
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
-  MPI_Status status;
+  //MPI_Status status;
   int rc;
   //1 MB copy size
   int blocksize = 1048576;
-  off_t completed = offset;
+  off_t completed = 0;
   char *buf;
   char errormsg[MESSAGESIZE];
 
   //FILE *src_fd, *dest_fd;  
   char source_file[PATHSIZE_PLUS], destination_file[PATHSIZE_PLUS];
-  MPI_File src_fd, dest_fd;
+  //MPI_File src_fd, dest_fd;
+  int src_fd, dest_fd;
+  int bytes_processed;
 
 
   //can't be const for MPI_IO
   strncpy(source_file, src_file, PATHSIZE_PLUS);
   strncpy(destination_file, dest_file, PATHSIZE_PLUS);
 
+
   //incase someone accidently set and offset+length that exceeds the file bounds
   if ((src_st.st_size - offset) < length){
     length = src_st.st_size - offset;
   } 
+
 
   //a file less then 1 MB
   if (length < blocksize){
@@ -455,16 +460,23 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   
 
   //open the source file for reading in binary mode
-  rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
-  if (rc != 0){
+  //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
+  src_fd = open(src_file, O_RDONLY);
+  if (src_fd < 0){
     sprintf(errormsg, "Failed to open file %s for read", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
   //first create a file and open it for appending (file doesn't exist)
-  rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
-  if (rc != 0){
+  //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
+  if (src_st.st_size == length && offset == 0){
+    dest_fd = open(destination_file, O_WRONLY | O_CREAT , 0600);
+  }
+  else{
+    dest_fd = open(destination_file, O_WRONLY | O_CREAT | O_CONCURRENT_WRITE, 0600);
+  }
+  if (dest_fd < 0){
     sprintf(errormsg, "Failed to open file %s for write", dest_file);
     errsend(NONFATAL, errormsg);
     return -1;
@@ -473,19 +485,21 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   while (completed != length){
     //1 MB is too big
     if ((length - completed) < blocksize){
-      blocksize = length - completed;
+      blocksize = (length - completed);
     }
     
-    rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-    if (rc != 0){
-      sprintf(errormsg, "Failed to fread file: %s", dest_file);
+    //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
+    bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+    if (bytes_processed != blocksize){
+      sprintf(errormsg, "%s: Read %d bytes instead of %d", src_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
       return -1;
     }
 
-    rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
-    if (rc != 0){
-      sprintf(errormsg, "Failed to write file: %s", dest_file);
+    //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
+    bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
+    if (bytes_processed != blocksize){
+      sprintf(errormsg, "%s: write %d bytes instead of %d", dest_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
       return -1;
     }
@@ -494,14 +508,16 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   }
 
 
-  rc = MPI_File_close(&src_fd);
+  //rc = MPI_File_close(&src_fd);
+  rc = close(src_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  MPI_File_close(&dest_fd);
+  //rc = MPI_File_close(&dest_fd);
+  rc = close(dest_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", dest_file);
     errsend(NONFATAL, errormsg);
@@ -515,6 +531,39 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
       return -1;
     }
   }
+
+  return 0;
+}
+
+
+int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only){
+  struct stat dest_st;
+
+  // dest doesn't exist
+  if (lstat(dest_file, &dest_st) == -1){
+    return 2;
+  }
+
+
+  if (meta_data_only){
+    if (src_st.st_size == dest_st.st_size &&
+        src_st.st_mtime == dest_st.st_mtime &&
+        src_st.st_mode == dest_st.st_mode &&
+        src_st.st_uid == dest_st.st_uid &&
+        src_st.st_gid == dest_st.st_gid){
+      // match
+      return 0;
+    }
+    else{
+      // mismatch
+      return 1;
+    }
+  
+  }
+  else{
+
+  }
+
 
   return 0;
 }
@@ -619,9 +668,6 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
   char *workbuf;
   path_item work_node;
 
-  if (*buffer_count > MESSAGEBUFFER){
-    errsend(FATAL, "send_path_buffer: buffer_count is incorrectly > MESSAGEBUFFER\n");
-  }
   worksize = *buffer_count * sizeof(path_item);
   workbuf = (char *) malloc(worksize * sizeof(char)); 
   
@@ -773,6 +819,11 @@ void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *wor
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
   //send a worker a list buffers with paths to copy 
   send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
+}
+
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
+  //send a worker a list buffers with paths to compare 
+  send_buffer_list(target_rank, COMPARECMD, workbuflist, workbufsize);
 }
 
 void send_worker_exit(int target_rank){

@@ -19,11 +19,12 @@ void worker(int rank, struct options o);
 void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash);
 void worker_output(int rank, int sending_rank);
 void worker_buffer_output(int rank, int sending_rank);
-void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, int recurse);
+void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o);
 void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int mkdir, struct options o);
 void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir);
-void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse);
+void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
+void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 
 
 #define NULL_DEVICE      "/dev/null"  
@@ -31,10 +32,5 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
 #define WAIT_TIME    1
 #define SANITY_TIMER  300 
 
-enum wrk_type{
-  COPYWORK = 0,
-  LSWORK,
-  COMPAREWORK
-};
 
 #endif

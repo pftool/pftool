@@ -29,7 +29,13 @@
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
-#define MESSAGEBUFFER 400 
+#define MESSAGEBUFFER 300
+
+#define DIRBUFFER 300
+#define STATBUFFER 300
+#define CHUNKBUFFER 300
+#define COPYBUFFER 50
+#define TAPEBUFFER 50
 
 #define ANYFS     0
 #define PANASASFS 1
@@ -46,6 +52,8 @@
 #define EXT4_FILE        0xEF53
 #define PNFS_FILE        0X00000000
 #define ANY_FILE         0X00000000 
+
+#define O_CONCURRENT_WRITE          020000000000
 
 #define DevMinor(x) ((x)&0xFFFF)
 #define DevMajor(x) ((unsigned)(x)>>16)
@@ -82,6 +90,12 @@ enum cmd_opcode {
 #define FATAL 1
 #define NONFATAL 0
 
+enum wrk_type{
+  COPYWORK = 0,
+  LSWORK,
+  COMPAREWORK
+};
+
 enum filetype {
   REGULARFILE = 0,
   FUSEFILE,
@@ -96,6 +110,7 @@ struct options{
   int recurse;
   int different;
   int work_type;
+  int meta_data_only;
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
@@ -132,9 +147,10 @@ char *printmode (mode_t aflag, char *buf);
 int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
 int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 char *get_base_path(const char *path, int wildcard);
-void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int recurse, int makedir);
-char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, int recurse);
+void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
+char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
+int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 
 
@@ -173,6 +189,7 @@ void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues

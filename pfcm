@@ -6,10 +6,10 @@ from pfscripts import *
 def main():
   parser = OptionParser()
   parser.usage = "%prog [options] sourcePath destinationPath"
-  parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
+  parser.description = "%prog -- compare file(s) from sourcePath to destinationPath in parallel"
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
+  parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
-  parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -21,15 +21,18 @@ def main():
   src = args[:-1]
   dest = args[-1]
   commands = Commands()
-  commands.add("-w", Work.COPY)
+  commands.add("-w", Work.COMPARE)
   commands.add("-j", jid)
+
+  if options.metadata:
+    commands.add("-M")
 
   base_name = os.path.dirname(src[0])
   if options.recurse:
     commands.add("-r")
     for i in src:
       if os.path.dirname(i) != base_name:
-        parser.error("All sources for a recursive copy must be contained within the same directory.")
+        parser.error("All sources for a recursive compare must be contained within the same directory.")
 
   base_dest_name = os.path.dirname(dest)
   if base_dest_name and not os.path.exists(base_dest_name):
@@ -39,15 +42,12 @@ def main():
     if not os.path.exists(i):
       parser.error("cannot stat '%s': No such file or directory"%(i))
 
-  #parse additional options
-  if options.different:
-    commands.add("-n")
   
   commands.add("-p", *src)
   commands.add("-c", dest)
 
   host_list = filter(lambda x: config["active_nodes"][x] == "ON", config["active_nodes"])
-  num_procs = config["num_procs"]["pfcp"]
+  num_procs = config["num_procs"]["pfcm"]
 
   if len(host_list) == 0:
     busy()
@@ -62,7 +62,6 @@ def main():
   pfcmd.add("-n", num_procs)
   pfcmd.add(pftool)
   pfcmd.add(*commands.commands)
-
 
   host = gethostname()
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))

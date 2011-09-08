@@ -9,6 +9,7 @@ ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
 class Work:
   COPY = 0
   LS = 1
+  COMPARE = 2
 
 class Commands:
   def __init__(self):
