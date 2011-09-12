@@ -34,8 +34,8 @@
 #define DIRBUFFER 300
 #define STATBUFFER 300
 #define CHUNKBUFFER 300
-#define COPYBUFFER 50
-#define TAPEBUFFER 50
+#define COPYBUFFER 30
+#define TAPEBUFFER 30
 
 #define ANYFS     0
 #define PANASASFS 1

@@ -846,7 +846,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   off_t chunk_size_save = 107374182400; //10GB
 
   off_t num_bytes_seen = 0;
-  off_t ship_off = 3221225472; //3GB
+  off_t ship_off = 2147483648; //2GB
   //int chunk_size = 1024;
   off_t chunk_curr_offset = 0;
 
@@ -947,28 +947,23 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       }
     }
     else{
-      if (S_ISLNK(st.st_mode)){
-        link_result = canonicalize_file_name(work_node.path);
-        if (link_result){
-          strncpy(linkname, link_result, PATHSIZE_PLUS);
-          if (is_fuse_chunk(linkname) || o.work_type == COPYWORK){
-            if (lstat(linkname, &st) == -1) {
-              snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
-              errsend(FATAL, errortext);
-            }
-            work_node.st = st;
+      if (S_ISLNK(work_node.st.st_mode)){
+        numchars = readlink(work_node.path, linkname, PATHSIZE_PLUS);
+        if (numchars < 0){
+          snprintf(errortext, MESSAGESIZE, "Failed to read link %s", link_result);
+          errsend(FATAL, errortext);
+        }
+        if (is_fuse_chunk(canonicalize_file_name(work_node.path))){
+          if (lstat(linkname, &st) == -1) {
+            snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
+            errsend(FATAL, errortext);
           }
-          if (is_fuse_chunk(linkname) == 1){
-            work_node.ftype = FUSEFILE;
-          }
-          else{
-            //handle symlinks here
-            work_node.ftype = LINKFILE;
-          }
-        }       
+          work_node.st = st;
+          work_node.ftype = FUSEFILE;
+        }
         else{
-          snprintf(errortext, MESSAGESIZE, "Failed to stat path '%s': No such file or directory", work_node.path);
-          errsend(NONFATAL, errortext);
+          //handle symlinks here
+          work_node.ftype = LINKFILE;
         }
       }
       //do this for all regular files AND fuse+symylinks
@@ -985,7 +980,8 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
           if (o.different == 1){
             //check size, mtime, mode, and owners 
             if (work_node.st.st_size == out_st.st_size &&
-                work_node.st.st_mtime == out_st.st_mtime &&
+                (work_node.st.st_mtime == out_st.st_mtime  ||
+                S_ISLNK(work_node.st.st_mode))&&
                 work_node.st.st_mode == out_st.st_mode &&
                 work_node.st.st_uid == out_st.st_uid &&
                 work_node.st.st_gid == out_st.st_gid){
@@ -1003,11 +999,12 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
                 snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
                 errsend(FATAL, errortext);
               }
-              if (is_fuse_chunk(linkname) == 1){
+              if (is_fuse_chunk(canonicalize_file_name(work_node.path)) == 1){
                 //it's a fuse file trunc
                 trunc = 1;
               }
               else{
+                trunc = 0;
                 //it's a regular symlink, unlink
                 rc = unlink(out_node.path);
                 if (rc < 0){
@@ -1079,11 +1076,19 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
               work_node.length = chunk_size;
               chunk_curr_offset += chunk_size;
             }
+
+            if (work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)){
+              //for links or metadata compare work just send the whole file
+              work_node.offset = 0;
+              work_node.length = work_node.st.st_size;
+              chunk_curr_offset = work_node.st.st_size;
+            }
             regbuffer[reg_buffer_count] = work_node;
             reg_buffer_count++;
             num_bytes_seen += work_node.length;
             if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
               send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+              num_bytes_seen = 0;
             }      
           }
         }
@@ -1311,12 +1316,19 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     length = work_node.length;
     rc = copy_file(path, out_path, offset, length, work_node.st);
     if (rc >= 0){
-      sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
+      if (S_ISLNK(work_node.st.st_mode)){
+        sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_path, path);
+      }
+      else{
+        sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
+      }
       MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       //file is not 'chunked'
       if (offset == 0 && length == work_node.st.st_size){ 
         num_copied_files +=1;
-        num_copied_bytes += length;
+        if (!S_ISLNK(work_node.st.st_mode)){
+          num_copied_bytes += length;
+        }
       }
       else{
         chunks_copied[buffer_count] = work_node;
@@ -1391,7 +1403,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     offset = work_node.offset;
     length = work_node.length;
     rc = compare_file(path, out_path, offset, length, work_node.st, o.meta_data_only);
-    if (o.meta_data_only){
+    if (o.meta_data_only || work_node.ftype == LINKFILE){
       sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", path, out_path);
     }
     else{

@@ -370,6 +370,7 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_item 
     if (S_ISDIR(beg_st.st_mode) && makedir == 1){   
       mkdir(final_dest_path, S_IRWXU);
     }
+
   }
 
 
@@ -436,9 +437,34 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   int bytes_processed;
 
 
+  //symlink
+  char link_path[PATHSIZE_PLUS];
+  int numchars;
+
+
   //can't be const for MPI_IO
   strncpy(source_file, src_file, PATHSIZE_PLUS);
   strncpy(destination_file, dest_file, PATHSIZE_PLUS);
+
+  if (S_ISLNK(src_st.st_mode)){
+    numchars = readlink(src_file, link_path, PATHSIZE_PLUS);
+    if (numchars < 0){
+      sprintf(errormsg, "Failed to read link %s", src_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    rc = symlink(link_path,destination_file);
+    if (rc < 0){
+      sprintf(errormsg, "Failed to create symlink %s -> %s", destination_file, link_path);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    if (update_stats(src_file, dest_file, src_st) != 0){
+      return -1;
+    }
+    return 0;
+
+  }
 
 
   //incase someone accidently set and offset+length that exceeds the file bounds
@@ -544,25 +570,23 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, off_
     return 2;
   }
 
-
-  if (meta_data_only){
-    if (src_st.st_size == dest_st.st_size &&
-        src_st.st_mtime == dest_st.st_mtime &&
-        src_st.st_mode == dest_st.st_mode &&
-        src_st.st_uid == dest_st.st_uid &&
-        src_st.st_gid == dest_st.st_gid){
-      // match
+  if (src_st.st_size == dest_st.st_size &&
+      (src_st.st_mtime == dest_st.st_mtime  ||
+      S_ISLNK(src_st.st_mode))&&
+      src_st.st_mode == dest_st.st_mode &&
+      src_st.st_uid == dest_st.st_uid &&
+      src_st.st_gid == dest_st.st_gid){
+    //metadata compare
+    if (meta_data_only){
       return 0;
     }
-    else{
-      // mismatch
-      return 1;
-    }
-  
+    //byte compare
   }
   else{
-
+    return 1;
   }
+
+
 
 
   return 0;
@@ -574,19 +598,22 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
   int mode;
   struct utimbuf ut;
 
-  rc = chown(dest_file, src_st.st_uid, src_st.st_gid);
+  rc = lchown(dest_file, src_st.st_uid, src_st.st_gid);
   if (rc != 0){
     sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file, src_st.st_uid, src_st.st_gid);
     errsend(NONFATAL, errormsg);
     return -1;
   }
 
-  mode = src_st.st_mode & 07777;
-  rc = chmod(dest_file, mode);
-  if (rc != 0){
-    sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
-    errsend(NONFATAL, errormsg);
-    return -1;
+
+  if (!S_ISLNK(src_st.st_mode)){
+    mode = src_st.st_mode & 07777;
+    rc = chmod(dest_file, mode);
+    if (rc != 0){
+      sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
   }
 
   ut.actime = src_st.st_atime;
@@ -858,6 +885,7 @@ int is_fuse_chunk(const char *path){
   //pass in a symlink's followed path to determine if it's a fuse file
   struct statfs stfs;
   char errortext[MESSAGESIZE];
+
 
   if (statfs(path, &stfs) < 0) {
     snprintf(errortext, MESSAGESIZE, "is_fuse_chunk: Failed to statfs path %s", path);
