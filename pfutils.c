@@ -20,18 +20,19 @@
 void usage () {
 	// print usage statement 
 	printf ("********************** PFTOOL USAGE ************************************************************\n");
-	printf (" \n");
+	printf ("\n");
 	printf ("\npftool: parallel file tool utilities\n");
 	printf ("1. Walk through directory tree structure and gather statistics on files and\n");
 	printf ("   directories encountered.\n");
-	printf ("2. Apply various data moving operationbased on the selected options \n");
+	printf ("2. Apply various data moving operations based on the selected options \n");
 	printf ("\n");
 	printf ("mpirun -np totalprocesses pftool [options]\n");
 	printf (" Options\n");
-	printf (" [-p] path                                 : path to start parallel tree walk (required argument)\n");
-	printf (" [-c] copypath                             : destination path for data movement\n");
-	printf (" [-j] jobid                                : unique jobid for the pftool job\n");
-	printf (" [-R] recursive                            : recursive operation down directory tree Active=1, InActive=0 (default 0)\n");
+	printf (" [-p]                                      : path to start parallel tree walk (required argument)\n");
+	printf (" [-c]                                      : destination path for data movement\n");
+	printf (" [-j]                                      : unique jobid for the pftool job\n");
+	printf (" [-r]                                      : recursive operation down directory tree\n");
+	printf (" [-v]                                      : user verbose output\n");
 	printf (" [-h]                                      : Print Usage information\n");
 	printf (" \n");
 	printf (" Using man pftool for the details of pftool information \n");

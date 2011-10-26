@@ -21,6 +21,9 @@ def main():
   commands.add("-w", Work.LS)
   commands.add("-j", jid)
 
+  if options.verbose:
+    commands.add("-v");
+
   if options.input_list:
     commands.add ("-i", options.input_list)
   elif src:
@@ -51,6 +54,7 @@ def main():
   pfcmd.add(*commands.commands)
 
   host = gethostname()
+
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   
   #write_log("[pfcp] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))

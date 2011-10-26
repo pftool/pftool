@@ -93,6 +93,7 @@ int main(int argc, char *argv[]){
   int statrc;
 
   //initialize options
+  o.verbose = 0;
   o.use_file_list = 0;
   o.recurse = 0;
   o.meta_data_only = 1;
@@ -100,7 +101,7 @@ int main(int argc, char *argv[]){
   //o.work_type = LSWORK;
 
   //Process using getopt
-  while ((c = getopt(argc, argv, "p:c:j:w:i:rMnh")) != -1) 
+  while ((c = getopt(argc, argv, "p:c:j:w:i:vrMnh")) != -1) 
     switch(c){
       case 'p':
         //Get the source/beginning path
@@ -129,6 +130,9 @@ int main(int argc, char *argv[]){
         break;
       case 'M':
         o.meta_data_only = 0;
+        break;
+      case 'v':
+        o.verbose = 1;
         break;
       case 'h':
         //Help -- incoming!
@@ -674,6 +678,9 @@ void worker(int rank, struct options o){
     switch(type_cmd){
       case OUTCMD:
         worker_output(rank, sending_rank, output_buffer, &output_count);
+        if (!o.verbose){
+          worker_flush_output(output_buffer, &output_count);
+        }
         break;
       case BUFFEROUTCMD:
         worker_buffer_output(rank, sending_rank, output_buffer, &output_count);
@@ -1160,33 +1167,32 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
     strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
     //if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
-    if (work_node.ftype == MIGRATEFILE){
-      sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+    if (o.verbose){
+      if (work_node.ftype == MIGRATEFILE){
+        sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+      }
+      else if (work_node.ftype == PREMIGRATEFILE){
+        sprintf(statrecord, "INFO  DATASTAT %sP %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+      }
+      else{
+        sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+      }
+      MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+      write_count++;
+      if (write_count % write_count_max == 0){
+        write_buffer_output(writebuf, writesize, write_count);
+        out_position = 0;
+        write_count = 0;
+      }
     }
-    else if (work_node.ftype == PREMIGRATEFILE){
-      sprintf(statrecord, "INFO  DATASTAT %sP %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
-    }
-    else{
-      sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
-    }
-    MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
-    write_count++;
-    if (write_count % write_count_max == 0){
-      write_buffer_output(writebuf, writesize, write_count);
-      out_position = 0;
-      write_count = 0;
-    }
-    
-    
   } 
 
   //incase we tried to copy a file into itself
-  //if (write_count != stat_count){
-  writesize = MESSAGESIZE * write_count;
-  writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
-  //}
-  write_buffer_output(writebuf, writesize, write_count);
-
+  if (o.verbose){
+    writesize = MESSAGESIZE * write_count;
+    writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+    write_buffer_output(writebuf, writesize, write_count);
+  }
   
   while(dir_buffer_count != 0){
     send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);

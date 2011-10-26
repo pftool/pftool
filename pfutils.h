@@ -107,7 +107,7 @@ enum filetype {
 //Structs and typedefs
 //options{
 struct options{
-  int nproc;
+  int verbose;
   int recurse;
   int different;
   int work_type;
