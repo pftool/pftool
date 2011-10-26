@@ -29,10 +29,10 @@
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
-#define MESSAGEBUFFER 300
+#define MESSAGEBUFFER 2000
 
-#define DIRBUFFER 300
-#define STATBUFFER 300
+#define DIRBUFFER 50
+#define STATBUFFER 2000
 #define CHUNKBUFFER 300
 #define COPYBUFFER 30
 #define TAPEBUFFER 30
@@ -107,6 +107,7 @@ enum filetype {
 //Structs and typedefs
 //options{
 struct options{
+  int nproc;
   int recurse;
   int different;
   int work_type;

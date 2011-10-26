@@ -425,7 +425,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
   //MPI_Status status;
   int rc;
   //1 MB copy size
-  int blocksize = 1048576;
+  int blocksize =  1048576;
   off_t completed = 0;
   char *buf;
   char errormsg[MESSAGESIZE];
@@ -642,7 +642,6 @@ int request_response(int type_cmd){
 
 int request_input_queuesize(){
   return request_response(QUEUESIZECMD);
-
 }
 
 void send_command(int target_rank, int type_cmd){
@@ -886,6 +885,10 @@ int is_fuse_chunk(const char *path){
   struct statfs stfs;
   char errortext[MESSAGESIZE];
 
+
+  if (path == NULL){
+    return 0;
+  }
 
   if (statfs(path, &stfs) < 0) {
     snprintf(errortext, MESSAGESIZE, "is_fuse_chunk: Failed to statfs path %s", path);

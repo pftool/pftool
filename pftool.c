@@ -203,7 +203,7 @@ int main(int argc, char *argv[]){
 
 void manager(int rank, struct options o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path){
   MPI_Status status;
-  int all_done = 0, message_ready = 0, probecount = 0;
+  int message_ready = 0, probecount = 0;
   int prc, type_cmd;
   int work_rank, sending_rank;
 
@@ -304,7 +304,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   //starttime
   gettimeofday(&in, NULL);
 
-  while (all_done == 0){
+  while (1){
     //poll for message
     while ( message_ready == 0){ 
       prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &message_ready, &status);
@@ -316,8 +316,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         probecount++;
       }   
 
-      if  (probecount % 30000 == 0){ 
+      if  (probecount % 3000 == 0){
         PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
+        PRINT_POLL_DEBUG("work_buf_list_size = %d\n", work_buf_list_size);
+        PRINT_POLL_DEBUG("input_buf_list_size = %d\n", input_buf_list_size);
+        PRINT_POLL_DEBUG("dir_buf_list_size = %d\n", dir_buf_list_size);
       }   
       //we didn't get any new messages from workers
       if (message_ready == 0){
@@ -327,13 +330,38 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         }
         PRINT_PROC_DEBUG("=============\n");
 
+        //work_rank = get_free_rank(proc_status, 3, nproc - 1);
         work_rank = get_free_rank(proc_status, 3, nproc - 1);
-        if ((o.recurse && work_rank != -1 && dir_buf_list_size != 0) || (o.use_file_list && dir_buf_list_size != 0)){
+        if ((o.recurse && work_rank != -1 && dir_buf_list_size != 0) || (o.use_file_list && dir_buf_list_size != 0 && input_buf_list_size < nproc*3)){
           proc_status[work_rank] = 1;
           send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
         }
         else if (!o.recurse){
           delete_buf_list(&dir_buf_list, &dir_buf_list_size);
+        }
+
+        if (o.work_type == COPYWORK){
+          for (i = 0; i < 3; i ++){
+            work_rank = get_free_rank(proc_status, 3, nproc - 1);
+            if (work_rank > -1 && work_buf_list_size > 0){
+              proc_status[work_rank] = 1;
+              send_worker_copy_path(work_rank, &work_buf_list, &work_buf_list_size);
+            }
+          }
+        }
+        else if (o.work_type == COMPAREWORK){
+          for (i = 0; i < 3; i ++){
+            work_rank = get_free_rank(proc_status, 3, nproc - 1);
+            if (work_rank > -1 && work_buf_list_size > 0){
+              proc_status[work_rank] = 1;
+              send_worker_compare_path(work_rank, &work_buf_list, &work_buf_list_size);
+            }
+          }
+        }
+        else{
+          //delete the queue here
+          delete_buf_list(&work_buf_list, &work_buf_list_size);
+          delete_buf_list(&tape_buf_list, &tape_buf_list_size);
         }
 
         for (i = 0; i < 3; i ++){
@@ -344,29 +372,17 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           }
         }
 
-        if (o.work_type == COPYWORK){
-          work_rank = get_free_rank(proc_status, 3, nproc - 1);
-          if (work_rank > -1 && work_buf_list_size > 0){
-            proc_status[work_rank] = 1;
-            send_worker_copy_path(work_rank, &work_buf_list, &work_buf_list_size);
-          }
-        }
-        else if (o.work_type == COMPAREWORK){
-          work_rank = get_free_rank(proc_status, 3, nproc - 1);
-          if (work_rank > -1 && work_buf_list_size > 0){
-            proc_status[work_rank] = 1;
-            send_worker_compare_path(work_rank, &work_buf_list, &work_buf_list_size);
-          }
-
-        }
-        else{
-          //delete the queue here
-          delete_buf_list(&work_buf_list, &work_buf_list_size);
-          delete_buf_list(&tape_buf_list, &tape_buf_list_size);
-        }
+      }
+      //are we finished?
+      if (work_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+        break;
       }
       usleep(1);
     }   
+    //are we finished?
+    if (work_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+      break;
+    }
 
     //grab message type
     PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type\n", rank);
@@ -420,10 +436,6 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
     message_ready = 0;
     
-    //are we finished?
-    if (work_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
-      all_done = 1;
-    }
     
   }
   gettimeofday(&out, NULL);
@@ -449,13 +461,6 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %0.0f\n", (num_copied_bytes/(1024*1024)));
       write_output(message);
     }
-    if (elapsed_time == 1){
-      sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
-    }
-    else{
-      sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
-    }
-    write_output(message);
     
     if((num_copied_bytes/(1024*1024)) > 0 ){
       sprintf(message, "INFO  FOOTER   Data Rate: %0.0f MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
@@ -471,6 +476,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
 
   }
+  if (elapsed_time == 1){
+    sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
+  }
+  else{
+    sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
+  }
+  write_output(message);
 
 
   for(i = 1; i < nproc; i++){
@@ -603,6 +615,13 @@ void worker(int rank, struct options o){
   HASHTBL *chunk_hash;
   int base_count = 100, hash_count = 0;
 
+  char *output_buffer;
+  int output_count = 0;
+
+  if (rank == OUTPUT_PROC){
+    output_buffer = (char *) malloc(MESSAGESIZE*MESSAGEBUFFER*sizeof(char));
+  }
+
   if (rank == ACCUM_PROC){
     if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
       errsend(FATAL, "hashtbl_create() failed\n");
@@ -654,10 +673,10 @@ void worker(int rank, struct options o){
     //do operations based on the message
     switch(type_cmd){
       case OUTCMD:
-        worker_output(rank, sending_rank);
+        worker_output(rank, sending_rank, output_buffer, &output_count);
         break;
       case BUFFEROUTCMD:
-        worker_buffer_output(rank, sending_rank);
+        worker_buffer_output(rank, sending_rank, output_buffer, &output_count);
         break;
       case UPDCHUNKCMD:
         worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, dest_node, o);
@@ -685,6 +704,10 @@ void worker(int rank, struct options o){
   }
   if (rank == ACCUM_PROC){
     hashtbl_destroy(chunk_hash);
+  }
+  if (rank == OUTPUT_PROC){
+    worker_flush_output(output_buffer, &output_count);
+    free(output_buffer);
   }
 }
 
@@ -749,7 +772,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
   send_manager_work_done(rank);
 }
 
-void worker_output(int rank, int sending_rank){
+void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count){
   //have a worker receive and print a single message
   MPI_Status status;
   
@@ -760,16 +783,21 @@ void worker_output(int rank, int sending_rank){
   if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive msg\n");
   }
-  printf("Rank %2d: %s", sending_rank, msg);
+  strncat(output_buffer, msg, MESSAGESIZE);
+  (*output_count)++;
+  if (*output_count >= MESSAGEBUFFER){
+    worker_flush_output(output_buffer, output_count);
+  }
   
 }
 
-void worker_buffer_output(int rank, int sending_rank){
+void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count){
   //have a worker receive and print a single message
   MPI_Status status;
   
   int message_count;
   char msg[MESSAGESIZE];
+  char outmsg[MESSAGESIZE];
 
   char *buffer;
   int buffersize;
@@ -792,13 +820,29 @@ void worker_buffer_output(int rank, int sending_rank){
     errsend(FATAL, "Failed to receive buffer\n");
   }
 
+
   position = 0;
   for (i = 0; i < message_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
-    printf("Rank %2d: %s", sending_rank, msg);
+    snprintf(outmsg, MESSAGESIZE+10, "RANK %2d: %s", sending_rank, msg);
+    strncat(output_buffer, outmsg, MESSAGESIZE);
+    (*output_count)++;
+    if (*output_count >= MESSAGEBUFFER){
+      worker_flush_output(output_buffer, output_count);
+    }
+    //printf("Rank %2d: %s", sending_rank, msg);
   }
   free(buffer);
+}
+
+
+void worker_flush_output(char *output_buffer, int *output_count){
+  if (*output_count > 0){
+    printf("%s", output_buffer);
+    (*output_count) = 0;
+    memset(output_buffer,'\0', sizeof(output_buffer));
+  }
 }
 
 void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o){
@@ -1174,7 +1218,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   char mkdir_path[PATHSIZE_PLUS];
 
   path_item work_node;
-  path_item workbuffer[DIRBUFFER];
+  path_item workbuffer[STATBUFFER];
   int buffer_count = 0;
 
   DIR *dip;
@@ -1225,7 +1269,10 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
           buffer_count++;
         }
         
-        if (buffer_count != 0 && buffer_count % DIRBUFFER == 0){
+        if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
+          while (request_input_queuesize() > 16){
+            sleep(10);
+          }
           send_manager_new_buffer(workbuffer, &buffer_count);
         }
       }
@@ -1244,7 +1291,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         workbuffer[buffer_count] = work_node;
         buffer_count++;
 
-        if (buffer_count != 0 && buffer_count % DIRBUFFER == 0){
+        if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
           send_manager_new_buffer(workbuffer, &buffer_count);
         }
 

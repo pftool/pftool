@@ -1,15 +1,15 @@
 num_procs:
-  pfls: 23
-  pfcp: 33
+  pfls: 15
+  pfcp: 52
   pfcm: 15
 
 pftool:
   fuse_dir: "/archive/fusemnt"
 
 active_nodes:
-  gpfst1: "OFF"
-  gpfst2: "OFF"
-  gpfst3: "OFF"
+  gpfst1: "ON"
+  gpfst2: "ON"
+  gpfst3: "ON"
   gpfst4: "ON"
   gpfst5: "ON"
   gpfst6: "ON"
