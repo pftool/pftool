@@ -240,8 +240,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int  num_copied_files = 0;
   double num_copied_bytes = 0;
 
-  work_buf_list *input_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
-  int input_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
+  work_buf_list *stat_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
+  int stat_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
 
 #ifndef DISABLE_TAPE
   work_buf_list *tape_buf_list = NULL;
@@ -305,7 +305,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_size);
   }
   else{
-    pack_list(input_queue_head, input_queue_count, &input_buf_list, &input_buf_list_size);
+    pack_list(input_queue_head, input_queue_count, &stat_buf_list, &stat_buf_list_size);
   }
   delete_queue_path(&input_queue_head, &input_queue_count);
   
@@ -341,7 +341,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       if  (probecount % 3000 == 0){
         PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
         PRINT_POLL_DEBUG("process_buf_list_size = %d\n", process_buf_list_size);
-        PRINT_POLL_DEBUG("input_buf_list_size = %d\n", input_buf_list_size);
+        PRINT_POLL_DEBUG("stat_buf_list_size = %d\n", stat_buf_list_size);
         PRINT_POLL_DEBUG("dir_buf_list_size = %d\n", dir_buf_list_size);
       }   
       //we didn't get any new messages from workers
@@ -354,7 +354,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
         //work_rank = get_free_rank(proc_status, 3, nproc - 1);
         work_rank = get_free_rank(proc_status, 3, nproc - 1);
-        if ((o.recurse && work_rank != -1 && dir_buf_list_size != 0) || (o.use_file_list && dir_buf_list_size != 0 && input_buf_list_size < nproc*3)){
+        if ((o.recurse && work_rank != -1 && dir_buf_list_size != 0) || (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)){
           proc_status[work_rank] = 1;
           send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
         }
@@ -392,24 +392,23 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
         for (i = 0; i < 3; i ++){
           work_rank = get_free_rank(proc_status, 3, nproc - 1);
-          if (work_rank > -1 && input_buf_list_size != 0){
+          if (work_rank > -1 && stat_buf_list_size != 0){
             proc_status[work_rank] = 1;
-            send_worker_stat_path(work_rank, &input_buf_list, &input_buf_list_size);
+            send_worker_stat_path(work_rank, &stat_buf_list, &stat_buf_list_size);
           }
         }
 
       }
       //are we finished?
-      if (process_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+      if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
         break;
       }
       usleep(1);
     }   
-    //are we finished?
-    if (process_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+
+    if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
       break;
     }
-
     //grab message type
     PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type\n", rank);
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -437,7 +436,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       case EXAMINEDSTATSCMD:
         manager_add_examined_stats(rank, sending_rank, &examined_count);
         break;
-      case REGULARCMD:
+      case PROCESSCMD:
           manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
         break;
       case DIRCMD:
@@ -454,10 +453,10 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 #endif
 
       case INPUTCMD:
-        manager_add_buffs(rank, sending_rank, &input_buf_list, &input_buf_list_size);
+        manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_size);
         break;
       case QUEUESIZECMD:
-        send_worker_queue_count(sending_rank, input_buf_list_size);
+        send_worker_queue_count(sending_rank, stat_buf_list_size);
         break;
       default:
         break;
@@ -711,25 +710,18 @@ void worker(int rank, struct options o){
     //do operations based on the message
     switch(type_cmd){
       case OUTCMD:
-        worker_output(rank, sending_rank, output_buffer, &output_count);
-        if (!o.verbose){
-          worker_flush_output(output_buffer, &output_count);
-        }
+        worker_output(rank, sending_rank, output_buffer, &output_count, o);
         break;
       case BUFFEROUTCMD:
-        worker_buffer_output(rank, sending_rank, output_buffer, &output_count);
+        worker_buffer_output(rank, sending_rank, output_buffer, &output_count, o);
         break;
       case UPDCHUNKCMD:
         worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, dest_node, o);
         break;
-      case EXITCMD:
-        all_done = 1;
-        break;
-      case NAMECMD:
+      case STATCMD:
         worker_stat(rank, sending_rank, base_path, dest_node, o);
         break;
       case DIRCMD:
-        //worker_readdir_stat(rank, sending_rank, base_path, dest_node, o.recurse, makedir);
         worker_readdir(rank, sending_rank, base_path, dest_node, makedir, o);
         break;
       case COPYCMD:
@@ -737,6 +729,9 @@ void worker(int rank, struct options o){
         break;
       case COMPARECMD:
         worker_comparelist(rank, sending_rank, base_path, dest_node, o);
+        break;
+      case EXITCMD:
+        all_done = 1;
         break;
       default:
         break;
@@ -813,7 +808,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
   send_manager_work_done(rank);
 }
 
-void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count){
+void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o){
   //have a worker receive and print a single message
   MPI_Status status;
   
@@ -826,13 +821,12 @@ void worker_output(int rank, int sending_rank, char *output_buffer, int *output_
   }
   strncat(output_buffer, msg, MESSAGESIZE);
   (*output_count)++;
-  if (*output_count >= MESSAGEBUFFER){
+  if (*output_count >= MESSAGEBUFFER || !o.verbose){
     worker_flush_output(output_buffer, output_count);
   }
-  
 }
 
-void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count){
+void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o){
   //have a worker receive and print a single message
   MPI_Status status;
   
@@ -946,6 +940,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
 #endif
 
 
+
   PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
   if (MPI_Recv(&stat_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive stat_count\n");
@@ -1038,6 +1033,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
 #endif
     else{
       if (S_ISLNK(work_node.st.st_mode)){
+        memset(linkname,'\0', PATHSIZE_PLUS);
         numchars = readlink(work_node.path, linkname, PATHSIZE_PLUS);
         if (numchars < 0){
           snprintf(errortext, MESSAGESIZE, "Failed to read link %s", link_result);
@@ -1082,6 +1078,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   
             out_node.st = out_st;
             if (S_ISLNK(out_st.st_mode)){
+              memset(linkname,'\0', PATHSIZE_PLUS);
               numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
               if (numchars < 0){
                 snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);

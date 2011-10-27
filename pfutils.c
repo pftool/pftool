@@ -647,6 +647,7 @@ void send_command(int target_rank, int type_cmd){
   //Tell a rank it's time to begin processing
   PRINT_MPI_DEBUG("target rank %d: Sending command %d to target rank %d\n", target_rank, type_cmd, target_rank);
   if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
@@ -677,10 +678,12 @@ void send_path_list(int target_rank, int command, int num_send, path_list **list
 
   //send the # of paths
   if (MPI_Send(&workcount, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send workcount %d to rank %d\n", workcount, target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
   if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send workbuf to rank %d\n",  target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
   free(workbuf);
@@ -705,10 +708,12 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
   send_command(target_rank, command);
   
   if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send buffer_count %d to rank %d\n", *buffer_count, target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
   if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send workbuf to rank %d\n", target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
   *buffer_count = 0;
@@ -722,10 +727,12 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
   send_command(target_rank, command);
 
   if (MPI_Send(&size, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send workbuflist size %d to rank %d\n", size, target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
   if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
   dequeue_buf_list(workbuflist, workbufsize);
@@ -745,11 +752,13 @@ void send_manager_copy_stats(int num_copied_files, double num_copied_bytes){
   
   //send the # of paths
   if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_copied_files %d to rank %d\n", num_copied_files, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
   //send the # of paths
   if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_copied_byes %f to rank %d\n", num_copied_bytes, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
@@ -759,6 +768,7 @@ void send_manager_examined_stats(int num_examined){
 
   //send the # of paths
   if (MPI_Send(&num_examined, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined %d to rank %d\n", num_examined, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
   
@@ -767,7 +777,7 @@ void send_manager_examined_stats(int num_examined){
 
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count){
   //sends a chunk of regular files to the manager
-  send_path_buffer(MANAGER_PROC, REGULARCMD, buffer, buffer_count);
+  send_path_buffer(MANAGER_PROC, PROCESSCMD, buffer, buffer_count);
 }
 
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count){
@@ -803,6 +813,7 @@ void write_output(char *message){
 
   //send the message
   if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
@@ -816,16 +827,19 @@ void write_buffer_output(char *buffer, int buffer_size, int buffer_count){
 
   //send the size of the buffer
   if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 
   if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
 }
 
 void send_worker_queue_count(int target_rank, int queue_count){
   if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to queue_count %d to rank %d\n", queue_count, target_rank);
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
   
@@ -833,7 +847,7 @@ void send_worker_queue_count(int target_rank, int queue_count){
 
 void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
   //send a worker a list buffers with paths to stat
-  send_buffer_list(target_rank, NAMECMD, workbuflist, workbufsize);
+  send_buffer_list(target_rank, STATCMD, workbuflist, workbufsize);
 }
 
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
@@ -871,6 +885,7 @@ void errsend(int fatal, char *error_text){
   
   write_output(errormsg);
 
+  printf("==> here? -- %s\n", error_text);
   if (fatal){
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
@@ -890,7 +905,7 @@ int is_fuse_chunk(const char *path){
   }
 
   if (statfs(path, &stfs) < 0) {
-    snprintf(errortext, MESSAGESIZE, "is_fuse_chunk: Failed to statfs path %s", path);
+    snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
     errsend(FATAL, errortext);
   }
   //if (strstr(path, "/fusemnt/")){
