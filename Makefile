@@ -10,17 +10,19 @@ MPICLIBS		=	-lmpi -L$(MPI_ROOT)/lib
 DLIB 				= -lgpfs -ldmapi
 GPFS_TYPE 	= GPFS_LINUX 
 DCFLAGS 		= -O -D$(GPFS_TYPE)
+GENERIC_FS_FLAGS     = -DDISABLE_TAPE -DDISABLE_PANFS
 
-all: pftool  dmapilookup
+#pftool dmapilookup
+all: pftool
 
-pftool: pftool.o pfutils.o recall_api.o hashtbl.o
-	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB) pftool.o pfutils.o recall_api.o hashtbl.o -o pftool
+pftool: pftool.o pfutils.o hashtbl.o
+	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB)  pftool.o pfutils.o hashtbl.o -o pftool
 
 pftool.o: pftool.c pftool.h pfutils.o
-	$(MPICC) $(CFLAGS) $(MYSQINCS) -c pftool.c
+	$(MPICC) $(CFLAGS) $(MYSQINCS) $(GENERIC_FS_FLAGS) -c pftool.c
 
 pfutils.o: pfutils.c pfutils.h
-	$(MPICC) $(CFLAGS) $(DCFLAGS) -c pfutils.c
+	$(MPICC) $(CFLAGS) $(DCFLAGS) $(GENERIC_FS_FLAGS) -c pfutils.c
 
 recall_api.o: recall_api.c recall_api.h
 	$(MPICC) $(CFLAGS) $(DCFLAGS) -c recall_api.c
@@ -29,7 +31,7 @@ hashtbl.o: hashtbl.c hashtbl.h
 	$(MPICC) $(CFLAGS) -c hashtbl.c
 
 dmapilookup: dmapilookup.o pfutils.o
-	$(MPICC) $(CFLAGS) $(DLIB) dmapilookup.o pfutils.o -o dmapilookup
+	$(MPICC) $(CFLAGS) $(DLIB) $(GENERIC_FS_FLAGS) dmapilookup.o pfutils.o -o dmapilookup
 
 dmapilookup.o: dmapilookup.c 
 	$(MPICC) $(CFLAGS) $(DCFLAGS) -c dmapilookup.c

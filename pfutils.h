@@ -11,25 +11,26 @@
 #include <dirent.h>
 #include <libgen.h>
 #include <unistd.h>
-#include <gpfs.h>
-#include "mpi.h"
 #include "hashtbl.h"
 #include <errno.h>
 
-//panasas
-#include "pan_fs_client_sdk.h"
-
+//mpi
+#include "mpi.h"
 //gpfs
+
+
+#ifndef DISABLE_TAPE
 #include <gpfs.h>                                                                                                                                                                                                                                                                    
 #include "gpfs_fcntl.h"
 #include <dmapi.h>
+#endif
 
 
 
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
 #define ERRORSIZE PATHSIZE_PLUS
 #define MESSAGESIZE PATHSIZE_PLUS
-#define MESSAGEBUFFER 2000
+#define MESSAGEBUFFER 400
 
 #define DIRBUFFER 50
 #define STATBUFFER 2000
@@ -46,7 +47,7 @@
 #define FUSE_SUPER_MAGIC 0x65735546
 #define GPFS_FILE        0x47504653
 #define FUSE_FILE        0x65735546
-#define PANFS_FILE       0xaad7aaea
+#define PANFS_FILE       0xAAd7AAEA
 #define EXT2_FILE        0xEF53
 #define EXT3_FILE        0xEF53
 #define EXT4_FILE        0xEF53
@@ -115,6 +116,10 @@ struct options{
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
+
+  //fs info
+  int sourcefs;
+  int destfs;
 };
 
 
@@ -145,14 +150,18 @@ typedef struct work_buffer_list work_buf_list;
 //Function Declarations
 void usage();
 char *printmode (mode_t aflag, char *buf);
-int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
-int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
+
+//dmapi/gpfs specfic
+#ifndef DISABLE_TAPE
+int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
+int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
+#endif
 
 
 //local functions
@@ -167,7 +176,8 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 void errsend(int fatal, char *error_text);
 int is_fuse_chunk(const char *path);
 void set_fuse_chunk_data(path_item *work_node);
-void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
+//void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
+void get_stat_fs_info(const char *path, int *fs);
 int get_free_rank(int *proc_status, int start_range, int end_range);
 int processing_complete(int *proc_status, int nproc);
 

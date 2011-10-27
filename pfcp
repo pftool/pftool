@@ -24,6 +24,9 @@ def main():
   commands.add("-w", Work.COPY)
   commands.add("-j", jid)
 
+  if options.verbose:
+    commands.add("-v")
+
   base_name = os.path.dirname(src[0])
   if options.recurse:
     commands.add("-r")

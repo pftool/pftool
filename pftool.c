@@ -25,20 +25,28 @@
 //External Declarations
 extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
-extern int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
-extern int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
 extern int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only);
 
+//dmapi/gpfs
+#ifndef DISABLE_TAPE
+extern int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
+extern int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
+#endif
+
 //manager
 extern void send_manager_nonfatal_inc();
 extern void send_manager_chunk_busy();
 extern void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
+
+#ifndef DISABLE_TAPE
 extern void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
+#endif
+
 extern void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_work_done();
 
@@ -214,7 +222,12 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int i;
   int *proc_status;
   struct timeval in, out;
-  int temp_count = 0, non_fatal = 0, examined_count = 0, dir_count = 0, tape_count = 0;
+  int non_fatal = 0, examined_count = 0, dir_count = 0;
+  
+#ifndef DISABLE_TAPE
+  int tape_count = 0;
+#endif
+
   int makedir = 0;
 
   char message[MESSAGESIZE], errmsg[MESSAGESIZE];
@@ -227,8 +240,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int  num_copied_files = 0;
   double num_copied_bytes = 0;
 
-  work_buf_list *input_buf_list = NULL, *work_buf_list = NULL, *dir_buf_list = NULL, *tape_buf_list = NULL;
-  int input_buf_list_size = 0, work_buf_list_size = 0, dir_buf_list_size = 0, tape_buf_list_size = 0;
+  work_buf_list *input_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
+  int input_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
+
+#ifndef DISABLE_TAPE
+  work_buf_list *tape_buf_list = NULL;
+  int tape_buf_list_size = 0;
+#endif
     
   int mpi_ret_code, rc;
 
@@ -318,11 +336,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       }   
       else{
         probecount++;
-      }   
+      }
 
       if  (probecount % 3000 == 0){
         PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
-        PRINT_POLL_DEBUG("work_buf_list_size = %d\n", work_buf_list_size);
+        PRINT_POLL_DEBUG("process_buf_list_size = %d\n", process_buf_list_size);
         PRINT_POLL_DEBUG("input_buf_list_size = %d\n", input_buf_list_size);
         PRINT_POLL_DEBUG("dir_buf_list_size = %d\n", dir_buf_list_size);
       }   
@@ -347,25 +365,29 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         if (o.work_type == COPYWORK){
           for (i = 0; i < 3; i ++){
             work_rank = get_free_rank(proc_status, 3, nproc - 1);
-            if (work_rank > -1 && work_buf_list_size > 0){
+            if (work_rank > -1 && process_buf_list_size > 0){
               proc_status[work_rank] = 1;
-              send_worker_copy_path(work_rank, &work_buf_list, &work_buf_list_size);
+              send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_size);
             }
           }
         }
         else if (o.work_type == COMPAREWORK){
           for (i = 0; i < 3; i ++){
             work_rank = get_free_rank(proc_status, 3, nproc - 1);
-            if (work_rank > -1 && work_buf_list_size > 0){
+            if (work_rank > -1 && process_buf_list_size > 0){
               proc_status[work_rank] = 1;
-              send_worker_compare_path(work_rank, &work_buf_list, &work_buf_list_size);
+              send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_size);
             }
           }
         }
         else{
           //delete the queue here
-          delete_buf_list(&work_buf_list, &work_buf_list_size);
+          delete_buf_list(&process_buf_list, &process_buf_list_size);
+
+#ifndef DISABLE_TAPE
           delete_buf_list(&tape_buf_list, &tape_buf_list_size);
+#endif
+
         }
 
         for (i = 0; i < 3; i ++){
@@ -378,13 +400,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
       }
       //are we finished?
-      if (work_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+      if (process_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
         break;
       }
       usleep(1);
     }   
     //are we finished?
-    if (work_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
+    if (process_buf_list_size == 0 && input_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
       break;
     }
 
@@ -416,7 +438,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         manager_add_examined_stats(rank, sending_rank, &examined_count);
         break;
       case REGULARCMD:
-          manager_add_buffs(rank, sending_rank, &work_buf_list, &work_buf_list_size);
+          manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
         break;
       case DIRCMD:
         dir_count += manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
@@ -424,11 +446,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           delete_buf_list(&dir_buf_list, &dir_buf_list_size);
         }
         break;
+#ifndef DISABLE_TAPE
       case TAPECMD:
-        temp_count = manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
-        tape_count += temp_count;
+        tape_count += manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
         delete_buf_list(&tape_buf_list, &tape_buf_list_size);
         break;
+#endif
+
       case INPUTCMD:
         manager_add_buffs(rank, sending_rank, &input_buf_list, &input_buf_list_size);
         break;
@@ -451,8 +475,12 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_count);
   write_output(message);
+
+#ifndef DISABLE_TAPE
   sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", tape_count);
   write_output(message);
+#endif
+
   sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", dir_count);
   write_output(message);
   
@@ -646,6 +674,12 @@ void worker(int rank, struct options o){
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     if (mpi_ret_code < 0){
       errsend(FATAL, "Failed to Receive Bcast base_path");
+    }
+
+
+    get_stat_fs_info(base_path, &o.sourcefs);
+    if (o.work_type != LSWORK){
+      get_stat_fs_info(dest_node.path, &o.destfs);
     }
   }
 
@@ -871,19 +905,20 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
   int numchars;
 
-  path_item work_node, out_node, dirname_node;
+  path_item work_node, out_node;
   int process = 1;
   
   //dmapi
+#ifndef DISABLE_TAPE
   uid_t uid;
   int dmarray[3];
   char hexbuf[128];
+#endif
   
   //stat 
-  struct stat st, out_st, dirname_st;
+  struct stat st, out_st;
   struct tm sttm;
-  int sourcefs = -1, outfs = -1;
-  char sourcefsc[5], outfsc[5], modebuf[15], timebuf[30];
+  char modebuf[15], timebuf[30];
   //for truncing an existing out file
   MPI_File out_fd;  
   int trunc = 0;
@@ -902,8 +937,13 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   off_t chunk_curr_offset = 0;
 
   //classification
-  path_item dirbuffer[DIRBUFFER], regbuffer[COPYBUFFER], tapebuffer[TAPEBUFFER];
-  int dir_buffer_count = 0, reg_buffer_count = 0, tape_buffer_count = 0;
+  path_item dirbuffer[DIRBUFFER], regbuffer[COPYBUFFER];
+  int dir_buffer_count = 0, reg_buffer_count = 0;
+  
+#ifndef DISABLE_TAPE
+  path_item tapebuffer[TAPEBUFFER];
+  int tape_buffer_count = 0;
+#endif
 
 
   PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
@@ -942,12 +982,11 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
     }
 
     work_node.st = st;
-    get_stat_fs_info(&work_node, &sourcefs, sourcefsc);
     work_node.ftype = REGULARFILE;
 
-    //get_stat_fs_info(&out_node, &outfs, outfsc);
     //dmapi to find managed files
-    if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && sourcefs == GPFSFS){
+#ifndef DISABLE_TAPE
+    if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS){
       uid = getuid();
       if (uid == 0 && st.st_size > 0 && st.st_blocks == 0){
         dmarray[0] = 0;
@@ -973,9 +1012,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         work_node.ftype = MIGRATEFILE;
       }
     }
-    else{
-      work_node.ftype = REGULARFILE;
-    }
+#endif
 
 
     
@@ -990,6 +1027,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
     }
+#ifndef DISABLE_TAPE
     else if (work_node.ftype == MIGRATEFILE){
       tapebuffer[tape_buffer_count] = work_node;
       tape_buffer_count++;
@@ -997,6 +1035,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
         send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
       }
     }
+#endif
     else{
       if (S_ISLNK(work_node.st.st_mode)){
         numchars = readlink(work_node.path, linkname, PATHSIZE_PLUS);
@@ -1019,7 +1058,6 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       }
       //do this for all regular files AND fuse+symylinks
       chunk_curr_offset = 0;
-      outfs = -1;
       if (o.work_type == COPYWORK){
         process = 1;
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
@@ -1043,7 +1081,6 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
           if (process == 1){
   
             out_node.st = out_st;
-            get_stat_fs_info(&out_node, &outfs, outfsc);
             if (S_ISLNK(out_st.st_mode)){
               numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
               if (numchars < 0){
@@ -1089,19 +1126,13 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
             }
           }
         }
-        //path doesn't exist get info from parent
-        else if (lstat(dirname(out_node.path), &dirname_st) == 0){
-          strncpy(dirname_node.path, dirname(out_node.path), PATHSIZE_PLUS);
-          dirname_node.st = dirname_st;
-          get_stat_fs_info(&dirname_node, &outfs, outfsc);
-        }
       }
 
 
 
       if (process == 1){
         //parallel filesystem can do n-to-1
-        if (outfs == GPFSFS || outfs == PANASASFS){
+        if (o.destfs == GPFSFS || o.destfs == PANASASFS){
           if (work_node.ftype == FUSEFILE){
             set_fuse_chunk_data(&work_node);
             chunk_size = work_node.length;
@@ -1169,13 +1200,13 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
     //if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
     if (o.verbose){
       if (work_node.ftype == MIGRATEFILE){
-        sprintf(statrecord, "INFO  DATASTAT %sM %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
       }
       else if (work_node.ftype == PREMIGRATEFILE){
-        sprintf(statrecord, "INFO  DATASTAT %sP %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
       }
       else{
-        sprintf(statrecord, "INFO  DATASTAT %s- %s %6lu %6d %6d %21zd %s %s\n", sourcefsc, modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
       }
       MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       write_count++;
@@ -1200,9 +1231,11 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   while (reg_buffer_count != 0){
     send_manager_regs_buffer(regbuffer, &reg_buffer_count);
   } 
+#ifndef DISABLE_TAPE
   while (tape_buffer_count != 0){
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
+#endif
   send_manager_examined_stats(num_examined);
 
 
@@ -1277,7 +1310,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         
         if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
           while (request_input_queuesize() > 16){
-            sleep(10);
+            sleep(1);
           }
           send_manager_new_buffer(workbuffer, &buffer_count);
         }

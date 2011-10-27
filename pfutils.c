@@ -111,6 +111,7 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf){
   sprintf (outhexbuf, "%s", smsg);
 }
 
+#ifndef DISABLE_TAPE
 int read_inodes (const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray){
   const gpfs_iattr_t *iattrP;
   gpfs_iscan_t *iscanP = NULL;
@@ -298,6 +299,7 @@ done:
 
   return (0);
 }
+#endif
 
 
 char *get_base_path(const char *path, int wildcard){
@@ -586,10 +588,6 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, off_
   else{
     return 1;
   }
-
-
-
-
   return 0;
 }
 
@@ -930,38 +928,43 @@ void set_fuse_chunk_data(path_item *work_node){
   
 }
 
-void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc){
+
+void get_stat_fs_info(const char *path, int *fs){
+  struct stat st;
   struct statfs stfs;
   char errortext[MESSAGESIZE];
+  int rc;
 
-  if (!S_ISLNK(work_node->st.st_mode)){
-    if (statfs(work_node->path, &stfs) < 0) { 
-      snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", work_node->path);
+  rc = lstat(path, &st);
+  if (rc < 0){
+    fprintf(stderr, "Failed to stat path %s\n", path);
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+  if (!S_ISLNK(st.st_mode)){
+    if (statfs(path, &stfs) < 0) {
+      snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
       errsend(FATAL, errortext);
-    } 
-    if (stfs.f_type == GPFS_SUPER_MAGIC) {
-      *sourcefs = GPFSFS;
-      sprintf(sourcefsc, "G");
     }
-    else if (stfs.f_type == PAN_FS_CLIENT_MAGIC) {
-      *sourcefs = PANASASFS;
-      sprintf(sourcefsc, "P");
+    if (stfs.f_type == GPFS_FILE) {
+      *fs = GPFSFS;
     }
-    else if (work_node->ftype == FUSEFILE){
+    else if (stfs.f_type == PANFS_FILE) {
+      *fs = PANASASFS;
+    }
+    else if (stfs.f_type == FUSE_SUPER_MAGIC){
       //fuse file
-      *sourcefs = GPFSFS;
-      sprintf(sourcefsc, "G");
+      *fs = GPFSFS;
     }
     else{
-      *sourcefs = ANYFS;
-      sprintf(sourcefsc, "A");
+      *fs = ANYFS;
     }
   }
   else{
     //symlink
-    *sourcefs = GPFSFS;
-    sprintf(sourcefsc, "G");
+    *fs = GPFSFS;
   }
+
 }
 
 int get_free_rank(int *proc_status, int start_range, int end_range){
