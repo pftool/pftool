@@ -1130,12 +1130,10 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       if (process == 1){
         //parallel filesystem can do n-to-1
         if (o.destfs == GPFSFS || o.destfs == PANASASFS){
+          chunk_size = chunk_size_save;
           if (work_node.ftype == FUSEFILE){
             set_fuse_chunk_data(&work_node);
             chunk_size = work_node.length;
-          }
-          else{
-            chunk_size = chunk_size_save;
           }
 
           if (work_node.st.st_size == 0){
