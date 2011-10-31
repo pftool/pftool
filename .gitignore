@@ -1,6 +1,6 @@
 dmapilookup
 dumpinode
-pftool
+pftool/pftool
 testing
 setstgpool
 *.o

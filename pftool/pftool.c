@@ -22,6 +22,12 @@
 
 #define STGPOOLSERVER_PORT 1664
 
+#ifdef THREADS_ONLY      
+#define MPI_Abort MPY_Abort
+#define MPI_Pack MPY_Pack
+#define MPI_Unpack MPY_Unpack
+#endif
+
 //External Declarations
 extern void usage();
 extern char *printmode (mode_t aflag, char *buf);
@@ -80,12 +86,19 @@ extern void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char
 extern void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
 extern void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
 
+//fake mpi
+extern int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm);
+extern int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm);
+extern int MPY_Abort(MPI_Comm comm, int errorcode);
+
 int main(int argc, char *argv[]){
   //general variables
   int i;
 
   //mpi
-  int rank, nproc;
+  int rank = 0;
+  int nproc = 0;
+  int mpi_ret_code = 0;
 
   //getopt
   int c;
@@ -100,59 +113,6 @@ int main(int argc, char *argv[]){
   struct stat dest_stat;
   int statrc;
 
-  //initialize options
-  o.verbose = 0;
-  o.use_file_list = 0;
-  o.recurse = 0;
-  o.meta_data_only = 1;
-  strncpy(o.jid, "TestJob", 128);
-  //o.work_type = LSWORK;
-
-  //Process using getopt
-  while ((c = getopt(argc, argv, "p:c:j:w:i:vrMnh")) != -1) 
-    switch(c){
-      case 'p':
-        //Get the source/beginning path
-        strncpy(src_path, optarg, PATHSIZE_PLUS);        
-        break;
-      case 'c':
-        //Get the destination path
-        strncpy(dest_path, optarg, PATHSIZE_PLUS);        
-        break;
-      case 'j':
-        strncpy(o.jid, optarg, 128);
-        break;
-      case 'w':
-        o.work_type = atoi(optarg);
-        break;
-      case 'i':
-        strncpy(o.file_list, optarg, PATHSIZE_PLUS);
-        o.use_file_list = 1;
-        break;
-      case 'n':
-        //different
-        o.different = 1;
-      case 'r':
-        //Recurse
-        o.recurse = 1;
-        break;
-      case 'M':
-        o.meta_data_only = 0;
-        break;
-      case 'v':
-        o.verbose = 1;
-        break;
-      case 'h':
-        //Help -- incoming!
-        usage();
-        return 0;
-      case '?': 
-        return -1;
-      default:
-        break;
-    }
-
-  // start MPI - if this fails we cant send the error to the output proc so we just die now 
   if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
     fprintf(stderr, "Error in MPI_Init\n");
     return -1;
@@ -170,9 +130,75 @@ int main(int argc, char *argv[]){
     return -1;
   }
 
-  //Modifies the path based on recursion/wildcards
+  //Process using getopt
+    //initialize options
   if (rank == MANAGER_PROC){
-    //wildcard
+    o.verbose = 0;
+    o.use_file_list = 0;
+    o.recurse = 0;
+    o.meta_data_only = 1;
+    strncpy(o.jid, "TestJob", 128);
+    o.work_type = LSWORK;
+
+    // start MPI - if this fails we cant send the error to the output proc so we just die now 
+    while ((c = getopt(argc, argv, "p:c:j:w:i:vrMnh")) != -1) 
+      switch(c){
+        case 'p':
+          //Get the source/beginning path
+          strncpy(src_path, optarg, PATHSIZE_PLUS);        
+          break;
+        case 'c':
+          //Get the destination path
+          strncpy(dest_path, optarg, PATHSIZE_PLUS);        
+          break;
+        case 'j':
+          strncpy(o.jid, optarg, 128);
+          break;
+        case 'w':
+          o.work_type = atoi(optarg);
+          break;
+        case 'i':
+          strncpy(o.file_list, optarg, PATHSIZE_PLUS);
+          o.use_file_list = 1;
+          break;
+        case 'n':
+          //different
+          o.different = 1;
+        case 'r':
+          //Recurse
+          o.recurse = 1;
+          break;
+        case 'M':
+          o.meta_data_only = 0;
+          break;
+        case 'v':
+          o.verbose = 1;
+          break;
+        case 'h':
+          //Help -- incoming!
+          usage();
+          return 0;
+        case '?': 
+          return -1;
+        default:
+          break;
+      }
+  }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+
+  //broadcast all the options
+  mpi_ret_code = MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+
+  //Modifies the path based on recursion/wildcards
+  //wildcard
+  if (rank == MANAGER_PROC){
     if (optind < argc && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)){
       statrc = lstat(dest_path, &dest_stat);
       if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)){
@@ -267,20 +293,22 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     //setup paths
     strncpy(beginning_path, input_queue_head->data.path, PATHSIZE_PLUS);
     strncpy(base_path, get_base_path(beginning_path, wildcard), PATHSIZE_PLUS);
-    get_dest_path(beginning_path, dest_path, &dest_node, makedir, input_queue_count, o);
+    if (o.work_type != LSWORK){
+      get_dest_path(beginning_path, dest_path, &dest_node, makedir, input_queue_count, o);
 
-    //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
-    mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
-    if (mpi_ret_code < 0){
-      errsend(FATAL, "Failed to Bcast dest_path");
+      //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
+      mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+      if (mpi_ret_code < 0){
+        errsend(FATAL, "Failed to Bcast dest_path");
+      }
     }
     //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the base_path: %s\n", rank, base_path);
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     if (mpi_ret_code < 0){
       errsend(FATAL, "Failed to Bcast base_path");
     }
-    //printf("==> %s -- %s\n",beginning_path, base_path);
   }
+
 
   iter = input_queue_head;
   if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1){
@@ -328,6 +356,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
   while (1){
     //poll for message
+#ifndef THREADS_ONLY
     while ( message_ready == 0){ 
       prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &message_ready, &status);
       if (prc != MPI_SUCCESS) {
@@ -346,6 +375,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       }   
       //we didn't get any new messages from workers
       if (message_ready == 0){
+#endif
         
         for (i = 0; i < nproc; i++){
           PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status[i]);
@@ -398,13 +428,17 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           }
         }
 
+#ifndef THREADS_ONLY
       }
+#endif
       //are we finished?
       if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
         break;
       }
+#ifndef THREADS_ONLY
       usleep(1);
     }   
+#endif
 
     if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
       break;
@@ -451,7 +485,6 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         delete_buf_list(&tape_buf_list, &tape_buf_list_size);
         break;
 #endif
-
       case INPUTCMD:
         manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_size);
         break;
@@ -635,6 +668,7 @@ void worker(int rank, struct options o){
   int all_done = 0, message_ready = 0, probecount = 0;
   int makedir = 0;
   int prc;
+  char *output_buffer;
   
 
   int type_cmd;
@@ -646,7 +680,6 @@ void worker(int rank, struct options o){
   HASHTBL *chunk_hash;
   int base_count = 100, hash_count = 0;
 
-  char *output_buffer;
   int output_count = 0;
 
   if (rank == OUTPUT_PROC){
@@ -663,11 +696,14 @@ void worker(int rank, struct options o){
     makedir = 1;
   }
 
+
   if (!o.use_file_list){
     //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
-    mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
-    if (mpi_ret_code < 0){
-      errsend(FATAL, "Failed to Receive Bcast dest_path");
+    if (o.work_type != LSWORK){
+      mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+      if (mpi_ret_code < 0){
+        errsend(FATAL, "Failed to Receive Bcast dest_path");
+      }
     }
     //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the base_path\n", rank);
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -684,6 +720,7 @@ void worker(int rank, struct options o){
 
   //change this to get request first, process, then get work    
   while ( all_done == 0){
+#ifndef THREADS_ONLY
     //poll for message
     while ( message_ready == 0){
       prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &message_ready, &status);
@@ -699,6 +736,7 @@ void worker(int rank, struct options o){
       }
       usleep(1);
     }
+#endif
 
     //grab message type
     PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd\n", rank);
@@ -914,7 +952,6 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   struct tm sttm;
   char modebuf[15], timebuf[30];
   //for truncing an existing out file
-  MPI_File out_fd;  
   int trunc = 0;
   int num_examined = 0;
   int rc;
@@ -1105,19 +1142,9 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
             //trunc
             if (trunc == 1){
               //trunc out file if it exists and is not a symlink
-              rc = MPI_File_open(MPI_COMM_SELF, out_node.path, MPI_MODE_WRONLY, MPI_INFO_NULL, &out_fd);
-              if (rc != 0){
-                sprintf(errortext, "Failed to open file %s for write", out_node.path);
-                errsend(NONFATAL, errortext);
-              }
-              rc = MPI_File_set_size(out_fd, 0);
+              rc = truncate(out_node.path, 0);
               if (rc != 0){
                 sprintf(errortext, "Failed to truncate file %s", out_node.path);
-                errsend(NONFATAL, errortext);
-              }
-              rc = MPI_File_close(&out_fd);
-              if (rc != 0){
-                sprintf(errortext, "Failed to close file %s", out_node.path);
                 errsend(NONFATAL, errortext);
               }
             }
@@ -1304,9 +1331,9 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         }
         
         if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
-          while (request_input_queuesize() > 16){
+          /*while (request_input_queuesize() > 16){
             sleep(1);
-          }
+          }*/
           send_manager_new_buffer(workbuffer, &buffer_count);
         }
       }
@@ -1317,7 +1344,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
     }
     //we were provided a file list
     else{
-      fp=fopen(path, "r");
+      fp = fopen(path, "r");
       while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL){
         if (work_node.path[strlen(work_node.path) - 1] == '\n'){
           work_node.path[strlen(work_node.path) - 1] = '\0';

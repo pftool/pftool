@@ -1,7 +1,12 @@
 #!/usr/bin/env python2.6
-import datetime, time, os, yaml, getpass
+import datetime, time, os, getpass
 from socket import gethostname
 from syslog import *
+
+try:
+  import yaml
+except:
+  pass
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)

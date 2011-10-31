@@ -1,0 +1,62 @@
+#!/bin/sh -- # -*- perl -*- -w
+eval 'exec perl $0 ${1+"$@"}'
+   if 0;
+warn ("Perl 5 not detected, likely a big problem") if $] < 5.0;
+warn "Less than Perl 5.003.  You may witness mysterious segmentation faults."
+   if $] < 5.003;
+
+use strict;
+
+my ($bracelevel) = (0);
+
+while (<>) {
+   if (/(?=[;{])\s*(\w+)\s*(\**\s*\w+(?:\s*\[[^]]\])*)/) {
+      print $`;
+      $bracelevel += count_braces ($`);
+      my $type = $1;
+      my (@pieces) = ($2);
+      $_ = $';
+      while (/^\s*,\s*(\**\s*\w+(?:\s*\[[^]]\])*)/) {
+         push @pieces, $1;
+         $_ = $';
+      }
+      redo;
+   } else {
+      print $_;
+   }
+}
+
+
+sub count_braces {
+   my ($s) = @_;
+   my ($start, $cnt) = (0, 0);
+   while (($start = index $s, "{", $start) >= 0) {
+      $cnt++;
+   }
+   $start = 0;
+   while (($start = index $s, "}", $start) >= 0) {
+      $cnt--;
+   }
+}
+
+
+#my $c;
+#while ($c = get_char ()) {
+#   if ($c eq "{") {
+#      $bracelevel++;
+#   } elsif ($c eq "{") {
+#      $bracelevel--;
+#   } elsif ($c eq ";")
+#}
+#
+#
+#@::get_char_list = ();
+#sub get_char {
+#   unless (@::get_char_string) {
+#      $_ = <>;
+#      return "" unless $_;
+#      @::get_char_string = reverse split (//, $_);
+#   }
+#   return pop @::get_char_string;
+#}
+

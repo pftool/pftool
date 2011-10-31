@@ -16,6 +16,14 @@
 #include "debug.h"
 
 #include <syslog.h>
+#include <signal.h>
+
+#ifdef THREADS_ONLY      
+#define MPI_Abort MPY_Abort
+#define MPI_Pack MPY_Pack
+#define MPI_Unpack MPY_Unpack
+#endif
+
 
 void usage () {
 	// print usage statement 
@@ -1158,3 +1166,38 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
     }
     enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
 }
+
+
+#ifdef THREADS_ONLY
+//custom MPI calls
+int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm) {
+  // check to make sure there is space in the output buffer position+incount <= outcount
+  if (*position+incount > outcount){
+    return -1;
+  }
+
+  // copy inbuf to outbuf
+  bcopy(inbuf,outbuf+(*position),incount);
+  // increment position  position=position+incount
+  *position=*position+incount;
+}
+
+int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm) {
+
+  // check to make sure there is space in the output buffer position+insize <= outcount
+  if ((*position)+outcount > insize)  {
+    return -1;
+  }
+
+  // copy inbuf to outbuf
+  bcopy(inbuf+(*position),outbuf,outcount);
+  // increment position  position=position+insize
+  *position=*position+outcount;
+
+}
+
+
+int MPY_Abort(MPI_Comm comm, int errorcode) {
+      pthread_kill(pthread_self(),SIGSTOP);
+}
+#endif

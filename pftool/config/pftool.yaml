@@ -1,6 +1,6 @@
 num_procs:
-  pfls: 23
-  pfcp: 33
+  pfls: 15
+  pfcp: 15
   pfcm: 15
 
 pftool:
@@ -10,10 +10,10 @@ active_nodes:
   gpfst1: "OFF"
   gpfst2: "OFF"
   gpfst3: "OFF"
-  gpfst4: "ON"
-  gpfst5: "ON"
-  gpfst6: "ON"
-  gpfst7: "ON"
-  gpfst8: "ON"
-  gpfst9: "ON"
+  gpfst4: "OFF"
+  gpfst5: "OFF"
+  gpfst6: "OFF"
+  gpfst7: "OFF"
+  gpfst8: "OFF"
+  gpfst9: "OFF"
   gpfst10: "ON"

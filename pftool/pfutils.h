@@ -16,9 +16,8 @@
 
 //mpi
 #include "mpi.h"
+
 //gpfs
-
-
 #ifndef DISABLE_TAPE
 #include <gpfs.h>                                                                                                                                                                                                                                                                    
 #include "gpfs_fcntl.h"
@@ -216,6 +215,10 @@ void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffe
 void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
 void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
 
+//fake mpi
+int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm);
+int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm);
+int MPY_Abort(MPI_Comm comm, int errorcode); 
 #endif
 
 
