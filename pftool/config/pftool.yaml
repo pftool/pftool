@@ -2,6 +2,9 @@ num_procs:
   pfls: 15
   pfcp: 15
   pfcm: 15
+  pfls_thread: 50
+  pfcp_thread: 30
+  pfcm_thread: 50
 
 pftool:
   fuse_dir: "/archive/fusemnt"

@@ -38,7 +38,6 @@ def main():
 
 
   host_list = filter(lambda x: config["active_nodes"][x] == "ON", config["active_nodes"])
-  num_procs = config["num_procs"]["pfcp"]
 
   if not options.threaded and len(host_list) == 0:
     busy()
@@ -49,10 +48,12 @@ def main():
   pfcmd = Commands()
 
   if options.threaded:
+    num_procs = config["num_procs"]["pfcp_thread"]
     pftool = ROOT_PATH("pftool-thread")
     pfcmd.add(pftool)
     pfcmd.add("-nthread", num_procs)
   else:
+    num_procs = config["num_procs"]["pfcp"]
     pftool = ROOT_PATH("pftool")
     pfcmd.add(mpigo)
     pfcmd.add("-host", ",".join(host_list))

@@ -21,9 +21,9 @@ void worker_flush_output(char *output_buffer, int *output_count);
 void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o);
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o);
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o);
+void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int makedir, struct options o);
+void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
-void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int mkdir, struct options o);
-void worker_readdir_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, int recurse, int makedir);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 
