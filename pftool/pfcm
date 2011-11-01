@@ -10,6 +10,7 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
+  parser.add_option("-t", dest="threaded", default=False, action="store_true", help="run threaded mode vs mpi mode")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -53,14 +54,20 @@ def main():
     busy()
     sys.exit(2)
   
-  pftool = ROOT_PATH("pftool")
   mpigo = "/usr/local/gpfstools/openmpi/bin/mpirun"
-
   pfcmd = Commands()
-  pfcmd.add(mpigo)
-  pfcmd.add("-host", ",".join(host_list))
-  pfcmd.add("-n", num_procs)
-  pfcmd.add(pftool)
+
+  if options.threaded:
+    pftool = ROOT_PATH("pftool-thread")
+    pfcmd.add(pftool)
+    pfcmd.add("-nthread", num_procs)
+  else:
+    pftool = ROOT_PATH("pftool")
+    pfcmd.add(mpigo)
+    pfcmd.add("-host", ",".join(host_list))
+    pfcmd.add("-n", num_procs)
+    pfcmd.add(pftool)
+
   pfcmd.add(*commands.commands)
 
   host = gethostname()

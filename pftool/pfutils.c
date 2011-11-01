@@ -19,6 +19,7 @@
 #include <signal.h>
 
 #ifdef THREADS_ONLY      
+#include <pthread.h>
 #define MPI_Abort MPY_Abort
 #define MPI_Pack MPY_Pack
 #define MPI_Unpack MPY_Unpack
@@ -1180,6 +1181,7 @@ int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
   bcopy(inbuf,outbuf+(*position),incount);
   // increment position  position=position+incount
   *position=*position+incount;
+  return 0;
 }
 
 int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm) {
@@ -1193,11 +1195,13 @@ int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcoun
   bcopy(inbuf+(*position),outbuf,outcount);
   // increment position  position=position+insize
   *position=*position+outcount;
+  return 0;
 
 }
 
 
 int MPY_Abort(MPI_Comm comm, int errorcode) {
       pthread_kill(pthread_self(),SIGSTOP);
+      return -1;
 }
 #endif

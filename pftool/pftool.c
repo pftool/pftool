@@ -241,8 +241,11 @@ int main(int argc, char *argv[]){
 
 void manager(int rank, struct options o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path){
   MPI_Status status;
+#ifndef THREADS_ONLY
   int message_ready = 0, probecount = 0;
-  int prc, type_cmd;
+  int prc;
+#endif
+  int type_cmd;
   int work_rank, sending_rank;
 
   int i;
@@ -494,7 +497,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       default:
         break;
     }
+#ifndef THREADS_ONLY
     message_ready = 0;
+#endif
     
     
   }
@@ -665,9 +670,14 @@ void manager_workdone(int rank, int sending_rank, int *proc_status){
 void worker(int rank, struct options o){
   MPI_Status status;
   int sending_rank;
-  int all_done = 0, message_ready = 0, probecount = 0;
+  int all_done = 0;
   int makedir = 0;
+
+#ifndef THREADS_ONLY
+  int message_ready = 0, probecount = 0;
   int prc;
+#endif
+
   char *output_buffer;
   
 
@@ -684,6 +694,7 @@ void worker(int rank, struct options o){
 
   if (rank == OUTPUT_PROC){
     output_buffer = (char *) malloc(MESSAGESIZE*MESSAGEBUFFER*sizeof(char));
+    memset(output_buffer,'\0', sizeof(output_buffer));
   }
 
   if (rank == ACCUM_PROC){
@@ -774,7 +785,9 @@ void worker(int rank, struct options o){
       default:
         break;
     }
+#ifndef THREADS_ONLY
     message_ready = 0;
+#endif
   }
   if (rank == ACCUM_PROC){
     hashtbl_destroy(chunk_hash);
