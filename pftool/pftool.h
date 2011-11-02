@@ -12,7 +12,7 @@ void manager_workdone(int rank, int sending_rank, int *proc_status);
 int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 int manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, double *num_copied_bytes);
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined);
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes);
 
 //worker rank operations
 void worker(int rank, struct options o);
@@ -22,7 +22,8 @@ void worker_output(int rank, int sending_rank, char *output_buffer, int *output_
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o);
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int makedir, struct options o);
-void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
+void stat_item(path_item *work_node, struct options o);
+void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o);
 void worker_stat(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);

@@ -3,7 +3,7 @@ num_procs:
   pfcp: 15
   pfcm: 15
   pfls_thread: 50
-  pfcp_thread: 30
+  pfcp_thread: 50
   pfcm_thread: 50
 
 pftool:

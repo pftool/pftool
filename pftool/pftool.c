@@ -251,7 +251,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int i;
   int *proc_status;
   struct timeval in, out;
-  int non_fatal = 0, examined_count = 0, dir_count = 0;
+  int non_fatal = 0, examined_file_count = 0, dir_count = 0;
+  double examined_byte_count = 0;
   
 #ifndef DISABLE_TAPE
   int tape_count = 0;
@@ -278,6 +279,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 #endif
     
   int mpi_ret_code, rc;
+
+
 
 
   //path stuff
@@ -314,7 +317,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
 
   iter = input_queue_head;
-  if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1){
+  if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1 && o.work_type != LSWORK){
     while (iter != NULL){
       if (strncmp(get_base_path(iter->data.path, wildcard), base_path, PATHSIZE_PLUS) != 0){
         errsend(FATAL, "All sources for a recursive operation must be contained within the same directory.");
@@ -332,6 +335,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   }
     
   //pack our list into a buffer:
+  
   if (o.use_file_list){
     pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_size);
   }
@@ -423,22 +427,18 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 
         }
 
-        for (i = 0; i < 3; i ++){
-          work_rank = get_free_rank(proc_status, 3, nproc - 1);
-          if (work_rank > -1 && stat_buf_list_size != 0){
-            proc_status[work_rank] = 1;
-            send_worker_stat_path(work_rank, &stat_buf_list, &stat_buf_list_size);
-          }
+        work_rank = get_free_rank(proc_status, 3, nproc - 1);
+        if (work_rank > -1 && stat_buf_list_size != 0){
+          proc_status[work_rank] = 1;
+          send_worker_stat_path(work_rank, &stat_buf_list, &stat_buf_list_size);
         }
 
 #ifndef THREADS_ONLY
       }
-#endif
       //are we finished?
       if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
         break;
       }
-#ifndef THREADS_ONLY
       usleep(1);
     }   
 #endif
@@ -446,6 +446,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0){
       break;
     }
+
     //grab message type
     PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type\n", rank);
     if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -471,7 +472,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
         break;
       case EXAMINEDSTATSCMD:
-        manager_add_examined_stats(rank, sending_rank, &examined_count);
+        manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count);
         break;
       case PROCESSCMD:
           manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
@@ -510,7 +511,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   write_output(message);
   sprintf(message, "INFO  FOOTER   =================================================================================\n");
   write_output(message);
-  sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_count);
+  sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
+  write_output(message);
+  sprintf(message, "INFO  FOOTER   Total Bytes: %0.0f\n", examined_byte_count);
   write_output(message);
 
 #ifndef DISABLE_TAPE
@@ -649,9 +652,10 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, d
 
 }
 
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined){
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes){
   MPI_Status status;
-  int num_files;
+  int num_files = 0;
+  double num_bytes = 0;
   
   //gather the # of examined files
   PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
@@ -659,7 +663,13 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined){
       errsend(FATAL, "Failed to receive worksize\n");
   }
 
-  *num_examined += num_files;
+  PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_bytes from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_bytes, 1, MPI_DOUBLE, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+
+  *num_examined_files += num_files;
+  *num_examined_bytes += num_bytes;
 
 }
 
@@ -870,11 +880,16 @@ void worker_output(int rank, int sending_rank, char *output_buffer, int *output_
   if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
     errsend(FATAL, "Failed to receive msg\n");
   }
+
+#ifdef THREADS_ONLY
+  printf("%s", msg);
+#else
   strncat(output_buffer, msg, MESSAGESIZE);
   (*output_count)++;
   if (*output_count >= MESSAGEBUFFER || !o.verbose){
     worker_flush_output(output_buffer, output_count);
   }
+#endif
 }
 
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o){
@@ -912,11 +927,15 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
     snprintf(outmsg, MESSAGESIZE+10, "RANK %2d: %s", sending_rank, msg);
+#ifdef THREADS_ONLY
+    printf("%s", outmsg);
+#else
     strncat(output_buffer, outmsg, MESSAGESIZE);
     (*output_count)++;
     if (*output_count >= MESSAGEBUFFER){
       worker_flush_output(output_buffer, output_count);
     }
+#endif
     //printf("Rank %2d: %s", sending_rank, msg);
   }
   free(buffer);
@@ -972,43 +991,43 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   for (i = 0; i < read_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
     MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-    strncpy(path, work_node.path, PATHSIZE_PLUS);
+   
     if (o.use_file_list == 0){
-      if ((dip = opendir(path)) == NULL){
-        snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", path);
+      if ((dip = opendir(work_node.path)) == NULL){
+        snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
         errsend(FATAL, errmsg);
       }
       if (makedir == 1){
         strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
         mkdir(mkdir_path, S_IRWXU);
       }
+      strncpy(path, work_node.path, PATHSIZE_PLUS);
       while ((dit = readdir(dip)) != NULL){
         if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
+
           strncpy(full_path, path, PATHSIZE_PLUS);
           if (full_path[strnlen(full_path, PATHSIZE_PLUS) - 1 ] != '/'){
             strncat(full_path, "/", 1);
           }
           strncat(full_path, dit->d_name, PATHSIZE_PLUS);
           strncpy(work_node.path, full_path, PATHSIZE_PLUS);
+          stat_item(&work_node, o);
           workbuffer[buffer_count] = work_node;
           buffer_count++;
         }
         
         if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
-          /*while (request_input_queuesize() > 16){
-            sleep(1);
-          }*/
-          send_manager_new_buffer(workbuffer, &buffer_count);
+          process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
         }
       }
       if (closedir(dip) == -1){
-        snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", path);
+        snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
         errsend(1, errmsg);
       }
     }
     //we were provided a file list
     else{
-      fp = fopen(path, "r");
+      fp = fopen(work_node.path, "r");
       while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL){
         if (work_node.path[strlen(work_node.path) - 1] == '\n'){
           work_node.path[strlen(work_node.path) - 1] = '\0';
@@ -1017,7 +1036,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         buffer_count++;
 
         if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
-          send_manager_new_buffer(workbuffer, &buffer_count);
+          process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
         }
 
         while (request_input_queuesize() >= 10){
@@ -1029,43 +1048,118 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
     }
   }
 
-
   while(buffer_count != 0){
-    send_manager_new_buffer(workbuffer, &buffer_count);
+    process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
   }
 
   free(workbuf);
   send_manager_work_done(rank);
 }
 
-void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o){
-  //When a worker is told to stat, it comes here
-  MPI_Status status;
-
-  char *workbuf;
-  int worksize;
-  int position, out_position;
-  int stat_count;
-
-  char *writebuf;
-  int writesize;
-  int write_count = 0;
-  int write_count_max = 100;
-  
-  char *link_result = NULL;
-  char linkname[PATHSIZE_PLUS];
-  char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
-  int numchars;
-
-  path_item work_node, out_node;
-  int process = 1;
-  
+void stat_item(path_item *work_node, struct options o){
+  //takes a work node, stats it and figures out some of its characteristics
+  struct stat st;
+  char errortext[MESSAGESIZE];
   //dmapi
 #ifndef DISABLE_TAPE
   uid_t uid;
   int dmarray[3];
   char hexbuf[128];
 #endif
+  int numchars;
+  char linkname[PATHSIZE_PLUS];
+  char *link_result = NULL;
+
+  if (lstat(work_node->path, &st) == -1) {
+    snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", work_node->path);
+    if (o.work_type == LSWORK){
+      errsend(NONFATAL, errortext);
+      return;
+    }
+    else{
+      errsend(FATAL, errortext);
+    }
+  }
+
+  work_node->st = st;
+  work_node->ftype = REGULARFILE;
+
+  //dmapi to find managed files
+#ifndef DISABLE_TAPE
+  if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS){
+#ifndef THREADS_ONLY
+    uid = getuid();
+#else
+    //FIXME: This is a hack and wrong
+    uid = 1;
+#endif
+    if (uid == 0 && st.st_size > 0 && st.st_blocks == 0){
+      dmarray[0] = 0;
+      dmarray[1] = 0;
+      dmarray[2] = 0;
+
+      if (read_inodes (work_node->path, work_node->st.st_ino, work_node->st.st_ino+1, dmarray) != 0) {
+        snprintf(errortext, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
+        errsend(FATAL, errortext);
+      }
+
+      else if (dmarray[0] > 0){
+        dmapi_lookup(work_node->path, dmarray, hexbuf);
+        if (dmarray[1] == 1) {                                                                                                                                                                                                                                                                             
+          work_node->ftype = PREMIGRATEFILE;
+        }
+        else if (dmarray[2] == 1) {
+          work_node->ftype = MIGRATEFILE;
+        }
+      }
+    }
+    else if (st.st_size > 0 && st.st_blocks == 0){
+      work_node->ftype = MIGRATEFILE;
+    }
+  }
+#endif
+
+  //special cases for links
+  if (S_ISLNK(work_node->st.st_mode)){
+    memset(linkname,'\0', PATHSIZE_PLUS);
+    numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
+    if (numchars < 0){
+      snprintf(errortext, MESSAGESIZE, "Failed to read link %s", link_result);
+      errsend(FATAL, errortext);
+    }
+    if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
+      if (lstat(linkname, &st) == -1) {
+        snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
+        errsend(FATAL, errortext);
+      }
+      work_node->st = st;
+      work_node->ftype = FUSEFILE;
+    }
+    else{
+      //handle symlinks here
+      work_node->ftype = LINKFILE;
+    }
+  }
+}
+
+void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o){
+  //When a worker is told to stat, it comes here
+
+  int position, out_position;
+
+  char *writebuf;
+  int writesize;
+  int write_count = 0, write_count_max = 100;
+  int num_examined_files = 0;
+  double num_examined_bytes = 0;
+  
+  int numchars;
+  char linkname[PATHSIZE_PLUS];
+  char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
+
+  path_item work_node, out_node;
+  int process = 1;
+  
   
   //stat 
   struct stat st, out_st;
@@ -1073,7 +1167,6 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
   char modebuf[15], timebuf[30];
   //for truncing an existing out file
   int trunc = 0;
-  int num_examined = 0;
   int rc;
   int i;
 
@@ -1097,77 +1190,17 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
 #endif
 
 
-
-  PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the stat_count from %d\n", rank, sending_rank);
-  if (MPI_Recv(&stat_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    errsend(FATAL, "Failed to receive stat_count\n");
-  }
-  worksize = sizeof(path_item) * stat_count;
-  workbuf = (char *) malloc(worksize * sizeof(char));
-  
   //write_count = stat_count;
   writesize = MESSAGESIZE * write_count_max;
   writebuf = (char *) malloc(writesize * sizeof(char));
 
-  //gather the path to stat
-  PRINT_MPI_DEBUG("rank %d: worker_stat() Receiving the workbuf from %d\n", rank, sending_rank);
-  if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-    errsend(FATAL, "Failed to receive workbuf\n");
-  }
-  
+
   position = 0;
   out_position = 0;
-  for (i = 0; i < stat_count; i++){
-    PRINT_MPI_DEBUG("rank %d: worker_stat() Unpacking the work_node %d\n", rank, sending_rank);
-    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-   
+  for (i = 0; i < *stat_count; i++){
+    work_node = path_buffer[i];
+    st = work_node.st;
 
-    if (lstat(work_node.path, &st) == -1) {
-      snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", work_node.path);
-      if (o.work_type == LSWORK){
-        errsend(NONFATAL, errortext);
-        continue;
-      }
-      else{
-        errsend(FATAL, errortext);
-      }
-    }
-
-    work_node.st = st;
-    work_node.ftype = REGULARFILE;
-
-    //dmapi to find managed files
-#ifndef DISABLE_TAPE
-    if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS){
-      uid = getuid();
-      if (uid == 0 && st.st_size > 0 && st.st_blocks == 0){
-        dmarray[0] = 0;
-        dmarray[1] = 0;
-        dmarray[2] = 0;
-
-        if (read_inodes (work_node.path, work_node.st.st_ino, work_node.st.st_ino+1, dmarray) != 0) {
-          snprintf(errortext, MESSAGESIZE, "read_inodes failed: %s", work_node.path);
-          errsend(FATAL, errortext);
-        }
-  
-        else if (dmarray[0] > 0){
-          dmapi_lookup(work_node.path, dmarray, hexbuf);
-          if (dmarray[1] == 1) {                                                                                                                                                                                                                                                                             
-            work_node.ftype = PREMIGRATEFILE;
-          }
-          else if (dmarray[2] == 1) {
-            work_node.ftype = MIGRATEFILE;
-          }
-        }
-      }
-      else if (st.st_size > 0 && st.st_blocks == 0){
-        work_node.ftype = MIGRATEFILE;
-      }
-    }
-#endif
-
-
-    
     if (st.st_ino == dest_node.st.st_ino){
       write_count--;
       continue;
@@ -1175,7 +1208,7 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
     else if (S_ISDIR(st.st_mode)){
       dirbuffer[dir_buffer_count] = work_node;
       dir_buffer_count++;
-      if (dir_buffer_count % 15 == 0){
+      if (dir_buffer_count % DIRBUFFER == 0){
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
     }
@@ -1189,26 +1222,6 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
     }
 #endif
     else{
-      if (S_ISLNK(work_node.st.st_mode)){
-        memset(linkname,'\0', PATHSIZE_PLUS);
-        numchars = readlink(work_node.path, linkname, PATHSIZE_PLUS);
-        if (numchars < 0){
-          snprintf(errortext, MESSAGESIZE, "Failed to read link %s", link_result);
-          errsend(FATAL, errortext);
-        }
-        if (is_fuse_chunk(canonicalize_file_name(work_node.path))){
-          if (lstat(linkname, &st) == -1) {
-            snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
-            errsend(FATAL, errortext);
-          }
-          work_node.st = st;
-          work_node.ftype = FUSEFILE;
-        }
-        else{
-          //handle symlinks here
-          work_node.ftype = LINKFILE;
-        }
-      }
       //do this for all regular files AND fuse+symylinks
       chunk_curr_offset = 0;
       if (o.work_type == COPYWORK){
@@ -1307,13 +1320,15 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
               work_node.length = work_node.st.st_size;
               chunk_curr_offset = work_node.st.st_size;
             }
-            regbuffer[reg_buffer_count] = work_node;
-            reg_buffer_count++;
-            num_bytes_seen += work_node.length;
-            if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
-              send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-              num_bytes_seen = 0;
-            }      
+            if (o.work_type != LSWORK){
+              regbuffer[reg_buffer_count] = work_node;
+              reg_buffer_count++;
+              num_bytes_seen += work_node.length;
+              if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                num_bytes_seen = 0;
+              }      
+            }
           }
         }
         //regular filesystem
@@ -1322,17 +1337,20 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
           chunk_size = work_node.st.st_size;
           work_node.length = chunk_size;
           
-          regbuffer[reg_buffer_count] = work_node;
-          reg_buffer_count++;
-          num_bytes_seen += work_node.length;
-          if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
-            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-          } 
+          if (o.work_type != LSWORK){
+            regbuffer[reg_buffer_count] = work_node;
+            reg_buffer_count++;
+            num_bytes_seen += work_node.length;
+            if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+              send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+            } 
+          }
         }
       }
     }
     if (! S_ISDIR(st.st_mode)){
-      num_examined++;
+      num_examined_files++;
+      num_examined_bytes += st.st_size;
     }
 
     printmode(st.st_mode, modebuf);
@@ -1378,13 +1396,12 @@ void worker_stat_buffer(int rank, int sending_rank, const char *base_path, path_
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
 #endif
-  send_manager_examined_stats(num_examined);
 
 
+  send_manager_examined_stats(num_examined_files, num_examined_bytes);
   //free malloc buffers
-  free(workbuf);
   free(writebuf);
-  send_manager_work_done(rank);  
+  *stat_count = 0;
 }
 
 
@@ -1423,7 +1440,8 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
   char modebuf[15], timebuf[30];
   //for truncing an existing out file
   int trunc = 0;
-  int num_examined = 0;
+  int num_examined_files = 0;
+  double num_examined_bytes = 0;
   int rc;
   int i;
 
@@ -1682,7 +1700,8 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
       }
     }
     if (! S_ISDIR(st.st_mode)){
-      num_examined++;
+      num_examined_files++;
+      num_examined_bytes += st.st_size;
     }
 
     printmode(st.st_mode, modebuf);
@@ -1728,7 +1747,7 @@ void worker_stat(int rank, int sending_rank, const char *base_path, path_item de
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
 #endif
-  send_manager_examined_stats(num_examined);
+  send_manager_examined_stats(num_examined_files, num_examined_bytes);
 
 
   //free malloc buffers

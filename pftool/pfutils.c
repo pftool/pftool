@@ -219,7 +219,7 @@ int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf){
    */
   nelemr = 1;
   if (dm_get_region (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, nelemr, regbufpr, &nelempr) != 0) {
-    printf ("dm_get_region faileds\n");
+    printf ("dm_get_region failed\n");
     goto done;
   }
 
@@ -772,15 +772,19 @@ void send_manager_copy_stats(int num_copied_files, double num_copied_bytes){
   }
 }
 
-void send_manager_examined_stats(int num_examined){
+void send_manager_examined_stats(int num_examined_files, double num_examined_bytes){
   send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
 
   //send the # of paths
-  if (MPI_Send(&num_examined, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    fprintf(stderr, "Failed to send num_examined %d to rank %d\n", num_examined, MANAGER_PROC);
+  if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_files %d to rank %d\n", num_examined_files, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
   
+  if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_bytes %0.0f to rank %d\n", num_examined_bytes, MANAGER_PROC);
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
 }
 
 
@@ -894,7 +898,6 @@ void errsend(int fatal, char *error_text){
   
   write_output(errormsg);
 
-  printf("==> here? -- %s\n", error_text);
   if (fatal){
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
@@ -1201,7 +1204,8 @@ int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcoun
 
 
 int MPY_Abort(MPI_Comm comm, int errorcode) {
-      pthread_kill(pthread_self(),SIGSTOP);
+      pthread_exit(NULL);
+      //pthread_kill(pthread_self(),SIGSTOP);
       return -1;
 }
 #endif
