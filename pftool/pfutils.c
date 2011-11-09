@@ -961,15 +961,22 @@ void get_stat_fs_info(const char *path, int *fs){
   struct statfs stfs;
   char errortext[MESSAGESIZE];
   int rc;
+  char use_path[PATHSIZE_PLUS];
 
-  rc = lstat(path, &st);
+  strncpy(use_path, path, PATHSIZE_PLUS);
+
+  rc = lstat(use_path, &st);
   if (rc < 0){
-    fprintf(stderr, "Failed to stat path %s\n", path);
-    MPI_Abort(MPI_COMM_WORLD, -1);
+    strncpy(use_path, dirname(strndup(path, PATHSIZE_PLUS)), PATHSIZE_PLUS);
+    rc = lstat(use_path, &st);
+    if (rc < 0){
+      fprintf(stderr, "Failed to stat path %s\n", path);
+      MPI_Abort(MPI_COMM_WORLD, -1);
+    }
   }
 
   if (!S_ISLNK(st.st_mode)){
-    if (statfs(path, &stfs) < 0) {
+    if (statfs(use_path, &stfs) < 0) {
       snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
       errsend(FATAL, errortext);
     }

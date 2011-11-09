@@ -725,6 +725,7 @@ void worker(int rank, struct options o){
       if (mpi_ret_code < 0){
         errsend(FATAL, "Failed to Receive Bcast dest_path");
       }
+
     }
     //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the base_path\n", rank);
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -995,7 +996,8 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
     if (o.use_file_list == 0){
       if ((dip = opendir(work_node.path)) == NULL){
         snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
-        errsend(FATAL, errmsg);
+        errsend(NONFATAL, errmsg);
+        continue;
       }
       if (makedir == 1){
         strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
