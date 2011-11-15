@@ -859,11 +859,6 @@ void send_worker_queue_count(int target_rank, int queue_count){
   
 }
 
-void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
-  //send a worker a list buffers with paths to stat
-  send_buffer_list(target_rank, STATCMD, workbuflist, workbufsize);
-}
-
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
   //send a worker a buffer list of paths to stat
   send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);

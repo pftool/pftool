@@ -83,7 +83,8 @@ enum cmd_opcode {
 //for our MPI communications 
 #define MANAGER_PROC  0
 #define OUTPUT_PROC   1
-#define ACCUM_PROC   2
+#define ACCUM_PROC    2
+#define START_PROC    3
 
 //errsend
 #define FATAL 1
@@ -195,7 +196,6 @@ void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
-void send_worker_stat_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
