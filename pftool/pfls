@@ -48,7 +48,7 @@ def main():
   pfcmd = Commands()
 
   if options.threaded:
-    num_procs = config["num_procs"]["pfcp_thread"]
+    num_procs = config["num_procs"]["pfls_thread"]
     pftool = ROOT_PATH("pftool-thread")
     pfcmd.add(pftool)
     pfcmd.add("-nthread", num_procs)

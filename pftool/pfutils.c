@@ -20,6 +20,7 @@
 
 #ifdef THREADS_ONLY      
 #include <pthread.h>
+#include "mpii.h"
 #define MPI_Abort MPY_Abort
 #define MPI_Pack MPY_Pack
 #define MPI_Unpack MPY_Unpack
@@ -1211,8 +1212,17 @@ int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcoun
 
 
 int MPY_Abort(MPI_Comm comm, int errorcode) {
-      pthread_exit(NULL);
-      //pthread_kill(pthread_self(),SIGSTOP);
+      int i = 0;
+      MPII_Member *member;
+
+      for (i = 0; i < comm->group->size; i++){
+        member = (MPII_Member *)(comm->group->members)[i];
+        unlock(member->mutex);
+        delete_mutex(member->mutex);
+      }
+      for (i = 0; i < comm->group->size; i++){
+          pthread_kill(pthread_self(), SIGTERM);
+      }
       return -1;
 }
 #endif
