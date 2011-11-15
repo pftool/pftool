@@ -46,7 +46,7 @@ def get_jid():
 
 def parse_config(options_path=ROOT_PATH("config", "pftool.yaml")):
   f = open(options_path)
-  results = yaml.load(f)
+  results = yaml.safe_load(f)
   f.close()
   return results
 

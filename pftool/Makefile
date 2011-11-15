@@ -17,7 +17,7 @@ GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS $(THREADS_ONLY_FLAGS)
 THREADS_ONLY_FLAGS    = -DTHREADS_ONLY
 
 #pftool dmapilookup
-all: pftool pftool-thread pftool-generic
+all: pftool pftool-thread #pftool-generic
 
 
 
