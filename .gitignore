@@ -2,11 +2,17 @@ dmapilookup
 dumpinode
 pftool/pftool
 pftool/pftool-thread
+pftool/pftool-generic
 testing
 setstgpool
+*.a
 *.o
 *.swp
 *.pyc
 dsmerror.log
 temp/
 test*/
+bin
+include
+lib
+build

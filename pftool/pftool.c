@@ -1089,13 +1089,12 @@ void stat_item(path_item *work_node, struct options o){
   //dmapi to find managed files
 #ifndef DISABLE_TAPE
   if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS){
-#ifndef THREADS_ONLY
     uid = getuid();
-#else
-    //FIXME: This is a hack and wrong
-    uid = 1;
-#endif
+#ifndef THREADS_ONLY
     if (uid == 0 && st.st_size > 0 && st.st_blocks == 0){
+#else
+    if (0){
+#endif
       dmarray[0] = 0;
       dmarray[1] = 0;
       dmarray[2] = 0;

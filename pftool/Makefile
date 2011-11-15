@@ -6,8 +6,8 @@ MPICC				          =	$(MPI_ROOT)/bin/mpicc
 MPICFLAGS		          =	$(MPI_COMPILE_FLAGS) -g -I$(MPI_ROOT)/include
 MPICLIBS		          =	-lmpi -L$(MPI_ROOT)/lib
 
-THREADCLIBS           = -L../src -lmpi -lpthread
-IFLAGS                = -I../include
+THREADCLIBS           = -L../tompi/src -lmpi -lpthread
+IFLAGS                = -I../tompi/include
 
 DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
@@ -17,7 +17,24 @@ GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS $(THREADS_ONLY_FLAGS)
 THREADS_ONLY_FLAGS    = -DTHREADS_ONLY
 
 #pftool dmapilookup
-all: pftool pftool-thread 
+all: pftool pftool-thread pftool-generic
+
+
+
+
+pftool-generic: pftool-generic.o pfutils-generic.o hashtbl-generic.o
+	$(CC) $(CFLAGS) $(IFLAGS) $(DLIB) pftool-generic.o pfutils-generic.o hashtbl-generic.o -o pftool-generic $(THREADCLIBS)
+
+pftool-generic.o: pftool.c pftool.h pfutils-generic.o debug.h
+	$(CC) $(CFLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pftool.c -o pftool-generic.o
+
+pfutils-generic.o: pfutils.c pfutils.h debug.h
+	$(CC) $(CFLAGS) $(DCFLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pfutils.c -o pfutils-generic.o
+
+hashtbl-generic.o: hashtbl.c hashtbl.h
+	$(CC) $(CFLAGS) -c hashtbl.c -o hashtbl-generic.o
+
+
 
 pftool-thread: pftool-thread.o pfutils-thread.o hashtbl-thread.o
 	$(CC) $(CFLAGS) $(IFLAGS) $(DLIB) pftool-thread.o pfutils-thread.o hashtbl-thread.o -o pftool-thread $(THREADCLIBS)
@@ -30,6 +47,7 @@ pfutils-thread.o: pfutils.c pfutils.h debug.h
 
 hashtbl-thread.o: hashtbl.c hashtbl.h
 	$(CC) $(CFLAGS) -c hashtbl.c -o hashtbl-thread.o
+
 
 
 pftool: pftool.o pfutils.o hashtbl.o
@@ -60,4 +78,4 @@ clean:
 	- /bin/rm -f *.pyc
 
 cleanall:	clean
-	- /bin/rm -f pftool pftool-thread dmapilookup
+	- /bin/rm -f pftool pftool-thread pftool-generic dmapilookup
