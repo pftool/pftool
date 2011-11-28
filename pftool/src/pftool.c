@@ -502,8 +502,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   write_output(message);
   sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
   write_output(message);
-  sprintf(message, "INFO  FOOTER   Total Bytes: %0.0f\n", examined_byte_count);
+
+if (o.work_type == LSWORK){
+  sprintf(message, "INFO  FOOTER   Total Bytes Examined: %0.0f\n", examined_byte_count);
   write_output(message);
+}
 
 #ifndef DISABLE_TAPE
   sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", tape_count);
@@ -895,7 +898,7 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
   
   int message_count;
   char msg[MESSAGESIZE];
-  char outmsg[MESSAGESIZE];
+  char outmsg[MESSAGESIZE+10];
 
   char *buffer;
   int buffersize;
@@ -923,7 +926,7 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
   for (i = 0; i < message_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
     MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
-    snprintf(outmsg, MESSAGESIZE+10, "RANK %2d: %s", sending_rank, msg);
+    snprintf(outmsg, MESSAGESIZE+10, "RANK %3d: %s", sending_rank, msg);
 #ifdef THREADS_ONLY
     printf("%s", outmsg);
 #else
@@ -1546,13 +1549,15 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
       sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s", path, (long long)offset, (long long)length, out_path);
     }
     if (rc == 0){
-      strncat(copymsg, "-- SUCCESS\n", MESSAGESIZE);
+      strncat(copymsg, " -- SUCCESS\n", MESSAGESIZE);
     }
     else if (rc == 2 ){
-      strncat(copymsg, "-- MISSING DESTINATION\n", MESSAGESIZE);
+      strncat(copymsg, " -- MISSING DESTINATION\n", MESSAGESIZE);
+      send_manager_nonfatal_inc();
     }
     else{
-      strncat(copymsg, "-- MISMATCH\n", MESSAGESIZE);
+      strncat(copymsg, " -- MISMATCH\n", MESSAGESIZE);
+      send_manager_nonfatal_inc();
     }
     MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
     //file is not 'chunked'

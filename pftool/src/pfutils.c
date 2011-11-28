@@ -577,6 +577,15 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 
 int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only){
   struct stat dest_st;
+  int blocksize =  1048576;
+  off_t completed = 0;
+  char *ibuf;
+  char *obuf;
+  int src_fd, dest_fd;
+  int bytes_processed;
+  char errormsg[MESSAGESIZE];
+  int rc;
+  int crc;
 
   // dest doesn't exist
   if (lstat(dest_file, &dest_st) == -1){
@@ -594,6 +603,78 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, off_
       return 0;
     }
     //byte compare
+    ibuf = malloc(blocksize * sizeof(char));
+    obuf = malloc(blocksize * sizeof(char));
+    src_fd = open(src_file, O_RDONLY);
+    if (src_fd < 0){
+      sprintf(errormsg, "Failed to open file %s for compare source", src_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    dest_fd = open(dest_file, O_RDONLY);
+    if (dest_fd < 0){
+      sprintf(errormsg, "Failed to open file %s for compare destination", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    //incase someone accidently set and offset+length that exceeds the file bounds
+    if ((src_st.st_size - offset) < length){
+      length = src_st.st_size - offset;
+    } 
+    //a file less then blocksize 
+    if (length < blocksize){
+      blocksize = length;
+    }
+    crc = 0;
+    while (completed != length){
+      memset(ibuf, 0, sizeof(ibuf));
+      memset(obuf, 0, sizeof(obuf));
+      //blocksize is too big
+      if ((length - completed) < blocksize){
+        blocksize = (length - completed);
+      }
+    
+      bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
+      if (bytes_processed != blocksize){
+        sprintf(errormsg, "%s: Read %d bytes instead of %d for compare", src_file, bytes_processed, blocksize);
+        errsend(NONFATAL, errormsg);
+        return -1;
+      }
+
+      bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
+      if (bytes_processed != blocksize){
+        sprintf(errormsg, "%s: write %d bytes instead of %d", dest_file, bytes_processed, blocksize);
+        errsend(NONFATAL, errormsg);
+        return -1;
+      }
+      //compare - if no compare crc=1 if compare crc=0 and get out of loop
+      crc = memcmp(ibuf,obuf,blocksize);
+      //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",src_file, dest_file, completed+offset, blocksize, crc); 
+      if (crc != 0) {
+        completed=length;
+      } 
+      completed += blocksize;
+    }
+    rc = close(src_fd);
+    if (rc != 0){
+       sprintf(errormsg, "Failed to close file: %s", src_file);
+       errsend(NONFATAL, errormsg);
+       return -1;
+    }
+    rc = close(dest_fd);
+    if (rc != 0){
+      sprintf(errormsg, "Failed to close file: %s", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
+    free(ibuf);
+    free(obuf);
+    if (crc != 0) {
+      return 1;
+    } 
+    else {
+      return 0;
+    }
   }
   else{
     return 1;
