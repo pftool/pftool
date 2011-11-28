@@ -18,5 +18,5 @@ active_nodes:
   gpfst6: "ON"
   gpfst7: "ON"
   gpfst8: "ON"
-  gpfst9: "ON"
-  gpfst10: "ON"
+  gpfst9: "OFF"
+  gpfst10: "OFF"

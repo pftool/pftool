@@ -1,5 +1,0 @@
-- Add fuse creation on copy to big files
-- Add flags
-  -tba
-- xattr fuse restart
-- Add recall system
