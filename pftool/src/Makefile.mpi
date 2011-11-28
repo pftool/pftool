@@ -10,6 +10,9 @@ DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
 DCFLAGS 		          = -O -D$(GPFS_TYPE)
 
+#use generic fs if you want to build anywhere
+GENERIC_FS_FLAGS      = #-DDISABLE_TAPE -DDISABLE_PANFS 
+
 all: pftool
 
 pftool: pftool.o pfutils.o hashtbl.o
@@ -17,13 +20,10 @@ pftool: pftool.o pfutils.o hashtbl.o
 	mv pftool ../bin/mpi
 
 pftool.o: pftool.c pftool.h pfutils.o
-	$(MPICC) $(CFLAGS) -c pftool.c
+	$(MPICC) $(CFLAGS) $(GENERIC_FS_FLAGS) -c pftool.c
 
 pfutils.o: pfutils.c pfutils.h
-	$(MPICC) $(CFLAGS) $(DCFLAGS) -c pfutils.c
-
-recall_api.o: recall_api.c recall_api.h
-	$(MPICC) $(CFLAGS) $(DCFLAGS) -c recall_api.c
+	$(MPICC) $(CFLAGS) $(DCFLAGS) $(GENERIC_FS_FLAGS) -c pfutils.c
 
 hashtbl.o: hashtbl.c hashtbl.h
 	$(MPICC) $(CFLAGS) -c hashtbl.c

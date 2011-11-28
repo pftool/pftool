@@ -1,10 +1,7 @@
-all: pftool pftool-threaded pftool-mpi
+all: pftool pftool-mpi
 
 pftool-mpi: 
 	cd src; make clean; make -f Makefile.mpi
-
-pftool-threaded: 
-	cd src; make clean; make -f Makefile.threaded
 
 pftool: 
 	cd src; make clean; make -f Makefile

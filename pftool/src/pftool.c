@@ -18,7 +18,6 @@
 // include that is associated with pftool itself
 #include "pftool.h"
 #include "debug.h"
-#include "recall_api.h"
 
 #define STGPOOLSERVER_PORT 1664
 

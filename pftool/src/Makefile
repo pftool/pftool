@@ -8,7 +8,7 @@ DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
 DCFLAGS 		          = -O -D$(GPFS_TYPE)
 #use generic fs if you want to build anywhere
-GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS $(THREADS_ONLY_FLAGS)
+GENERIC_FS_FLAGS      = #-DDISABLE_TAPE -DDISABLE_PANFS 
 THREADS_ONLY_FLAGS    = -DTHREADS_ONLY
 
 all: pftool
@@ -16,13 +16,13 @@ all: pftool
 
 pftool: pftool.o pfutils.o hashtbl.o
 	$(CC) $(CFLAGS) $(IFLAGS) $(DLIB) pftool.o pfutils.o hashtbl.o -o pftool $(THREADCLIBS)
-	mv pftool ../bin/generic
+	mv pftool ../bin/threaded
 
 pftool.o: pftool.c pftool.h pfutils.o debug.h
-	$(CC) $(CFLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pftool.c -o pftool.o
+	$(CC) $(CFLAGS) $(THREADS_ONLY_FLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pftool.c -o pftool.o
 
 pfutils.o: pfutils.c pfutils.h debug.h
-	$(CC) $(CFLAGS) $(DCFLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pfutils.c -o pfutils.o
+	$(CC) $(CFLAGS) $(DCFLAGS) $(THREADS_ONLY_FLAGS) $(GENERIC_FS_FLAGS) $(IFLAGS) -c pfutils.c -o pfutils.o
 
 hashtbl.o: hashtbl.c hashtbl.h
 	$(CC) $(CFLAGS) -c hashtbl.c -o hashtbl.o
