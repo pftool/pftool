@@ -3,10 +3,8 @@ import datetime, time, os, getpass
 from socket import gethostname
 from syslog import *
 
-try:
-  import yaml
-except:
-  pass
+import ConfigParser
+
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
@@ -44,11 +42,10 @@ def get_jid():
   jid = user+time_id+hostname
   return jid
 
-def parse_config(options_path=ROOT_PATH("config", "pftool.yaml")):
-  f = open(options_path)
-  results = yaml.safe_load(f)
-  f.close()
-  return results
+def parse_config(options_path=ROOT_PATH("config", "pftool.cfg")):
+  config = ConfigParser.ConfigParser()
+  config.read(options_path)
+  return config
 
 def busy(): 
     print"""
