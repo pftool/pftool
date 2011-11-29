@@ -1,0 +1,15 @@
+If not built run:
+make tompi
+
+For both mpi and threaded versions run:
+make 
+
+For individual version:
+make pftool
+make pftool-mpi
+
+For generic versions modify:
+src/Makefile
+src/Makefile.mpi
+
+and uncommment the GENERIC_FS_FLAGS portions, then compile like normal.
