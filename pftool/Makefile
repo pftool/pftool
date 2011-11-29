@@ -1,4 +1,4 @@
-all: pftool pftool-mpi
+all: pftool #pftool-mpi
 
 tompi:
 	cd ../tompi; make
@@ -12,4 +12,6 @@ pftool-mpi:
 clean: 
 	cd src; make clean
 	
-
+cleanall: 
+	- cd src; make cleanall
+	- cd src; make -f Makefile.mpi cleanall

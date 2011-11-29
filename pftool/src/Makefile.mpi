@@ -13,7 +13,13 @@ DCFLAGS 		          = -O -D$(GPFS_TYPE)
 #use generic fs if you want to build anywhere
 GENERIC_FS_FLAGS      = #-DDISABLE_TAPE -DDISABLE_PANFS 
 
-all: pftool
+all: pftool pfscripts
+
+pfscripts:
+	- cp pfscripts.py ../bin/mpi
+	- cp pfls ../bin/mpi
+	- cp pfcm ../bin/mpi
+	- cp pfcp ../bin/mpi
 
 pftool: pftool.o pfutils.o hashtbl.o
 	$(MPICC) $(CFLAGS) $(MPICLIBS) $(DLIB)  pftool.o pfutils.o hashtbl.o -o pftool
@@ -32,3 +38,6 @@ clean:
 	- /bin/rm -f *~
 	- /bin/rm -f *.o
 	- /bin/rm -f *.x
+
+cleanall: clean
+	cd ../bin/mpi; /bin/rm -f pfscripts* pfls pfcm pfcp

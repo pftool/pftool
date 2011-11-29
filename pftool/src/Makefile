@@ -8,11 +8,16 @@ DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
 DCFLAGS 		          = -O -D$(GPFS_TYPE)
 #use generic fs if you want to build anywhere
-GENERIC_FS_FLAGS      = #-DDISABLE_TAPE -DDISABLE_PANFS 
+GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS 
 THREADS_ONLY_FLAGS    = -DTHREADS_ONLY
 
-all: pftool
+all: pftool pfscripts
 
+pfscripts:
+	- cp pfscripts.py ../bin/threaded
+	- cp pfls ../bin/threaded
+	- cp pfcm ../bin/threaded
+	- cp pfcp ../bin/threaded
 
 pftool: pftool.o pfutils.o hashtbl.o
 	$(CC) $(CFLAGS) $(IFLAGS) $(DLIB) pftool.o pfutils.o hashtbl.o -o pftool $(THREADCLIBS)
@@ -32,3 +37,5 @@ clean:
 	- /bin/rm -f *.o
 	- /bin/rm -f *.x
 
+cleanall: clean
+	cd ../bin/threaded; /bin/rm -f pfscripts* pfls pfcm pfcp

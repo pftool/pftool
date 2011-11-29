@@ -6,10 +6,10 @@ from pfscripts import *
 def main():
   parser = OptionParser()
   parser.usage = "%prog [options] sourcePath destinationPath"
-  parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
+  parser.description = "%prog -- compare file(s) from sourcePath to destinationPath in parallel"
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
+  parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
-  parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
   parser.add_option("-t", dest="threaded", default=False, action="store_true", help="run threaded mode vs mpi mode")
   (options, args) = parser.parse_args()
 
@@ -22,18 +22,18 @@ def main():
   src = args[:-1]
   dest = args[-1]
   commands = Commands()
-  commands.add("-w", Work.COPY)
+  commands.add("-w", Work.COMPARE)
   commands.add("-j", jid)
 
-  if options.verbose:
-    commands.add("-v")
+  if options.metadata:
+    commands.add("-M")
 
   base_name = os.path.dirname(src[0])
   if options.recurse:
     commands.add("-r")
     for i in src:
       if os.path.dirname(i) != base_name:
-        parser.error("All sources for a recursive copy must be contained within the same directory.")
+        parser.error("All sources for a recursive compare must be contained within the same directory.")
 
   base_dest_name = os.path.dirname(dest)
   if base_dest_name and not os.path.exists(base_dest_name):
@@ -42,19 +42,41 @@ def main():
   for i in src:
     if not os.path.exists(i):
       parser.error("cannot stat '%s': No such file or directory"%(i))
-
-  #parse additional options
-  if options.different:
-    commands.add("-n")
   
   commands.add("-p", *src)
   commands.add("-c", dest)
 
+  threaded = False
+  try:
+    t = config.get("environment", "threaded")
+  except:
+    parser.error("please specify wheather the program is threaded or not in the environment section of the config file (e.g. threaded: True)")
+
+  if t.lower() == "true":
+    threaded = True
+
   pfcmd = Commands()
-  num_procs = config.get("num_procs", "pfcp")
+  num_procs = config.get("num_procs", "pfcm")
   pftool = ROOT_PATH("pftool")
-  pfcmd.add(pftool)
-  pfcmd.add("-nthread", num_procs)
+
+  if threaded:
+    pfcmd.add(pftool)
+    pfcmd.add("-nthread", num_procs)
+  else:
+    try:
+      mpigo = config.get("environment", "mpirun")
+    except:
+      parser.error("please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
+
+    try:
+      host_list = map(lambda x: x[0], filter(lambda x: x[1] == "ON", config.items("active_nodes")))
+    except:
+      parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
+
+    pfcmd.add(mpigo)
+    pfcmd.add("-host", ",".join(host_list))
+    pfcmd.add("-n", num_procs)
+    pfcmd.add(pftool)
 
   pfcmd.add(*commands.commands)
 
