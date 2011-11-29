@@ -4,7 +4,7 @@ CFLAGS			          =	-Wall -D_GNU_SOURCE -g
 THREADCLIBS           = -L../../tompi/src -lmpi -lpthread
 IFLAGS                = -I../../tompi/include
 
-DLIB 				          = -lgpfs -ldmapi
+#DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
 DCFLAGS 		          = -O -D$(GPFS_TYPE)
 #use generic fs if you want to build anywhere

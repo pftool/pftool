@@ -1098,7 +1098,6 @@ void stat_item(path_item *work_node, struct options o){
 #endif
   int numchars;
   char linkname[PATHSIZE_PLUS];
-  char *link_result = NULL;
 
   if (lstat(work_node->path, &st) == -1) {
     snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", work_node->path);
@@ -1153,8 +1152,10 @@ void stat_item(path_item *work_node, struct options o){
     memset(linkname,'\0', PATHSIZE_PLUS);
     numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
     if (numchars < 0){
-      snprintf(errortext, MESSAGESIZE, "Failed to read link %s", link_result);
-      errsend(FATAL, errortext);
+      snprintf(errortext, MESSAGESIZE, "Failed to read link %s", work_node->path);
+      errsend(NONFATAL, errortext);
+      work_node->ftype = LINKFILE;
+      return;
     }
     if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
       if (lstat(linkname, &st) == -1) {
@@ -1280,7 +1281,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
               numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
               if (numchars < 0){
                 snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
-                errsend(FATAL, errortext);
+                errsend(NONFATAL, errortext);
               }
               if (is_fuse_chunk(canonicalize_file_name(work_node.path)) == 1){
                 //it's a fuse file trunc
