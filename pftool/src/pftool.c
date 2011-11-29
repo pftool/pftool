@@ -96,7 +96,6 @@ int main(int argc, char *argv[]){
   //mpi
   int rank = 0;
   int nproc = 0;
-  int mpi_ret_code = 0;
 
   //getopt
   int c;
@@ -206,17 +205,17 @@ int main(int argc, char *argv[]){
 
 
   //broadcast all the options
-  mpi_ret_code = MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
 
   //Modifies the path based on recursion/wildcards
   //wildcard
@@ -983,7 +982,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   MPI_Status status;
   char *workbuf;
   int worksize;
-  int position, out_position;
+  int position;
   int read_count;
   char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
   char errmsg[MESSAGESIZE];
@@ -1015,7 +1014,6 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   }
   
   position = 0;
-  out_position = 0;
   for (i = 0; i < read_count; i++){
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
     MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
@@ -1175,7 +1173,7 @@ void stat_item(path_item *work_node, struct options o){
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o){
   //When a worker is told to stat, it comes here
 
-  int position, out_position;
+  int out_position;
 
   char *writebuf;
   int writesize;
@@ -1224,7 +1222,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   writebuf = (char *) malloc(writesize * sizeof(char));
 
 
-  position = 0;
   out_position = 0;
   for (i = 0; i < *stat_count; i++){
     work_node = path_buffer[i];
@@ -1484,13 +1481,15 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     length = work_node.length;
     rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
     if (rc >= 0){
-      if (S_ISLNK(work_node.st.st_mode)){
-        sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_path, path);
+      if (o.verbose){
+        if (S_ISLNK(work_node.st.st_mode)){
+          sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_path, path);
+        }
+        else{
+          sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
+        }
+        MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       }
-      else{
-        sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
-      }
-      MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       //file is not 'chunked'
       if (offset == 0 && length == work_node.st.st_size){ 
         num_copied_files +=1;
@@ -1505,7 +1504,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     }
   }
   
-  write_buffer_output(writebuf, writesize, read_count); 
+  if (o.verbose){
+    write_buffer_output(writebuf, writesize, read_count); 
+  }
 
   //update the chunk information
   if (buffer_count > 0){
@@ -1571,6 +1572,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     offset = work_node.offset;
     length = work_node.length;
     rc = compare_file(path, out_path, offset, length, o.blocksize, work_node.st, o.meta_data_only);
+
     if (o.meta_data_only || work_node.ftype == LINKFILE){
       sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", path, out_path);
     }
@@ -1588,7 +1590,9 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
       strncat(copymsg, " -- MISMATCH\n", MESSAGESIZE);
       send_manager_nonfatal_inc();
     }
-    MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+    if (o.verbose){
+      MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+    }
     //file is not 'chunked'
     if (offset == 0 && length == work_node.st.st_size){ 
       num_compared_files +=1;
@@ -1601,7 +1605,9 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     
   }
   
-  write_buffer_output(writebuf, writesize, read_count); 
+  if (o.verbose){
+    write_buffer_output(writebuf, writesize, read_count); 
+  }
 
   //update the chunk information
   if (buffer_count > 0){

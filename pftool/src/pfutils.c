@@ -101,14 +101,12 @@ void copy_byes_to_file (const char *b, int len, const char *out_path){
 
 void hex_dump_bytes (char *b, int len, char *outhexbuf){
   short str_index;
-  size_t buf_index;
   char smsg[64];
   char tmsg[3];
   unsigned char *ptr;
   int start = 0;
 
   ptr = (unsigned char *) (b + start);  /* point to buffer location to start  */
-  buf_index = 0;
 
   /* if last frame and more lines are required get number of lines */
 
@@ -1006,15 +1004,23 @@ int is_fuse_chunk(const char *path){
 
 void set_fuse_chunk_data(path_item *work_node){
   int i;
+  int numchars;
   char linkname[PATHSIZE_PLUS], baselinkname[PATHSIZE_PLUS];
 
   const char delimiters[] =  ".";
   char *current;
+  char errormsg[MESSAGESIZE];
 
   off_t length;
  
+  numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
+  if (numchars < 0){
+    sprintf(errormsg, "Failed to read link %s", work_node->path);
+    errsend(NONFATAL, errormsg);
+    return;
+  }
+  
 
-  readlink(work_node->path, linkname, PATHSIZE_PLUS);
   strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
 
   current = strdupa(baselinkname);

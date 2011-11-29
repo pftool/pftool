@@ -28,6 +28,9 @@ def main():
   if options.metadata:
     commands.add("-M")
 
+  if options.verbose:
+    commands.add("-v")
+
   base_name = os.path.dirname(src[0])
   if options.recurse:
     commands.add("-r")
