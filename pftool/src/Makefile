@@ -38,4 +38,4 @@ clean:
 	- /bin/rm -f *.x
 
 cleanall: clean
-	cd ../bin/threaded; /bin/rm -f pfscripts* pfls pfcm pfcp
+	cd ../bin/threaded; /bin/rm -f pfscripts* pfls pfcm pfcp pftool

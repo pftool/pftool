@@ -433,12 +433,11 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
 
 }
 
-int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st){
+int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
   //MPI_Status status;
   int rc;
   //1 MB copy size
-  int blocksize =  1048576;
   off_t completed = 0;
   char *buf;
   char errormsg[MESSAGESIZE];
@@ -530,7 +529,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
     bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
-      sprintf(errormsg, "%s: Read %d bytes instead of %d", src_file, bytes_processed, blocksize);
+      sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
       return -1;
     }
@@ -538,7 +537,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
     bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
-      sprintf(errormsg, "%s: write %d bytes instead of %d", dest_file, bytes_processed, blocksize);
+      sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
       return -1;
     }
@@ -575,9 +574,8 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 }
 
 
-int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only){
+int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only){
   struct stat dest_st;
-  int blocksize =  1048576;
   off_t completed = 0;
   char *ibuf;
   char *obuf;
@@ -636,14 +634,14 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, off_
     
       bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
       if (bytes_processed != blocksize){
-        sprintf(errormsg, "%s: Read %d bytes instead of %d for compare", src_file, bytes_processed, blocksize);
+        sprintf(errormsg, "%s: Read %d bytes instead of %zd for compare", src_file, bytes_processed, blocksize);
         errsend(NONFATAL, errormsg);
         return -1;
       }
 
       bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
       if (bytes_processed != blocksize){
-        sprintf(errormsg, "%s: write %d bytes instead of %d", dest_file, bytes_processed, blocksize);
+        sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
         errsend(NONFATAL, errormsg);
         return -1;
       }

@@ -110,8 +110,12 @@ struct options{
   int verbose;
   int recurse;
   int different;
+  int parallel_dest;
   int work_type;
   int meta_data_only;
+  off_t blocksize;
+  off_t chunk_at;
+  off_t chunksize;
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
@@ -152,8 +156,8 @@ char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
-int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
-int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only);
+int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
+int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 
 //dmapi/gpfs specfic

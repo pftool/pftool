@@ -40,4 +40,4 @@ clean:
 	- /bin/rm -f *.x
 
 cleanall: clean
-	cd ../bin/mpi; /bin/rm -f pfscripts* pfls pfcm pfcp
+	cd ../bin/mpi; /bin/rm -f pfscripts* pfls pfcm pfcp pftool

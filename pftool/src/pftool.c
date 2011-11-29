@@ -33,8 +33,8 @@ extern char *printmode (mode_t aflag, char *buf);
 extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
-extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st);
-extern int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, struct stat src_st, int meta_data_only);
+extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
+extern int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
 
 //dmapi/gpfs
 #ifndef DISABLE_TAPE
@@ -136,10 +136,17 @@ int main(int argc, char *argv[]){
     o.recurse = 0;
     o.meta_data_only = 1;
     strncpy(o.jid, "TestJob", 128);
+    o.parallel_dest = 0;
+    //1MB
+    o.blocksize = 1048576;
+    //10GB
+    o.chunk_at = 107374182400;
+    o.chunksize = 107374182400;
+
     o.work_type = LSWORK;
 
     // start MPI - if this fails we cant send the error to the output proc so we just die now 
-    while ((c = getopt(argc, argv, "p:c:j:w:i:vrMnh")) != -1) 
+    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:vrPMnh")) != -1) 
       switch(c){
         case 'p':
           //Get the source/beginning path
@@ -159,12 +166,24 @@ int main(int argc, char *argv[]){
           strncpy(o.file_list, optarg, PATHSIZE_PLUS);
           o.use_file_list = 1;
           break;
+        case 's':
+          o.blocksize = atof(optarg);
+          break;
+        case 'C':
+          o.chunk_at = atof(optarg);
+          break;
+        case 'S':
+          o.chunksize = atof(optarg);
+          break;
         case 'n':
           //different
           o.different = 1;
         case 'r':
           //Recurse
           o.recurse = 1;
+          break;
+        case 'P':
+          o.parallel_dest = 1;
           break;
         case 'M':
           o.meta_data_only = 0;
@@ -188,11 +207,16 @@ int main(int argc, char *argv[]){
 
   //broadcast all the options
   mpi_ret_code = MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   mpi_ret_code = MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-  mpi_ret_code = MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   mpi_ret_code = MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  mpi_ret_code = MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
 
   //Modifies the path based on recursion/wildcards
   //wildcard
@@ -727,8 +751,12 @@ void worker(int rank, struct options o){
 
 
     get_stat_fs_info(base_path, &o.sourcefs);
-    if (o.work_type != LSWORK){
+
+    if (o.parallel_dest == 0 && o.work_type != LSWORK){
       get_stat_fs_info(dest_node.path, &o.destfs);
+      if (o.destfs != ANYFS){
+        o.parallel_dest = 1;
+      }
     }
   }
 
@@ -1174,7 +1202,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   //chunks
   //1 GB
   off_t chunk_size = 0;
-  off_t chunk_size_save = 107374182400; //10GB
 
   off_t num_bytes_seen = 0;
   off_t ship_off = 2147483648; //2GB
@@ -1290,8 +1317,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
       if (process == 1){
         //parallel filesystem can do n-to-1
-        if (o.destfs == GPFSFS || o.destfs == PANASASFS){
-          chunk_size = chunk_size_save;
+        if (o.parallel_dest){
+          chunk_size = o.chunksize;
           if (work_node.ftype == FUSEFILE){
             set_fuse_chunk_data(&work_node);
             chunk_size = work_node.length;
@@ -1306,7 +1333,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
           while (chunk_curr_offset < work_node.st.st_size){
             work_node.offset = chunk_curr_offset;
-            if ((chunk_curr_offset + chunk_size) >  work_node.st.st_size){
+            //if we're not doing chunks OR we're done chunking
+            if (work_node.st.st_size <= o.chunk_at || (chunk_curr_offset + chunk_size) >  work_node.st.st_size){
               work_node.length = work_node.st.st_size - chunk_curr_offset;
               chunk_curr_offset = work_node.st.st_size; 
             }
@@ -1453,7 +1481,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
     offset = work_node.offset;
     length = work_node.length;
-    rc = copy_file(path, out_path, offset, length, work_node.st);
+    rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
     if (rc >= 0){
       if (S_ISLNK(work_node.st.st_mode)){
         sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_path, path);
@@ -1541,7 +1569,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
     offset = work_node.offset;
     length = work_node.length;
-    rc = compare_file(path, out_path, offset, length, work_node.st, o.meta_data_only);
+    rc = compare_file(path, out_path, offset, length, o.blocksize, work_node.st, o.meta_data_only);
     if (o.meta_data_only || work_node.ftype == LINKFILE){
       sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", path, out_path);
     }
