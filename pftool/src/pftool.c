@@ -142,10 +142,17 @@ int main(int argc, char *argv[]){
     o.chunk_at = 107374182400;
     o.chunksize = 107374182400;
 
+    //fuse
+    strncpy(o.fuse_path, "", PATHSIZE_PLUS);
+    o.use_fuse = 0;
+    //64GB
+    o.fuse_chunk_at = 68719476736;
+    o.fuse_chunksize = 68719476736;
+
     o.work_type = LSWORK;
 
     // start MPI - if this fails we cant send the error to the output proc so we just die now 
-    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:vrPMnh")) != -1) 
+    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:f:W:A:vrPMnh")) != -1) 
       switch(c){
         case 'p':
           //Get the source/beginning path
@@ -173,6 +180,15 @@ int main(int argc, char *argv[]){
           break;
         case 'S':
           o.chunksize = atof(optarg);
+          break;
+        case 'f':
+          strncpy(o.fuse_path, optarg, PATHSIZE_PLUS);
+          o.use_fuse = 1;
+        case 'W':
+          o.fuse_chunk_at = atof(optarg);
+          break;
+        case 'A':
+          o.fuse_chunksize = atof(optarg);
           break;
         case 'n':
           //different

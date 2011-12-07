@@ -119,6 +119,10 @@ struct options{
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
+  char fuse_path[PATHSIZE_PLUS];
+  int use_fuse;
+  off_t fuse_chunk_at;
+  off_t fuse_chunksize;
 
   //fs info
   int sourcefs;

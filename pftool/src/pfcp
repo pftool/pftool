@@ -43,6 +43,25 @@ def main():
     if not os.path.exists(i):
       parser.error("cannot stat '%s': No such file or directory"%(i))
 
+  try:
+    chunk_at = config.get("options", "chunk_at")
+    chunksize = config.get("options", "chunksize")
+    commands.add("-C", chunk_at)
+    commands.add("-S", chunksize)
+  except:
+    pass
+
+  try: 
+    fuse_path = config.get("options", "fuse_path")
+    fuse_chunk_at = config.get("options", "fuse_chunk_at")
+    fuse_chunksize = config.get("options", "fuse_chunksize")
+    commands.add("-f", fuse_path)
+    commands.add("-W", fuse_chunk_at)
+    commands.add("-A", fuse_chunksize)
+  except:
+    pass
+
+
   #parse additional options
   if options.different:
     commands.add("-n")
@@ -58,6 +77,7 @@ def main():
 
   if t.lower() == "true":
     threaded = True
+
 
   pfcmd = Commands()
   num_procs = config.get("num_procs", "pfcp")
