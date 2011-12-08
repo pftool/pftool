@@ -874,24 +874,44 @@ void send_manager_copy_stats(int num_copied_files, double num_copied_bytes){
 
   //send the # of paths
   if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    fprintf(stderr, "Failed to send num_copied_byes %f to rank %d\n", num_copied_bytes, MANAGER_PROC);
+    fprintf(stderr, "Failed to send num_copied_byes %0.0f to rank %d\n", num_copied_bytes, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
 }
 
-void send_manager_examined_stats(int num_examined_files, double num_examined_bytes){
+void send_manager_examined_stats(int num_examined_files, double num_examined_bytes, int num_examined_dirs){
   send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
 
   //send the # of paths
   if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
     fprintf(stderr, "Failed to send num_examined_files %d to rank %d\n", num_examined_files, MANAGER_PROC);
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+  if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_bytes %0.0f to rank %d\n", num_examined_bytes, MANAGER_PROC);
+    MPI_Abort(MPI_COMM_WORLD, -1);
+  }
+
+  if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_dirs %d to rank %d\n", num_examined_dirs, MANAGER_PROC);
+    MPI_Abort(MPI_COMM_WORLD, -1); 
+  }
+}
+
+void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_bytes){
+  send_command(MANAGER_PROC, TAPESTATCMD);
+  //send the # of paths
+  if (MPI_Send(&num_examined_tapes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_tapes %d to rank %d\n", num_examined_tapes, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
   
-  if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-    fprintf(stderr, "Failed to send num_examined_bytes %0.0f to rank %d\n", num_examined_bytes, MANAGER_PROC);
+  if (MPI_Send(&num_examined_tape_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    fprintf(stderr, "Failed to send num_examined_tape_bytes %0.0f to rank %d\n", num_examined_tape_bytes, MANAGER_PROC);
     MPI_Abort(MPI_COMM_WORLD, -1); 
   }
+
 }
 
 

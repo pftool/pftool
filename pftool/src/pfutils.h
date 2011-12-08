@@ -71,7 +71,10 @@ enum cmd_opcode {
   PROCESSCMD,
   INPUTCMD,
   DIRCMD,
+#ifndef DISABLE_TAPE
   TAPECMD,
+  TAPESTATCMD,
+#endif
   WORKDONECMD,
   NONFATALINCCMD,
   CHUNKBUSYCMD,
@@ -199,7 +202,8 @@ void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, double num_copied_bytes);
-void send_manager_examined_stats(int num_examined_files, double num_examined_bytes);
+void send_manager_examined_stats(int num_examined_files, double num_examined_bytes, int num_examined_dirs);
+void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_bytes);
 void send_manager_work_done();
 
 //function definitions for workers

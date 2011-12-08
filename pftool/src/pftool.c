@@ -292,11 +292,12 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int i;
   int *proc_status;
   struct timeval in, out;
-  int non_fatal = 0, examined_file_count = 0, dir_count = 0;
+  int non_fatal = 0, examined_file_count = 0, examined_dir_count = 0;
   double examined_byte_count = 0;
   
 #ifndef DISABLE_TAPE
-  int tape_count = 0;
+  int examined_tape_count = 0;
+  double examined_tape_byte_count = 0;
 #endif
 
   int makedir = 0;
@@ -514,20 +515,25 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
         break;
       case EXAMINEDSTATSCMD:
-        manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count);
+        manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count);
         break;
+#ifndef DISABLE_TAPE
+      case TAPESTATCMD:
+        manager_add_tape_stats(rank, sending_rank, &examined_tape_count, &examined_tape_byte_count);
+        break;
+#endif
       case PROCESSCMD:
-          manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
+        manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
         break;
       case DIRCMD:
-        dir_count += manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
+        manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
         if (o.recurse == 0){
           delete_buf_list(&dir_buf_list, &dir_buf_list_size);
         }
         break;
 #ifndef DISABLE_TAPE
       case TAPECMD:
-        tape_count += manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
+        manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
         if (o.work_type == LSWORK){
           delete_buf_list(&tape_buf_list, &tape_buf_list_size);
         }
@@ -564,11 +570,13 @@ if (o.work_type == LSWORK){
 }
 
 #ifndef DISABLE_TAPE
-  sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", tape_count);
+  sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", examined_tape_count);
+  write_output(message);
+  sprintf(message, "INFO  FOOTER   Total Bytes on Tape: %0.0f\n", examined_tape_byte_count);
   write_output(message);
 #endif
 
-  sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", dir_count);
+  sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
   write_output(message);
   
   if (o.work_type == COPYWORK){
@@ -651,7 +659,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
 
 }
 
-int manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize){
+void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize){
   MPI_Status status;
   int path_count;
   char *workbuf;
@@ -674,8 +682,6 @@ int manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, i
   if (path_count > 0){
     enqueue_buf_list(workbuflist, workbufsize, workbuf, path_count);
   }
-
-  return path_count;
 }
 
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, double *num_copied_bytes){
@@ -699,10 +705,11 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, d
 
 }
 
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes){
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes, int *num_examined_dirs){
   MPI_Status status;
   int num_files = 0;
   double num_bytes = 0;
+  int num_dirs = 0;
   
   //gather the # of examined files
   PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
@@ -715,10 +722,36 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_fi
       errsend(FATAL, "Failed to receive worksize\n");
   }
 
+  PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_dirs from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_dirs, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+
+
   *num_examined_files += num_files;
   *num_examined_bytes += num_bytes;
-
+  *num_examined_dirs += num_dirs;
 }
+
+#ifndef DISABLE_TAPE
+void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, double *num_examined_tape_bytes){
+  MPI_Status status;
+  int num_tapes = 0;
+  double  num_bytes = 0;
+
+  PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_tapes from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_tapes, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+
+  PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_bytes from rank %d\n", rank, sending_rank);
+  if (MPI_Recv(&num_bytes, 1, MPI_DOUBLE, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+      errsend(FATAL, "Failed to receive worksize\n");
+  }
+  *num_examined_tapes += num_tapes;
+  *num_examined_tape_bytes += num_bytes;
+}
+#endif
 
 void manager_workdone(int rank, int sending_rank, int *proc_status){
   proc_status[sending_rank] = 0;
@@ -1216,7 +1249,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   int writesize;
   int write_count = 0;
   int num_examined_files = 0;
-  off_t num_examined_bytes = 0;
+  double num_examined_bytes = 0;
+  int num_examined_dirs = 0;
+ 
   
   int numchars;
   char linkname[PATHSIZE_PLUS];
@@ -1239,8 +1274,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   //1 GB
   off_t chunk_size = 0;
 
-  off_t num_bytes_seen = 0;
-  off_t ship_off = 2147483648; //2GB
+  double num_bytes_seen = 0;
+  double ship_off = 2147483648; //2GB
   //int chunk_size = 1024;
   off_t chunk_curr_offset = 0;
 
@@ -1251,6 +1286,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifndef DISABLE_TAPE
   path_item tapebuffer[TAPEBUFFER];
   int tape_buffer_count = 0;
+  int num_examined_tapes = 0;
+  double num_examined_tape_bytes = 0;
 #endif
 
 
@@ -1274,6 +1311,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
       if (dir_buffer_count % DIRBUFFER == 0){
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
+      num_examined_dirs++;
     }
     else{
       //do this for all regular files AND fuse+symylinks
@@ -1356,7 +1394,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             regbuffer[reg_buffer_count] = work_node;
             reg_buffer_count++;
           }
-
           while (chunk_curr_offset < work_node.st.st_size){
             work_node.offset = chunk_curr_offset;
             //if we're not doing chunks OR we're done chunking
@@ -1430,6 +1467,12 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     if (! S_ISDIR(st.st_mode)){
       num_examined_files++;
       num_examined_bytes += st.st_size;
+#ifndef DISABLE_TAPE
+      if (work_node.ftype == MIGRATEFILE){
+        num_examined_tapes++;
+        num_examined_tape_bytes += st.st_size;
+      }
+#endif
     }
 
     printmode(st.st_mode, modebuf);
@@ -1474,10 +1517,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   while (tape_buffer_count != 0){
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
+  send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
 #endif
 
-
-  send_manager_examined_stats(num_examined_files, num_examined_bytes);
+  send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
   //free malloc buffers
   free(writebuf);
   *stat_count = 0;
@@ -1498,8 +1541,8 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
   path_item workbuffer[STATBUFFER];
   int buffer_count = 0;
 
-  off_t num_bytes_seen = 0;
-  off_t ship_off = 2147493648;
+  double num_bytes_seen = 0;
+  double ship_off = 2147493648;
 
   int i, rc;
 
