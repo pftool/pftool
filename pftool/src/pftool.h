@@ -24,6 +24,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int start, int makedir, struct options o);
 void stat_item(path_item *work_node, struct options o);
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o);
+void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct options o);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 

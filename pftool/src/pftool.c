@@ -33,6 +33,7 @@ extern char *printmode (mode_t aflag, char *buf);
 extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
+extern int one_byte_read(const char *path);
 extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
 extern int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
 
@@ -60,6 +61,9 @@ extern void write_output(char *message);
 extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 extern void send_worker_queue_count(int target_rank, int queue_count);
 extern void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+#ifndef DISABLE_TAPE
+extern void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+#endif
 extern void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 extern void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 extern void send_worker_exit();
@@ -433,6 +437,16 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           delete_buf_list(&dir_buf_list, &dir_buf_list_size);
         }
 
+        //handle tape
+#ifndef DISABLE_TAPE
+        work_rank = get_free_rank(proc_status, 3, nproc - 1);
+        if (work_rank > -1 && tape_buf_list_size > 0){
+          proc_status[work_rank] = 1;
+          send_worker_tape_path(work_rank, &tape_buf_list, &tape_buf_list_size);
+        }
+#endif
+        
+
         if (o.work_type == COPYWORK){
           for (i = 0; i < 3; i ++){
             work_rank = get_free_rank(proc_status, 3, nproc - 1);
@@ -514,7 +528,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 #ifndef DISABLE_TAPE
       case TAPECMD:
         tape_count += manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
-        delete_buf_list(&tape_buf_list, &tape_buf_list_size);
+        if (o.work_type == LSWORK){
+          delete_buf_list(&tape_buf_list, &tape_buf_list_size);
+        }
         break;
 #endif
       case INPUTCMD:
@@ -826,6 +842,11 @@ void worker(int rank, struct options o){
       case DIRCMD:
         worker_readdir(rank, sending_rank, base_path, dest_node, 0, makedir, o);
         break;
+#ifndef DISABLE_TAPE
+      case TAPECMD:
+        worker_taperecall(rank, sending_rank, dest_node, o);
+        break;
+#endif
       case COPYCMD:
         worker_copylist(rank, sending_rank, base_path, dest_node, o);
         break;
@@ -1193,9 +1214,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
   char *writebuf;
   int writesize;
-  int write_count = 0, write_count_max = 100;
+  int write_count = 0;
   int num_examined_files = 0;
-  double num_examined_bytes = 0;
+  off_t num_examined_bytes = 0;
   
   int numchars;
   char linkname[PATHSIZE_PLUS];
@@ -1234,7 +1255,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 
   //write_count = stat_count;
-  writesize = MESSAGESIZE * write_count_max;
+  writesize = MESSAGESIZE * MESSAGEBUFFER;
   writebuf = (char *) malloc(writesize * sizeof(char));
 
 
@@ -1254,15 +1275,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
       }
     }
-#ifndef DISABLE_TAPE
-    else if (work_node.ftype == MIGRATEFILE){
-      tapebuffer[tape_buffer_count] = work_node;
-      tape_buffer_count++;
-      if (tape_buffer_count % TAPEBUFFER == 0){
-        send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
-      }
-    }
-#endif
     else{
       //do this for all regular files AND fuse+symylinks
       chunk_curr_offset = 0;
@@ -1364,13 +1376,25 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
               chunk_curr_offset = work_node.st.st_size;
             }
             if (o.work_type != LSWORK){
-              regbuffer[reg_buffer_count] = work_node;
-              reg_buffer_count++;
-              num_bytes_seen += work_node.length;
-              if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
-                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                num_bytes_seen = 0;
-              }      
+              if (work_node.ftype != MIGRATEFILE){
+                num_bytes_seen += work_node.length;
+                regbuffer[reg_buffer_count] = work_node;
+                reg_buffer_count++;
+                if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+                  send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                  num_bytes_seen = 0;
+                }      
+              }
+
+#ifndef DISABLE_TAPE
+              else if (work_node.ftype == MIGRATEFILE){
+                tapebuffer[tape_buffer_count] = work_node;
+                tape_buffer_count++;
+                if (tape_buffer_count % TAPEBUFFER == 0){
+                  send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+                }
+              }
+#endif
             }
           }
         }
@@ -1381,12 +1405,24 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
           work_node.length = chunk_size;
           
           if (o.work_type != LSWORK){
-            regbuffer[reg_buffer_count] = work_node;
-            reg_buffer_count++;
-            num_bytes_seen += work_node.length;
-            if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
-              send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-            } 
+            if (work_node.ftype != MIGRATEFILE){
+              num_bytes_seen += work_node.length;
+              regbuffer[reg_buffer_count] = work_node;
+              reg_buffer_count++;
+              if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                num_bytes_seen = 0;
+              } 
+            }
+#ifndef DISABLE_TAPE
+            else if (work_node.ftype == MIGRATEFILE){
+              tapebuffer[tape_buffer_count] = work_node;
+              tape_buffer_count++;
+              if (tape_buffer_count % TAPEBUFFER == 0){
+                send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+              }
+            }
+#endif
           }
         }
       }
@@ -1413,7 +1449,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
       }
       MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       write_count++;
-      if (write_count % write_count_max == 0){
+      if (write_count % MESSAGEBUFFER == 0){
         write_buffer_output(writebuf, writesize, write_count);
         out_position = 0;
         write_count = 0;
@@ -1447,6 +1483,84 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   *stat_count = 0;
 }
 
+#ifndef DISABLE_TAPE
+void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct options o){
+  MPI_Status status;
+
+  char *workbuf, *writebuf;
+  char recallrecord[MESSAGESIZE];
+  int worksize, writesize;
+  int position, out_position;
+  int read_count;
+  int write_count = 0;
+  
+  path_item work_node;
+  path_item workbuffer[STATBUFFER];
+  int buffer_count = 0;
+
+  off_t num_bytes_seen = 0;
+  off_t ship_off = 2147493648;
+
+  int i, rc;
+
+  PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the read_count from %d\n", rank, sending_rank);
+  if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    errsend(FATAL, "Failed to receive read_count\n");
+  }
+  worksize = read_count * sizeof(path_list);
+  workbuf = (char *) malloc(worksize * sizeof(char));
+
+  writesize = MESSAGESIZE * read_count;
+  writebuf = (char *) malloc(writesize * sizeof(char));  
+
+  //gather the path to stat
+  PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the workbuf from %d\n", rank, sending_rank);
+  if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    errsend(FATAL, "Failed to receive workbuf\n");
+  }
+  
+  for (i = 0; i < read_count; i++){
+    PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
+    MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
+    rc = one_byte_read(work_node.path);
+    if (rc == 0){
+      workbuffer[buffer_count] = work_node;
+      buffer_count += 1;
+      
+      if (buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+        send_manager_regs_buffer(workbuffer, &buffer_count);
+      }
+
+      if (o.verbose){
+        sprintf(recallrecord, "INFO  DATARECALL Recalled file %s offs %ld len %ld\n", work_node.path, work_node.offset, work_node.length);
+        MPI_Pack(recallrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+        write_count++;
+        if (write_count % MESSAGEBUFFER == 0){
+          write_buffer_output(writebuf, writesize, write_count);
+          out_position = 0;
+          write_count = 0;
+        }
+      }
+    }
+  }
+
+  if (o.verbose){
+    writesize = MESSAGESIZE * write_count;
+    writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+    write_buffer_output(writebuf, writesize, write_count);
+  }
+
+  while (buffer_count != 0){
+    send_manager_regs_buffer(workbuffer, &buffer_count);
+  }
+
+  send_manager_work_done(rank);
+
+  free(workbuf);
+  free(writebuf);
+
+}
+#endif
 
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o){
   //When a worker is told to copy, it comes here

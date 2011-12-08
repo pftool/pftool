@@ -431,6 +431,35 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
 
 }
 
+int one_byte_read(const char *path){
+  int fd, bytes_processed;
+  char data;
+  int rc = 0;
+  char errormsg[MESSAGESIZE];
+
+  fd = open(path, O_RDONLY);
+  
+  if (fd < 0){
+    sprintf(errormsg, "Failed to open file %s for read", path);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+  bytes_processed = read(fd, &data, 1);
+  if (bytes_processed != 1){
+    sprintf(errormsg, "%s: Read %d bytes instead of %d", path, bytes_processed, 1);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+  rc = close(fd);
+  if (rc != 0){
+    sprintf(errormsg, "Failed to close file: %s", path);
+    errsend(NONFATAL, errormsg);
+    return -1;
+  }
+  return 0;
+
+}
+
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
   //MPI_Status status;
@@ -876,10 +905,12 @@ void send_manager_dirs_buffer(path_item *buffer, int *buffer_count){
   send_path_buffer(MANAGER_PROC, DIRCMD, buffer, buffer_count);
 }
 
+#ifndef DISABLE_TAPE
 void send_manager_tape_buffer(path_item *buffer, int *buffer_count){
   //sends a chunk of regular files to the manager
   send_path_buffer(MANAGER_PROC, TAPECMD, buffer, buffer_count);
 }
+#endif
 
 void send_manager_new_buffer(path_item *buffer, int *buffer_count){
   //send manager new inputs
@@ -940,6 +971,13 @@ void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *wor
   //send a worker a buffer list of paths to stat
   send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
 }
+
+#ifndef DISABLE_TAPE
+void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
+  //send a worker a buffer list of paths to stat
+  send_buffer_list(target_rank, TAPECMD, workbuflist, workbufsize);
+}
+#endif
 
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
   //send a worker a list buffers with paths to copy 

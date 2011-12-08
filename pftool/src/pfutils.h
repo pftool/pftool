@@ -35,7 +35,7 @@
 #define STATBUFFER 50
 #define CHUNKBUFFER 300
 #define COPYBUFFER 30
-#define TAPEBUFFER 30
+#define TAPEBUFFER 5 
 
 #define ANYFS     0
 #define PANASASFS 1
@@ -160,6 +160,7 @@ char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
+int one_byte_read(const char *path);
 int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
 int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
@@ -191,7 +192,9 @@ int processing_complete(int *proc_status, int nproc);
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
+#ifndef DISABLE_TAPE
 void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
+#endif
 void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_chunk_busy();
@@ -205,6 +208,9 @@ void write_output(char *message);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+#ifndef DISABLE_TAPE
+void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+#endif
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_exit(int target_rank);
