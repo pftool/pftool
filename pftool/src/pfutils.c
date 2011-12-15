@@ -899,6 +899,7 @@ void send_manager_examined_stats(int num_examined_files, double num_examined_byt
   }
 }
 
+#ifndef DISABLE_TAPE
 void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_bytes){
   send_command(MANAGER_PROC, TAPESTATCMD);
   //send the # of paths
@@ -913,6 +914,7 @@ void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_by
   }
 
 }
+#endif
 
 
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count){
@@ -1037,6 +1039,7 @@ void errsend(int fatal, char *error_text){
   }
 }
 
+#ifndef DISABLE_FUSE_CHUNKER
 int is_fuse_chunk(const char *path){
   //pass in a symlink's followed path to determine if it's a fuse file
   struct statfs stfs;
@@ -1093,6 +1096,7 @@ void set_fuse_chunk_data(path_item *work_node){
   work_node->length = length;
   
 }
+#endif
 
 
 void get_stat_fs_info(const char *path, int *fs){
@@ -1125,10 +1129,12 @@ void get_stat_fs_info(const char *path, int *fs){
     else if (stfs.f_type == PANFS_FILE) {
       *fs = PANASASFS;
     }
+#ifndef DISABLE_FUSE_CHUNKER
     else if (stfs.f_type == FUSE_SUPER_MAGIC){
       //fuse file
       *fs = GPFSFS;
     }
+#endif
     else{
       *fs = ANYFS;
     }

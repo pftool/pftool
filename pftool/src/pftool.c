@@ -70,8 +70,10 @@ extern void send_worker_exit();
 
 //functions that use workers
 extern void errsend(int fatal, char *error_text);
+#ifndef DISABLE_FUSE_CHUNKER
 extern int is_fuse_chunk(const char *path);
 extern void set_fuse_chunk_data(path_item *work_node);
+#endif
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
 
@@ -146,12 +148,14 @@ int main(int argc, char *argv[]){
     o.chunk_at = 107374182400;
     o.chunksize = 107374182400;
 
+#ifndef DISABLE_FUSE_CHUNKER
     //fuse
     strncpy(o.fuse_path, "", PATHSIZE_PLUS);
     o.use_fuse = 0;
     //64GB
     o.fuse_chunk_at = 68719476736;
     o.fuse_chunksize = 68719476736;
+#endif
 
     o.work_type = LSWORK;
 
@@ -185,6 +189,7 @@ int main(int argc, char *argv[]){
         case 'S':
           o.chunksize = atof(optarg);
           break;
+#ifndef DISABLE_FUSE_CHUNKER
         case 'f':
           strncpy(o.fuse_path, optarg, PATHSIZE_PLUS);
           o.use_fuse = 1;
@@ -194,6 +199,7 @@ int main(int argc, char *argv[]){
         case 'A':
           o.fuse_chunksize = atof(optarg);
           break;
+#endif
         case 'n':
           //different
           o.different = 1;
@@ -234,6 +240,12 @@ int main(int argc, char *argv[]){
   MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+#ifndef DISABLE_FUSE_CHUNKER
+  MPI_Bcast(&o.fuse_path, 1, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.use_fuse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.fuse_chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.fuse_chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+#endif
   MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
 
@@ -1225,6 +1237,8 @@ void stat_item(path_item *work_node, struct options o){
       work_node->ftype = LINKFILE;
       return;
     }
+    work_node->ftype = LINKFILE;
+#ifndef DISABLE_FUSE_CHUNKER
     if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
       if (lstat(linkname, &st) == -1) {
         snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
@@ -1233,10 +1247,8 @@ void stat_item(path_item *work_node, struct options o){
       work_node->st = st;
       work_node->ftype = FUSEFILE;
     }
-    else{
-      //handle symlinks here
-      work_node->ftype = LINKFILE;
-    }
+#endif
+    
   }
 }
 
@@ -1346,11 +1358,13 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
                 errsend(NONFATAL, errortext);
               }
+#ifndef DISABLE_FUSE_CHUNKER
               if (is_fuse_chunk(canonicalize_file_name(work_node.path)) == 1){
                 //it's a fuse file trunc
                 trunc = 1;
               }
               else{
+#endif
                 trunc = 0;
                 //it's a regular symlink, unlink
                 rc = unlink(out_node.path);
@@ -1358,7 +1372,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                   snprintf(errortext, MESSAGESIZE, "Failed to unlink %s", out_node.path);
                   errsend(FATAL, errortext);
                 }
+#ifndef DISABLE_FUSE_CHUNKER
               }
+#endif
             }
             else{
               //it's a regular file trunc
@@ -1383,10 +1399,12 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         //parallel filesystem can do n-to-1
         if (o.parallel_dest){
           chunk_size = o.chunksize;
+#ifndef DISABLE_FUSE_CHUNKER
           if (work_node.ftype == FUSEFILE){
             set_fuse_chunk_data(&work_node);
             chunk_size = work_node.length;
           }
+#endif
 
           if (work_node.st.st_size == 0){
             work_node.offset = 0;

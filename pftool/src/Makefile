@@ -8,7 +8,7 @@ DLIB 				          = -lgpfs -ldmapi
 GPFS_TYPE 	          = GPFS_LINUX 
 DCFLAGS 		          = -O -D$(GPFS_TYPE)
 #use generic fs if you want to build anywhere
-#GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS 
+#GENERIC_FS_FLAGS      = -DDISABLE_TAPE -DDISABLE_PANFS -DDISABLE_FUSE_CHUNKER
 THREADS_ONLY_FLAGS    = -DTHREADS_ONLY
 
 all: pftool pfscripts

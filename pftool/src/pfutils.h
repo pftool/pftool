@@ -41,11 +41,13 @@
 #define PANASASFS 1
 #define GPFSFS    2
 #define NULLFS    3
+#ifndef DISABLE_FUSE_CHUNKER
 #define FUSEFS    4 
 
 #define FUSE_SUPER_MAGIC 0x65735546
-#define GPFS_FILE        0x47504653
 #define FUSE_FILE        0x65735546
+#endif
+#define GPFS_FILE        0x47504653
 #define PANFS_FILE       0xAAd7AAEA
 #define EXT2_FILE        0xEF53
 #define EXT3_FILE        0xEF53
@@ -122,10 +124,12 @@ struct options{
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
+#ifndef DISABLE_FUSE_CHUNKER
   char fuse_path[PATHSIZE_PLUS];
   int use_fuse;
   off_t fuse_chunk_at;
   off_t fuse_chunksize;
+#endif
 
   //fs info
   int sourcefs;
@@ -185,8 +189,10 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
+#ifndef DISABLE_FUSE_CHUNKER
 int is_fuse_chunk(const char *path);
 void set_fuse_chunk_data(path_item *work_node);
+#endif
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 void get_stat_fs_info(const char *path, int *fs);
 int get_free_rank(int *proc_status, int start_range, int end_range);
