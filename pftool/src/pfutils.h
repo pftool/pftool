@@ -127,6 +127,7 @@ struct options{
 #ifndef DISABLE_FUSE_CHUNKER
   char fuse_path[PATHSIZE_PLUS];
   int use_fuse;
+  int fuse_chunkdirs;
   off_t fuse_chunk_at;
   off_t fuse_chunksize;
 #endif
@@ -144,6 +145,9 @@ struct path_link{
   off_t offset;
   off_t length;
   enum filetype ftype;
+#ifndef DISABLE_FUSE_CHUNKER
+  int fuse_dest;
+#endif
 };
 typedef struct path_link path_item;
 
