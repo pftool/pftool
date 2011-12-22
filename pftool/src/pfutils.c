@@ -728,15 +728,15 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
       errsend(NONFATAL, errormsg);
       return -1;
     }
-  }
 
-  ut.actime = src_st.st_atime;
-  ut.modtime = src_st.st_mtime;
-  rc = utime(dest_file, &ut);
-  if (rc != 0){
-    sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
-    errsend(NONFATAL, errormsg);
-    return -1;
+    ut.actime = src_st.st_atime;
+    ut.modtime = src_st.st_mtime;
+    rc = utime(dest_file, &ut);
+    if (rc != 0){
+      sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
+      errsend(NONFATAL, errormsg);
+      return -1;
+    }
   }
   return 0;
 
