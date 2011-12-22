@@ -1136,9 +1136,9 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         mkdir(mkdir_path, S_IRWXU);
       }
       strncpy(path, work_node.path, PATHSIZE_PLUS);
+      //we're not a file list
       while ((dit = readdir(dip)) != NULL){
         if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
-
           strncpy(full_path, path, PATHSIZE_PLUS);
           if (full_path[strnlen(full_path, PATHSIZE_PLUS) - 1 ] != '/'){
             strncat(full_path, "/", 1);
@@ -1150,23 +1150,23 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
             snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
             if (o.work_type == LSWORK){
               errsend(NONFATAL, errmsg);
-              return;
+              continue;
             }
             else{
               errsend(FATAL, errmsg);
             }
+          }
           workbuffer[buffer_count] = work_node;
           buffer_count++;
-        }
         
-        if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
-          process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+          if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
+            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+          }
         }
-        }
-        if (closedir(dip) == -1){
-          snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
-          errsend(1, errmsg);
-        }
+      }
+      if (closedir(dip) == -1){
+        snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
+        errsend(1, errmsg);
       }
     }
     //we were provided a file list
@@ -1280,7 +1280,7 @@ int stat_item(path_item *work_node, struct options o){
   }
 
 #endif
-return 0;
+  return 0;
 }
 
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o){
@@ -1341,7 +1341,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   //write_count = stat_count;
   writesize = MESSAGESIZE * MESSAGEBUFFER;
   writebuf = (char *) malloc(writesize * sizeof(char));
-
 
   out_position = 0;
   for (i = 0; i < *stat_count; i++){
