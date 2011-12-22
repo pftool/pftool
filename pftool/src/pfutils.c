@@ -1096,7 +1096,7 @@ void set_fuse_chunk_data(path_item *work_node){
   
 }
 
-int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid, int *mode){
+int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid){
     char value[10000];
     int valueLen = 0;
 
@@ -1108,7 +1108,7 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
   
     valueLen = getxattr(path, chunk_name, value, 10000);
     if (valueLen != -1){
-      sscanf(value, "%10lld %10lld %6o %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), mode, userid, groupid);
+      sscanf(value, "%10lld %10lld %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), userid, groupid);
     }
     else{
       return -1;
@@ -1116,7 +1116,7 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     return 0;
 }
 
-int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid, int mode){
+int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid){
     char value[10000];
     int valueLen = 0;
 
@@ -1126,7 +1126,7 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     chunk_num = offset/length;
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
   
-    sprintf(value, "%10lld %10lld %6o %8d %8d", (long long int) ut.actime, (long long int ) ut.modtime, mode, userid, groupid);
+    sprintf(value, "%lld %lld %d %d", (long long int) ut.actime, (long long int ) ut.modtime, userid, groupid);
     valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
     if (valueLen != -1){
       return 0;

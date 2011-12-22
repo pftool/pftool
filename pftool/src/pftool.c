@@ -74,8 +74,8 @@ extern void errsend(int fatal, char *error_text);
 #ifndef DISABLE_FUSE_CHUNKER
 extern int is_fuse_chunk(const char *path);
 extern void set_fuse_chunk_data(path_item *work_node);
-extern int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid, int *mode);
-extern int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid, int mode);
+extern int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
+extern int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid);
 #endif
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
@@ -1683,7 +1683,6 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   struct utimbuf ut, chunk_ut;
   uid_t userid, chunk_userid;
   gid_t groupid, chunk_groupid;
-  int mode, chunk_mode;
 #endif
   
 
@@ -1713,35 +1712,33 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
     offset = work_node.offset;
     length = work_node.length;
-#ifndef DISABLE_FUSE_CHUNKER
-    /*if (work_node.fuse_dest){
-      rc = get_fuse_chunk_attr(out_path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid, &chunk_mode);
-      userid = work_node.st.st_uid;
-      groupid = work_node.st.st_gid;
-      mode = work_node.st.st_mode;
-      ut.actime = work_node.st.st_atime;
-      ut.modtime = work_node.st.st_mtime;
-       printf("--> %10lld %10lld %6o %8d %8d\n", ut.actime, ut.modtime, mode, userid, groupid);
-       printf("==> %10lld %10lld %6o %8d %8d\n", chunk_ut.actime, chunk_ut.modtime, chunk_mode, chunk_userid, chunk_groupid);
 
-    }
-    if (rc == -1 ||
-        chunk_userid != userid ||
-        chunk_groupid != groupid ||
-        chunk_mode != mode ||
-        chunk_ut.actime != ut.actime||
-        chunk_ut.modtime != ut.modtime){//not a match
-*/
-      if (1){
+
+#ifndef DISABLE_FUSE_CHUNKER
+    if (work_node.fuse_dest == 0){
 #endif
       rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
 #ifndef DISABLE_FUSE_CHUNKER
-      set_fuse_chunk_attr(out_path, offset, length, ut, userid, groupid, mode);
     }
     else{
-      rc = -1;
-    }
+      userid = work_node.st.st_uid;
+      groupid = work_node.st.st_gid;
+      ut.actime = work_node.st.st_atime;
+      ut.modtime = work_node.st.st_mtime;
 
+      rc = get_fuse_chunk_attr(out_path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid);
+      if (rc == -1 ||
+        chunk_userid != userid ||
+        chunk_groupid != groupid ||
+        chunk_ut.actime != ut.actime||
+        chunk_ut.modtime != ut.modtime){//not a match
+          rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
+          set_fuse_chunk_attr(out_path, offset, length, ut, userid, groupid);
+      }
+      else{
+        rc = -1;
+      }
+    }
 #endif
     if (rc >= 0){
       if (o.verbose){
