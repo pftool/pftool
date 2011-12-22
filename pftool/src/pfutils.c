@@ -1072,6 +1072,8 @@ void set_fuse_chunk_data(path_item *work_node){
   char errormsg[MESSAGESIZE];
 
   off_t length;
+
+  memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
  
   numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
   if (numchars < 0){
@@ -1079,7 +1081,7 @@ void set_fuse_chunk_data(path_item *work_node){
     errsend(NONFATAL, errormsg);
     return;
   }
-  
+  linkname[numchars] = '\0';
 
   strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
 
