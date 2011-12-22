@@ -1,5 +1,5 @@
 /*************************************************************************************
-* Name: pftool
+ Name: pftool
 *
 * Description:
 *
@@ -74,6 +74,8 @@ extern void errsend(int fatal, char *error_text);
 #ifndef DISABLE_FUSE_CHUNKER
 extern int is_fuse_chunk(const char *path);
 extern void set_fuse_chunk_data(path_item *work_node);
+extern int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid, int *mode);
+extern int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid, int mode);
 #endif
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
@@ -1087,7 +1089,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   //filelist
   FILE *fp;
 
-  int i;
+  int i, rc;
 
   PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the read_count %d\n", rank, sending_rank);
   if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -1109,7 +1111,17 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
    
     //first time through, not using a filelist
     if (start == 1 && o.use_file_list == 0){
-      stat_item(&work_node, o);
+      rc = stat_item(&work_node, o);
+      if (rc != 0){
+        snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+        if (o.work_type == LSWORK){
+          errsend(NONFATAL, errmsg);
+          return;
+        }
+        else{
+          errsend(FATAL, errmsg);
+        }
+      }
       workbuffer[buffer_count] = work_node;
       buffer_count++;
     }
@@ -1133,7 +1145,16 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
           }
           strncat(full_path, dit->d_name, PATHSIZE_PLUS);
           strncpy(work_node.path, full_path, PATHSIZE_PLUS);
-          stat_item(&work_node, o);
+          rc = stat_item(&work_node, o);
+          if (rc != 0){
+            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+            if (o.work_type == LSWORK){
+              errsend(NONFATAL, errmsg);
+              return;
+            }
+            else{
+              errsend(FATAL, errmsg);
+            }
           workbuffer[buffer_count] = work_node;
           buffer_count++;
         }
@@ -1141,10 +1162,11 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         if (buffer_count != 0 && buffer_count % STATBUFFER == 0){
           process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
         }
-      }
-      if (closedir(dip) == -1){
-        snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
-        errsend(1, errmsg);
+        }
+        if (closedir(dip) == -1){
+          snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
+          errsend(1, errmsg);
+        }
       }
     }
     //we were provided a file list
@@ -1173,10 +1195,10 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
   send_manager_work_done(rank);
 }
 
-void stat_item(path_item *work_node, struct options o){
+int stat_item(path_item *work_node, struct options o){
   //takes a work node, stats it and figures out some of its characteristics
   struct stat st;
-  char errortext[MESSAGESIZE];
+  char errmsg[MESSAGESIZE];
   //dmapi
 #ifndef DISABLE_TAPE
   uid_t uid;
@@ -1187,20 +1209,11 @@ void stat_item(path_item *work_node, struct options o){
   char linkname[PATHSIZE_PLUS];
 
   if (lstat(work_node->path, &st) == -1) {
-    snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", work_node->path);
-    if (o.work_type == LSWORK){
-      errsend(NONFATAL, errortext);
-      return;
-    }
-    else{
-      errsend(FATAL, errortext);
-    }
+    return -1;
   }
 
   work_node->st = st;
   work_node->ftype = REGULARFILE;
-
-
 
   //dmapi to find managed files
 #ifndef DISABLE_TAPE
@@ -1216,8 +1229,8 @@ void stat_item(path_item *work_node, struct options o){
       dmarray[2] = 0;
 
       if (read_inodes (work_node->path, work_node->st.st_ino, work_node->st.st_ino+1, dmarray) != 0) {
-        snprintf(errortext, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
-        errsend(FATAL, errortext);
+        snprintf(errmsg, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
+        errsend(FATAL, errmsg);
       }
 
       else if (dmarray[0] > 0){
@@ -1241,17 +1254,17 @@ void stat_item(path_item *work_node, struct options o){
     memset(linkname,'\0', PATHSIZE_PLUS);
     numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
     if (numchars < 0){
-      snprintf(errortext, MESSAGESIZE, "Failed to read link %s", work_node->path);
-      errsend(NONFATAL, errortext);
+      snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", work_node->path);
+      errsend(NONFATAL, errmsg);
       work_node->ftype = LINKFILE;
-      return;
+      return -1;
     }
     work_node->ftype = LINKFILE;
 #ifndef DISABLE_FUSE_CHUNKER
     if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
       if (lstat(linkname, &st) == -1) {
-        snprintf(errortext, MESSAGESIZE, "Failed to stat path %s", linkname);
-        errsend(FATAL, errortext);
+        snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
+        errsend(FATAL, errmsg);
       }
       work_node->st = st;
       work_node->ftype = FUSEFILE;
@@ -1267,6 +1280,7 @@ void stat_item(path_item *work_node, struct options o){
   }
 
 #endif
+return 0;
 }
 
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o){
@@ -1281,17 +1295,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   double num_examined_bytes = 0;
   int num_examined_dirs = 0;
  
-  
-  int numchars;
-  char linkname[PATHSIZE_PLUS];
-  char errortext[MESSAGESIZE], statrecord[MESSAGESIZE];
+  char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
 
   path_item work_node, out_node;
   int process = 1;
   
   
   //stat 
-  struct stat st, out_st;
+  struct stat st;
   struct tm sttm;
   char modebuf[15], timebuf[30];
   int rc;
@@ -1354,53 +1365,43 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
       if (o.work_type == COPYWORK){
         process = 1;
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-
-
+        rc = stat_item(&out_node, o);
         //if the out path exists
-        if (lstat(out_node.path, &out_st) == 0){
+        if (rc == 0){
           //Check if it's a valid match
           if (o.different == 1){
             //check size, mtime, mode, and owners 
-            if (work_node.st.st_size == out_st.st_size &&
-                (work_node.st.st_mtime == out_st.st_mtime  ||
+            if (work_node.st.st_size == out_node.st.st_size &&
+                (work_node.st.st_mtime == out_node.st.st_mtime  ||
                 S_ISLNK(work_node.st.st_mode))&&
-                work_node.st.st_mode == out_st.st_mode &&
-                work_node.st.st_uid == out_st.st_uid &&
-                work_node.st.st_gid == out_st.st_gid){
+                work_node.st.st_mode == out_node.st.st_mode &&
+                work_node.st.st_uid == out_node.st.st_uid &&
+                work_node.st.st_gid == out_node.st.st_gid){
               process = 0;
             }
           }
 
           if (process == 1){
-            out_node.st = out_st;
-
 #ifndef DISABLE_FUSE_CHUNKER
-            if (S_ISLNK(out_node.st.st_mode)){
-              memset(linkname,'\0', PATHSIZE_PLUS);
-              numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
-              if (numchars < 0){
-                snprintf(errortext, MESSAGESIZE, "Failed to read link %s", out_node.path);
-                errsend(NONFATAL, errortext);
-              }
-              if (is_fuse_chunk(canonicalize_file_name(out_node.path)) == 1){
-                out_node.ftype = FUSEFILE;
-                //it's a fuse file trunc
+            if (out_node.ftype == FUSEFILE){
+              //it's a fuse file trunc
+              if (o.different == 0 || (o.different == 1 && out_node.st.st_size > work_node.st.st_size)){
                 rc = truncate(out_node.path, 0);
                 if (rc != 0){
-                  sprintf(errortext, "Failed to truncate file %s", out_node.path);
-                  errsend(NONFATAL, errortext);
+                  sprintf(errmsg, "Failed to truncate file %s", out_node.path);
+                  errsend(NONFATAL, errmsg);
                 }
               }
             }
 #endif
             //it's not fuse, unlink
 #ifndef DISABLE_FUSE_CHUNKER
-            if (out_node.ftype != FUSEFILE){
+            else{
 #endif
               rc = unlink(out_node.path);
               if (rc < 0){
-                snprintf(errortext, MESSAGESIZE, "Failed to unlink %s", out_node.path);
-                errsend(FATAL, errortext);
+                snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", out_node.path);
+                errsend(FATAL, errmsg);
               }
 #ifndef DISABLE_FUSE_CHUNKER
             }
@@ -1408,8 +1409,6 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
           }
         }
       }
-
-
 
       if (process == 1){
         //parallel filesystem can do n-to-1
@@ -1681,7 +1680,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
 
 #ifndef DISABLE_FUSE_CHUNKER
   //partial file restart
-  struct utimebuf *ut, *chunk_ut;
+  struct utimbuf ut, chunk_ut;
   uid_t userid, chunk_userid;
   gid_t groupid, chunk_groupid;
   int mode, chunk_mode;
@@ -1715,11 +1714,29 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     offset = work_node.offset;
     length = work_node.length;
 #ifndef DISABLE_FUSE_CHUNKER
-    if (1){//not a match
+    /*if (work_node.fuse_dest){
+      rc = get_fuse_chunk_attr(out_path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid, &chunk_mode);
+      userid = work_node.st.st_uid;
+      groupid = work_node.st.st_gid;
+      mode = work_node.st.st_mode;
+      ut.actime = work_node.st.st_atime;
+      ut.modtime = work_node.st.st_mtime;
+       printf("--> %10lld %10lld %6o %8d %8d\n", ut.actime, ut.modtime, mode, userid, groupid);
+       printf("==> %10lld %10lld %6o %8d %8d\n", chunk_ut.actime, chunk_ut.modtime, chunk_mode, chunk_userid, chunk_groupid);
 
+    }
+    if (rc == -1 ||
+        chunk_userid != userid ||
+        chunk_groupid != groupid ||
+        chunk_mode != mode ||
+        chunk_ut.actime != ut.actime||
+        chunk_ut.modtime != ut.modtime){//not a match
+*/
+      if (1){
 #endif
       rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
 #ifndef DISABLE_FUSE_CHUNKER
+      set_fuse_chunk_attr(out_path, offset, length, ut, userid, groupid, mode);
     }
     else{
       rc = -1;

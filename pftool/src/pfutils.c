@@ -10,7 +10,6 @@
 
 #include <fcntl.h>
 #include <errno.h>
-#include <utime.h>
 
 #include "pfutils.h"
 #include "debug.h"
@@ -1095,6 +1094,46 @@ void set_fuse_chunk_data(path_item *work_node){
   work_node->offset = 0;
   work_node->length = length;
   
+}
+
+int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid, int *mode){
+    char value[10000];
+    int valueLen = 0;
+
+    char chunk_name[50]; 
+    int chunk_num = 0;
+
+    chunk_num = offset/length;
+    snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
+  
+    valueLen = getxattr(path, chunk_name, value, 10000);
+    if (valueLen != -1){
+      sscanf(value, "%10lld %10lld %6o %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), mode, userid, groupid);
+    }
+    else{
+      return -1;
+    }
+    return 0;
+}
+
+int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid, int mode){
+    char value[10000];
+    int valueLen = 0;
+
+    char chunk_name[50]; 
+    int chunk_num = 0;
+
+    chunk_num = offset/length;
+    snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
+  
+    sprintf(value, "%10lld %10lld %6o %8d %8d", (long long int) ut.actime, (long long int ) ut.modtime, mode, userid, groupid);
+    valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
+    if (valueLen != -1){
+      return 0;
+    }
+    else{
+      return -1;
+    }
 }
 #endif
 
