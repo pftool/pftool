@@ -12,6 +12,7 @@
 #include <stdarg.h>
 #include <fcntl.h>
 #include <time.h>
+#include <syslog.h>
 
 //Regular Filesystem
 #include <sys/vfs.h>
@@ -58,7 +59,7 @@ extern void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_work_done();
 
 //worker
-extern void write_output(char *message);
+extern void write_output(char *message, int log);
 extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 extern void send_worker_queue_count(int target_rank, int queue_count);
 extern void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
@@ -142,6 +143,7 @@ int main(int argc, char *argv[]){
     o.verbose = 0;
     o.use_file_list = 0;
     o.recurse = 0;
+    o.logging = 0;
     o.meta_data_only = 1;
     strncpy(o.jid, "TestJob", 128);
     o.parallel_dest = 0;
@@ -163,8 +165,8 @@ int main(int argc, char *argv[]){
 
     o.work_type = LSWORK;
 
-    // start MPI - if this fails we cant send the error to the output proc so we just die now 
-    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:f:d:W:A:vrPMnh")) != -1) 
+    // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now 
+    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:f:d:W:A:vrlPMnh")) != -1) 
       switch(c){
         case 'p':
           //Get the source/beginning path
@@ -215,6 +217,10 @@ int main(int argc, char *argv[]){
           //Recurse
           o.recurse = 1;
           break;
+        case 'l':
+          //logging
+          o.logging = 1;
+          break;
         case 'P':
           o.parallel_dest = 1;
           break;
@@ -241,6 +247,7 @@ int main(int argc, char *argv[]){
   //broadcast all the options
   MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&o.logging, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -411,9 +418,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   
 
   sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
-  write_output(message);
+  write_output(message, 1);
   sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_path);
-  write_output(message);
+  write_output(message, 1);
 
   //starttime
   gettimeofday(&in, NULL);
@@ -579,48 +586,48 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int elapsed_time = out.tv_sec - in.tv_sec;
   //Manager is done, cleaning have the other ranks exit
   sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
-  write_output(message);
+  write_output(message, 1);
   sprintf(message, "INFO  FOOTER   =================================================================================\n");
-  write_output(message);
+  write_output(message, 1);
   sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
-  write_output(message);
+  write_output(message, 1);
 
 if (o.work_type == LSWORK){
   sprintf(message, "INFO  FOOTER   Total Bytes Examined: %0.0f\n", examined_byte_count);
-  write_output(message);
+  write_output(message, 1);
 }
 
 #ifndef DISABLE_TAPE
   sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", examined_tape_count);
-  write_output(message);
+  write_output(message, 1);
   sprintf(message, "INFO  FOOTER   Total Bytes on Tape: %0.0f\n", examined_tape_byte_count);
-  write_output(message);
+  write_output(message, 1);
 #endif
 
   sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
-  write_output(message);
+  write_output(message, 1);
   
   if (o.work_type == COPYWORK){
     sprintf(message, "INFO  FOOTER   Total Files Copied: %d\n", num_copied_files);
-    write_output(message);
+    write_output(message, 1);
     sprintf(message, "INFO  FOOTER   Total Bytes Copied: %0.0f\n", num_copied_bytes);
-    write_output(message);
+    write_output(message, 1);
     if ((num_copied_bytes/(1024*1024)) > 0 ){
       sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %0.0f\n", (num_copied_bytes/(1024*1024)));
-      write_output(message);
+      write_output(message, 1);
     }
     
     if((num_copied_bytes/(1024*1024)) > 0 ){
       sprintf(message, "INFO  FOOTER   Data Rate: %0.0f MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
-      write_output(message);
+      write_output(message, 1);
     }
   }
   else if (o.work_type == COMPAREWORK){
     sprintf(message, "INFO  FOOTER   Total Files Compared: %d\n", num_copied_files);
-    write_output(message);
+    write_output(message, 1);
     if (o.meta_data_only == 0){
       sprintf(message, "INFO  FOOTER   Total Bytes Compared: %0.0f\n", num_copied_bytes);
-      write_output(message);
+      write_output(message, 1);
     }
 
   }
@@ -630,7 +637,7 @@ if (o.work_type == LSWORK){
   else{
     sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
   }
-  write_output(message);
+  write_output(message, 1);
 
 
   for(i = 1; i < nproc; i++){
@@ -885,10 +892,13 @@ void worker(int rank, struct options o){
     //do operations based on the message
     switch(type_cmd){
       case OUTCMD:
-        worker_output(rank, sending_rank, output_buffer, &output_count, o);
+        worker_output(rank, sending_rank, 0, output_buffer, &output_count, o);
         break;
       case BUFFEROUTCMD:
         worker_buffer_output(rank, sending_rank, output_buffer, &output_count, o);
+        break;
+      case LOGCMD:
+        worker_output(rank, sending_rank, 1, output_buffer, &output_count, o);
         break;
       case UPDCHUNKCMD:
         worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, dest_node, o);
@@ -987,11 +997,12 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
   send_manager_work_done(rank);
 }
 
-void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o){
+void worker_output(int rank, int sending_rank, int log, char *output_buffer, int *output_count, struct options o){
   //have a worker receive and print a single message
   MPI_Status status;
   
   char msg[MESSAGESIZE];
+  char sysmsg[MESSAGESIZE + 50];
 
   //gather the message to print
   PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from %d\n", rank, sending_rank);
@@ -999,6 +1010,12 @@ void worker_output(int rank, int sending_rank, char *output_buffer, int *output_
     errsend(FATAL, "Failed to receive msg\n");
   }
 
+  if (o.logging == 1 && log == 1){
+    openlog ("PFTOOL-LOG", LOG_PID | LOG_CONS, LOG_USER);
+    sprintf(sysmsg, "[pftool] [%s] - %s", o.jid, msg);
+    syslog (LOG_ERR | LOG_USER, sysmsg);
+    closelog();
+  }
 #ifdef THREADS_ONLY
   printf("%s", msg);
 #else

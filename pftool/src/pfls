@@ -21,6 +21,16 @@ def main():
   commands.add("-w", Work.LS)
   commands.add("-j", jid)
 
+  logging = False
+  try:
+    l = config.get("environment", "logging")
+  except:
+    parser.error("please specify whether logging should be enabled (e.g. logging: True)")
+
+  if l.lower() == "true":
+    logging = True
+    commands.add("-l")
+
   if options.verbose:
     commands.add("-v");
 
@@ -39,7 +49,7 @@ def main():
   try:
     t = config.get("environment", "threaded")
   except:
-    parser.error("please specify wheather the program is threaded or not in the environment section of the config file (e.g. threaded: True)")
+    parser.error("please specify whether the program is threaded or not in the environment section of the config file (e.g. threaded: True)")
 
   if t.lower() == "true":
     threaded = True
@@ -47,6 +57,7 @@ def main():
   pfcmd = Commands()
   num_procs = config.get("num_procs", "pfls")
   pftool = ROOT_PATH("pftool")
+
 
   if threaded:
     pfcmd.add(pftool)
@@ -74,18 +85,21 @@ def main():
 
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   
-  #write_log("[pfcp] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-  #write_log("[pfcp] [%s] CMD %s"%(jid, " ".join(pfcpcmd)))
+  if logging:
+    write_log("[pfls] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    write_log("[pfls] [%s] CMD %s"%(jid, pfcmd))
 
 
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]
-    #write_log("[pfcp] [%s] PFCP failed."%(jid), LOG_ERR)
+    if logging:
+      write_log("[pfls] [%s] PFLS failed."%(jid), LOG_ERR)
 
   
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  #write_log("[pfcp] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+  if logging:
+    write_log("[pfls] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
 
 if __name__ == "__main__":

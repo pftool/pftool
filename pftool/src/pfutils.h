@@ -73,6 +73,7 @@ enum cmd_opcode {
   UPDCHUNKCMD,
   OUTCMD,
   BUFFEROUTCMD,
+  LOGCMD,
   QUEUESIZECMD,
   STATCMD,
   COMPARECMD,
@@ -121,6 +122,7 @@ enum filetype {
 struct options{
   int verbose;
   int recurse;
+  int logging;
   int different;
   int parallel_dest;
   int work_type;
@@ -227,7 +229,7 @@ void send_manager_work_done();
 
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
-void write_output(char *message);
+void write_output(char *message, int log);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

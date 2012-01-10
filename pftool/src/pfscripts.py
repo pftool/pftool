@@ -26,8 +26,8 @@ class Commands:
   def __str__(self):
     return " ".join(self.commands)
 
-def write_log(message, priority = LOG_INFO):
-  openlog("PFTOOL-LOG", 0, LOG_USER)
+def write_log(message, priority = LOG_ERR | LOG_USER):
+  openlog("PFTOOL-LOG", LOG_PID | LOG_CONS, LOG_USER)
   syslog(priority, message)
   closelog()
 

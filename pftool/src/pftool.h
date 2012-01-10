@@ -21,7 +21,7 @@ void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes,
 void worker(int rank, struct options o);
 void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash);
 void worker_flush_output(char *output_buffer, int *output_count);
-void worker_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o);
+void worker_output(int rank, int sending_rank, int log, char *output_buffer, int *output_count, struct options o);
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o);
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int start, int makedir, struct options o);

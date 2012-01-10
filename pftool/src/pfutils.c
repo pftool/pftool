@@ -948,11 +948,16 @@ void update_chunk(path_item *buffer, int *buffer_count){
   send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
 }
 
-void write_output(char *message){
+void write_output(char *message, int log){
   //write a single line using the outputproc
 
   //set the command type
-  send_command(OUTPUT_PROC, OUTCMD);
+  if (log == 0){
+    send_command(OUTPUT_PROC, OUTCMD);
+  }
+  else if (log == 1){
+    send_command(OUTPUT_PROC, LOGCMD);
+  }
 
   //send the message
   if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -1028,7 +1033,7 @@ void errsend(int fatal, char *error_text){
     snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n",error_text);
   }
   
-  write_output(errormsg);
+  write_output(errormsg, 1);
 
   if (fatal){
     MPI_Abort(MPI_COMM_WORLD, -1); 
