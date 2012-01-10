@@ -40,11 +40,24 @@ void usage () {
 	printf (" [-p]                                      : path to start parallel tree walk (required argument)\n");
 	printf (" [-c]                                      : destination path for data movement\n");
 	printf (" [-j]                                      : unique jobid for the pftool job\n");
+  printf (" [-w]                                      : work type: copy, list, or compare\n");
+  printf (" [-i]                                      : process paths in a file list instead of walking the file system\n");
+  printf (" [-s]                                      : block size for copy and compare\n");
+  printf (" [-C]                                      : file size to start chunking (n to 1)\n");
+  printf (" [-S]                                      : chunk size for copy\n");
+#ifndef DISABLE_FUSE_CHUNKER
+  printf (" [-f]                                      : path to FUSE directory\n");
+  printf (" [-d]                                      : number of directories used for FUSE backend\n");
+  printf (" [-W]                                      : file size to start FUSE chunking\n");
+  printf (" [-A]                                      : FUSE chunk size for copy\n");
+#endif
+  printf (" [-n]                                      : operate on file if different\n");
 	printf (" [-r]                                      : recursive operation down directory tree\n");
+	printf (" [-l]                                      : turn on logging to /var/log/mesages\n");
+  printf (" [-P]                                      : force destination filesystem to be treated as parallel\n");
+  printf (" [-M]                                      : perform block compare, default: metadata compare\n");
 	printf (" [-v]                                      : user verbose output\n");
-	printf (" [-h]                                      : Print Usage information\n");
-	printf (" \n");
-	printf (" Using man pftool for the details of pftool information \n");
+	printf (" [-h]                                      : print Usage information\n");
 	printf (" \n");
 	printf ("********************** PFTOOL USAGE ************************************************************\n");
 	return;
