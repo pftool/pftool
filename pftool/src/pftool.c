@@ -154,6 +154,8 @@ int main(int argc, char *argv[]){
     o.chunksize = 107374182400;
 
 #ifndef DISABLE_FUSE_CHUNKER
+    //so we don't make fuse files not on archive
+    strncpy(o.archive_path, "", PATHSIZE_PLUS);
     //fuse
     strncpy(o.fuse_path, "", PATHSIZE_PLUS);
     o.use_fuse = 0;
@@ -166,7 +168,7 @@ int main(int argc, char *argv[]){
     o.work_type = LSWORK;
 
     // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now 
-    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:f:d:W:A:vrlPMnh")) != -1) 
+    while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:vrlPMnh")) != -1) 
       switch(c){
         case 'p':
           //Get the source/beginning path
@@ -196,6 +198,9 @@ int main(int argc, char *argv[]){
           o.chunksize = atof(optarg);
           break;
 #ifndef DISABLE_FUSE_CHUNKER
+        case 'a':
+          strncpy(o.archive_path, optarg, PATHSIZE_PLUS);
+          break;
         case 'f':
           strncpy(o.fuse_path, optarg, PATHSIZE_PLUS);
           o.use_fuse = 1;
@@ -256,6 +261,7 @@ int main(int argc, char *argv[]){
   MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #ifndef DISABLE_FUSE_CHUNKER
+  MPI_Bcast(o.archive_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(o.fuse_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.use_fuse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.fuse_chunkdirs, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -1289,7 +1295,8 @@ int stat_item(path_item *work_node, struct options o){
 #endif
   }
 #ifndef DISABLE_FUSE_CHUNKER
-  if (work_node->st.st_size > o.fuse_chunk_at){
+  //if it qualifies for fuse and is on the "archive" path
+  if (work_node->st.st_size > o.fuse_chunk_at ){
     work_node->fuse_dest = 1;
   }
   else{
@@ -1435,6 +1442,11 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             set_fuse_chunk_data(&work_node);
             chunk_size = work_node.length;
           }
+          //non_archive files need to not be fuse
+          if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0){
+            work_node.fuse_dest = 0;
+          }
+
           if (work_node.fuse_dest == 1){
             if (work_node.ftype != FUSEFILE){
               chunk_size = o.fuse_chunksize;

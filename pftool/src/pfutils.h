@@ -134,6 +134,7 @@ struct options{
   int use_file_list;
   char jid[128];
 #ifndef DISABLE_FUSE_CHUNKER
+  char archive_path[PATHSIZE_PLUS];
   char fuse_path[PATHSIZE_PLUS];
   int use_fuse;
   int fuse_chunkdirs;

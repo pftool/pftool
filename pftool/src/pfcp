@@ -63,10 +63,13 @@ def main():
     pass
 
   try: 
+    archive_path = config.get("options", "archive_path")
     fuse_path = config.get("options", "fuse_path")
     fuse_chunkdirs = config.get("options", "fuse_chunkdirs")
     fuse_chunk_at = config.get("options", "fuse_chunk_at")
     fuse_chunksize = config.get("options", "fuse_chunksize")
+  
+    commands.add("-a", archive_path)
     commands.add("-f", fuse_path)
     commands.add("-d", fuse_chunkdirs)
     commands.add("-W", fuse_chunk_at)
