@@ -1123,6 +1123,10 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     char chunk_name[50]; 
     int chunk_num = 0;
 
+    if (length == 0){
+      return -1;
+    }
+
     chunk_num = offset/length;
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
   
