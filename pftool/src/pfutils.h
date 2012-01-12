@@ -114,7 +114,8 @@ enum filetype {
   FUSEFILE,
   LINKFILE,
   PREMIGRATEFILE,
-  MIGRATEFILE
+  MIGRATEFILE,
+  NONE
 };
 
 //Structs and typedefs

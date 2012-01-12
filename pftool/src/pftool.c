@@ -1282,6 +1282,7 @@ int stat_item(path_item *work_node, struct options o){
       work_node->ftype = LINKFILE;
       return -1;
     }
+    linkname[numchars] = '\0';
     work_node->ftype = LINKFILE;
 #ifndef DISABLE_FUSE_CHUNKER
     if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
@@ -1322,7 +1323,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
 
   path_item work_node, out_node;
-  int process = 1;
+  int process = 0;
   
   
   //stat 
@@ -1333,7 +1334,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   int i;
 
   //chunks
-  //1 GB
+  //place_holder fo current chunk_size
   off_t chunk_size = 0;
 
   double num_bytes_seen = 0;
@@ -1351,6 +1352,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   char fusepath[PATHSIZE_PLUS];
   int fuse_num;
   int fuse_fd;
+  char linkname[PATHSIZE_PLUS];
+  int numchars;
 
 #endif
   
@@ -1370,11 +1373,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   for (i = 0; i < *stat_count; i++){
     work_node = path_buffer[i];
     st = work_node.st;
+    process = 0;
 
+    //if the source is the initial destination 
     if (st.st_ino == dest_node.st.st_ino){
       write_count--;
       continue;
     }
+    //check if the work is a directory
     else if (S_ISDIR(st.st_mode)){
       dirbuffer[dir_buffer_count] = work_node;
       dir_buffer_count++;
@@ -1383,6 +1389,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
       }
       num_examined_dirs++;
     }
+    //it's not a directory
     else{
       //do this for all regular files AND fuse+symylinks
       if (o.work_type == COPYWORK){
@@ -1407,13 +1414,27 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
           if (process == 1){
 #ifndef DISABLE_FUSE_CHUNKER
             if (out_node.ftype == FUSEFILE){
-              //it's a fuse file trunc
+              //it's a fuse file unlink link dest and link
               if (o.different == 0 || (o.different == 1 && out_node.st.st_size > work_node.st.st_size)){
-                rc = truncate(out_node.path, 0);
+                numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
+                if (numchars < 0){
+                  snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", out_node.path);
+                  errsend(FATAL, errmsg);
+                }
+                linkname[numchars] = '\0';
+                //first unlink the actual fuse file
+                rc = unlink(linkname);
+                if (rc < 0){
+                  snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", linkname);
+                  errsend(FATAL, errmsg);
+                }
+                //now unlink the symlink
+                rc = unlink(out_node.path);
                 if (rc != 0){
-                  sprintf(errmsg, "Failed to truncate file %s", out_node.path);
+                  sprintf(errmsg, "Failed to unlink file %s", out_node.path);
                   errsend(NONFATAL, errmsg);
                 }
+                out_node.ftype = NONE;
               }
             }
 #endif
@@ -1426,38 +1447,46 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", out_node.path);
                 errsend(FATAL, errmsg);
               }
+              out_node.ftype = NONE;
 #ifndef DISABLE_FUSE_CHUNKER
             }
 #endif
           }
         }
+        else{
+          out_node.ftype = NONE;
+        }
+      }
+      else if (o.work_type == COMPAREWORK){
+        process = 1;
       }
 
       if (process == 1){
         //parallel filesystem can do n-to-1
         if (o.parallel_dest){
-          chunk_size = o.chunksize;
-#ifndef DISABLE_FUSE_CHUNKER
-          if (work_node.ftype == FUSEFILE){
-            set_fuse_chunk_data(&work_node);
-            chunk_size = work_node.length;
-          }
           //non_archive files need to not be fuse
           if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0){
             work_node.fuse_dest = 0;
           }
 
+          chunk_size = o.chunksize;
+#ifndef DISABLE_FUSE_CHUNKER
+          if(work_node.fuse_dest == 1){
+            chunk_size = o.fuse_chunksize;
+          }
+          else if (work_node.ftype == FUSEFILE){
+            set_fuse_chunk_data(&work_node);
+            chunk_size = work_node.length;
+          }
+
           if (work_node.fuse_dest == 1){
-            if (work_node.ftype != FUSEFILE){
-              chunk_size = o.fuse_chunksize;
-            }
             if (o.work_type == COPYWORK){
-              if (out_node.ftype != FUSEFILE){
+              if (out_node.ftype == NONE){
                 gettimeofday(&tv, NULL);                                                                                                                                                                                             
                 srand(tv.tv_sec);
                 gethostname(myhost, sizeof(myhost));
                 fuse_num = (int) rand() % o.fuse_chunkdirs;
-                sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG", o.fuse_path, fuse_num, myhost, (int) tv.tv_sec, (int) tv.tv_usec, o.fuse_chunksize);
+                sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG", o.fuse_path, fuse_num, myhost, (int) tv.tv_sec, (int) tv.tv_usec, chunk_size);
                 fuse_fd = open(fusepath, O_CREAT | O_RDWR);
                 close(fuse_fd);
                 symlink(fusepath, out_node.path);
@@ -1472,6 +1501,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             regbuffer[reg_buffer_count] = work_node;
             reg_buffer_count++;
           }
+
           chunk_curr_offset = 0;
           while (chunk_curr_offset < work_node.st.st_size){
             work_node.offset = chunk_curr_offset;
@@ -1532,15 +1562,13 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
           chunk_size = work_node.st.st_size;
           work_node.length = chunk_size;
           
-          if (o.work_type != LSWORK){
-              num_bytes_seen += work_node.length;
-              regbuffer[reg_buffer_count] = work_node;
-              reg_buffer_count++;
-              if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
-                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                num_bytes_seen = 0;
-              } 
-          }
+          num_bytes_seen += work_node.length;
+          regbuffer[reg_buffer_count] = work_node;
+          reg_buffer_count++;
+          if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off){
+            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+            num_bytes_seen = 0;
+          } 
         }
       }
     }
