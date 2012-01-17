@@ -40,8 +40,8 @@
 
 #define DIRBUFFER 5
 #define STATBUFFER 50
-#define CHUNKBUFFER 300
 #define COPYBUFFER 30
+#define CHUNKBUFFER COPYBUFFER
 #define TAPEBUFFER 5 
 
 #define ANYFS     0

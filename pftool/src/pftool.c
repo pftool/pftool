@@ -1465,9 +1465,11 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         //parallel filesystem can do n-to-1
         if (o.parallel_dest){
           //non_archive files need to not be fuse
+#ifndef DISABLE_FUSE_CHUNKER
           if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0){
             work_node.fuse_dest = 0;
           }
+#endif
 
           chunk_size = o.chunksize;
 #ifndef DISABLE_FUSE_CHUNKER
@@ -1510,12 +1512,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifndef DISABLE_FUSE_CHUNKER
 
             if ((!work_node.fuse_dest && work_node.st.st_size <= o.chunk_at) || 
-                (work_node.fuse_dest && work_node.st.st_size <= o.fuse_chunk_at) || 
+                //(work_node.fuse_dest && work_node.st.st_size <= o.fuse_chunk_at) || 
                 (chunk_curr_offset + chunk_size) >  work_node.st.st_size){
 #else
             if ((work_node.st.st_size <= o.chunk_at) || 
                 (chunk_curr_offset + chunk_size) >  work_node.st.st_size){
 #endif
+
+
               work_node.length = work_node.st.st_size - chunk_curr_offset;
               chunk_curr_offset = work_node.st.st_size; 
             }
@@ -1768,7 +1772,6 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
     offset = work_node.offset;
     length = work_node.length;
-
 
 #ifndef DISABLE_FUSE_CHUNKER
     if (work_node.fuse_dest == 0){

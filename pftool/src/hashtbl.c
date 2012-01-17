@@ -54,7 +54,7 @@ void hashtbl_destroy(HASHTBL *hashtbl){
   free(hashtbl);
 }
 
-int hashtbl_insert(HASHTBL *hashtbl, const char *key, off_t data){
+int hashtbl_insert(HASHTBL *hashtbl, const char *key, double data){
   struct hashnode_s *node;
   hash_size hash=hashtbl->hashfunc(key)%hashtbl->size;
   
@@ -101,7 +101,7 @@ int hashtbl_remove(HASHTBL *hashtbl, const char *key){
   return -1;
 }
 
-off_t hashtbl_get(HASHTBL *hashtbl, const char *key){
+double hashtbl_get(HASHTBL *hashtbl, const char *key){
   struct hashnode_s *node;
   hash_size hash=hashtbl->hashfunc(key)%hashtbl->size;
 
@@ -116,7 +116,7 @@ off_t hashtbl_get(HASHTBL *hashtbl, const char *key){
   return -1;
 }
 
-int hashtbl_update(HASHTBL *hashtbl, const char *key, off_t data){
+int hashtbl_update(HASHTBL *hashtbl, const char *key, double data){
   struct hashnode_s *node;
   hash_size hash=hashtbl->hashfunc(key)%hashtbl->size;
 

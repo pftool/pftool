@@ -586,12 +586,12 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 
 
   //rc = MPI_File_close(&src_fd);
-  rc = close(src_fd);
+  /*rc = close(src_fd);
   if (rc != 0){
     sprintf(errormsg, "Failed to close file: %s", src_file);
     errsend(NONFATAL, errormsg);
     return -1;
-  }
+  }*/
 
   //rc = MPI_File_close(&dest_fd);
   rc = close(dest_fd);
@@ -1110,7 +1110,7 @@ void set_fuse_chunk_data(path_item *work_node){
     strtok(NULL, delimiters);
   }
 
-  length = atoi(strtok(NULL, delimiters));
+  length = atoll(strtok(NULL, delimiters));
   work_node->offset = 0;
   work_node->length = length;
   

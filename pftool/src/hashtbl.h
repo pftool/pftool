@@ -13,16 +13,16 @@ typedef struct hashtbl {
 
 struct hashnode_s {
   char *key;
-  off_t data;
+  double data;
   struct hashnode_s *next;
 };
 
 HASHTBL *hashtbl_create(hash_size size, hash_size (*hashfunc)(const char *));
 void hashtbl_destroy(HASHTBL *hashtbl);
-int hashtbl_insert(HASHTBL *hashtbl, const char *key, off_t data);
+int hashtbl_insert(HASHTBL *hashtbl, const char *key, double data);
 int hashtbl_remove(HASHTBL *hashtbl, const char *key);
-int hashtbl_update(HASHTBL *hashtbl, const char *key, off_t data);
-off_t hashtbl_get(HASHTBL *hashtbl, const char *key);
+int hashtbl_update(HASHTBL *hashtbl, const char *key, double data);
+double hashtbl_get(HASHTBL *hashtbl, const char *key);
 int hashtbl_resize(HASHTBL *hashtbl, hash_size size);
 
 #endif
