@@ -566,7 +566,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     }
     
     //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-    bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+    bytes_processed = pread64(src_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
       sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
@@ -574,7 +574,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     }
 
     //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
-    bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
+    bytes_processed = pwrite64(dest_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
       sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);

@@ -950,8 +950,6 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
   char *workbuf;
   int worksize, position;
   int hash_value, chunk_size, new_size;
-  int num_copied_files = 0;
-  double num_copied_bytes = 0;
 
   int i;  
 
@@ -975,7 +973,6 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
     MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
     hash_value = hashtbl_get(*chunk_hash, work_node.path);
     chunk_size = work_node.length;
-    num_copied_bytes += chunk_size;
 
     if (hash_value == -1){
       //resize the hashtable if needed
@@ -992,13 +989,11 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
     if (new_size == work_node.st.st_size){
       hashtbl_remove(*chunk_hash, work_node.path);
       update_stats(work_node.path, get_output_path(base_path, work_node, dest_node, o), work_node.st);
-      num_copied_files++;
     }
     else{
       hashtbl_insert(*chunk_hash, work_node.path, new_size);
     }
   }
-  send_manager_copy_stats(num_copied_files, num_copied_bytes);
   free(workbuf);
   send_manager_work_done(rank);
 }
@@ -1809,14 +1804,12 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         }
         MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       }
-      //file is not 'chunked'
-      if (offset == 0 && length == work_node.st.st_size){ 
-        num_copied_files +=1;
-        if (!S_ISLNK(work_node.st.st_mode)){
-          num_copied_bytes += length;
-        }
+      num_copied_files +=1;
+      if (!S_ISLNK(work_node.st.st_mode)){
+        num_copied_bytes += length;
       }
-      else{
+      //file is chunked
+      if (offset != 0 || (offset == 0 && length != work_node.st.st_size)){
         chunks_copied[buffer_count] = work_node;
         buffer_count++;
       }
@@ -1832,7 +1825,6 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     send_manager_chunk_busy();
     update_chunk(chunks_copied, &buffer_count);
   }
-  //for all non-chunked files
   if (num_copied_files > 0 || num_copied_bytes > 0){
     send_manager_copy_stats(num_copied_files, num_copied_bytes);
   }
