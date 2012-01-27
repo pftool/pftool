@@ -36,7 +36,7 @@ AC_PROG_CC_C99
 
 # checks for header files.
 AC_CHECK_HEADERS([\
-inttypes.h limits.h stdint.h stdlib.h string.h unistd.h stdbool.h time.h\
+signal.h getopt.h stdio.h string.h stdlib.h stat.h statfs.h time.h types.h vfs.h dirent.h libgen.h unistd.h errno.h utime.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h\
 ])
 
 # checks for typedefs, structures, and compiler characteristics.

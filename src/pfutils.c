@@ -8,6 +8,7 @@
 *
 **********************************************************************************************/
 
+#include "config.h"
 #include <fcntl.h>
 #include <errno.h>
 
@@ -349,7 +350,7 @@ char *get_base_path(const char *path, int wildcard){
     base_path[strlen(base_path) - 1] = '\0'; 
   }
 
-  return strndup(base_path, PATHSIZE_PLUS);
+  return strdup(base_path);
 }
 
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o){
@@ -432,14 +433,14 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
       path_slice = (char *) src_node.path;
     }
     else{
-      path_slice = strndup(src_node.path + strlen(base_path) + 1, PATHSIZE_PLUS);
+      path_slice = strdup(src_node.path + strlen(base_path) + 1);
     }
   }
   if (S_ISDIR(dest_node.st.st_mode)){
     strncat(output_path, "/", PATHSIZE_PLUS);
     strncat(output_path, path_slice, PATHSIZE_PLUS);
   }
-  return strndup(output_path, PATHSIZE_PLUS);
+  return strdup(output_path);
 
 }
 
@@ -472,12 +473,12 @@ int one_byte_read(const char *path){
 
 }
 
-int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st){
+int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st){
   //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
   //MPI_Status status;
   int rc;
   //1 MB copy size
-  off_t completed = 0;
+  size_t completed = 0;
   char *buf;
   char errormsg[MESSAGESIZE];
 
@@ -566,7 +567,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     }
     
     //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-    bytes_processed = pread64(src_fd, buf, blocksize, completed+offset);
+    bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
       sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
@@ -574,7 +575,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
     }
 
     //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
-    bytes_processed = pwrite64(dest_fd, buf, blocksize, completed+offset);
+    bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
     if (bytes_processed != blocksize){
       sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
       errsend(NONFATAL, errormsg);
@@ -613,9 +614,9 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t l
 }
 
 
-int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only){
+int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only){
   struct stat dest_st;
-  off_t completed = 0;
+  size_t completed = 0;
   char *ibuf;
   char *obuf;
   int src_fd, dest_fd;
@@ -1059,7 +1060,7 @@ void errsend(int fatal, char *error_text){
 #ifndef DISABLE_FUSE_CHUNKER
 int is_fuse_chunk(const char *path){
   //pass in a symlink's followed path to determine if it's a fuse file
-  struct statfs stfs;
+  /*struct statfs *stfs;
   char errortext[MESSAGESIZE];
 
 
@@ -1077,7 +1078,8 @@ int is_fuse_chunk(const char *path){
   }
   else{
     return 0;
-  }
+  }*/
+  return 0;
 }
 
 void set_fuse_chunk_data(path_item *work_node){
@@ -1089,7 +1091,7 @@ void set_fuse_chunk_data(path_item *work_node){
   char *current;
   char errormsg[MESSAGESIZE];
 
-  off_t length;
+  size_t length;
 
   memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
  
@@ -1103,7 +1105,7 @@ void set_fuse_chunk_data(path_item *work_node){
 
   strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
 
-  current = strdupa(baselinkname);
+  current = strdup(baselinkname);
 
   strtok(current, delimiters);
   for (i = 0; i < 2; i++){
@@ -1130,7 +1132,7 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     chunk_num = offset/length;
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
   
-    valueLen = getxattr(path, chunk_name, value, 10000);
+    valueLen = getxattr(path, chunk_name, value, 10000, 0, 0);
     if (valueLen != -1){
       sscanf(value, "%10lld %10lld %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), userid, groupid);
     }
@@ -1151,7 +1153,7 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
   
     sprintf(value, "%lld %lld %d %d", (long long int) ut.actime, (long long int ) ut.modtime, userid, groupid);
-    valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
+    valueLen = setxattr(path, chunk_name, value, 10000, 0, XATTR_CREATE);
     if (valueLen != -1){
       return 0;
     }
@@ -1163,7 +1165,7 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
 
 
 void get_stat_fs_info(const char *path, int *fs){
-  struct stat st;
+  /*struct stat st;
   struct statfs stfs;
   char errortext[MESSAGESIZE];
   int rc;
@@ -1173,7 +1175,7 @@ void get_stat_fs_info(const char *path, int *fs){
 
   rc = lstat(use_path, &st);
   if (rc < 0){
-    strncpy(use_path, dirname(strndup(path, PATHSIZE_PLUS)), PATHSIZE_PLUS);
+    strncpy(use_path, dirname(strdup(path, PATHSIZE_PLUS)));
     rc = lstat(use_path, &st);
     if (rc < 0){
       fprintf(stderr, "Failed to stat path %s\n", path);
@@ -1205,7 +1207,8 @@ void get_stat_fs_info(const char *path, int *fs){
   else{
     //symlink
     *fs = GPFSFS;
-  }
+  }*/
+  *fs = ANYFS;
 
 }
 

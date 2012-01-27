@@ -1,13 +1,19 @@
 #ifndef      __MPI_UTILS_H
 #define      __MPI_UTILS_H
 
+#include "config.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+
+#ifdef HAVE_VFS_H
 #include <sys/vfs.h>
+#endif
+
 #include <dirent.h>
 #include <libgen.h>
 #include <unistd.h>
@@ -21,13 +27,27 @@
 
 //gpfs
 #ifndef DISABLE_TAPE
-#include <gpfs.h>                                                                                                                                                                                                                                                                    
+
+#ifdef HAVE_GPFS_H
+#include <gpfs.h>
+#ifdef HAVE_GPFS_FCNTL_H
 #include "gpfs_fcntl.h"
+#endif
+#else
+#define DISABLE_TAPE
+#endif
+
+
+#ifdef HAVE_DMAPI_H
 #include <dmapi.h>
+#else
+#define DISABLE_TAPE
+#endif
+
 #endif
 
 //fuse
-#ifndef DISBLE_FUSE_CHUNKER
+#ifndef DISABLE_FUSE_CHUNKER
 #include <sys/xattr.h>
 #endif
 
@@ -128,9 +148,9 @@ struct options{
   int parallel_dest;
   int work_type;
   int meta_data_only;
-  off_t blocksize;
-  off_t chunk_at;
-  off_t chunksize;
+  size_t blocksize;
+  size_t chunk_at;
+  size_t chunksize;
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
@@ -139,8 +159,8 @@ struct options{
   char fuse_path[PATHSIZE_PLUS];
   int use_fuse;
   int fuse_chunkdirs;
-  off_t fuse_chunk_at;
-  off_t fuse_chunksize;
+  size_t fuse_chunk_at;
+  size_t fuse_chunksize;
 #endif
 
   //fs info
@@ -154,7 +174,7 @@ struct path_link{
   char path[PATHSIZE_PLUS];
   struct stat st;
   off_t offset;
-  off_t length;
+  size_t length;
   enum filetype ftype;
 #ifndef DISABLE_FUSE_CHUNKER
   int fuse_dest;
@@ -183,8 +203,8 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
-int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
-int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
+int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st);
+int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 
 //dmapi/gpfs specfic

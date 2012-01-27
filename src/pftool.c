@@ -15,7 +15,9 @@
 #include <syslog.h>
 
 //Regular Filesystem
+#ifdef HAVE_VFS_H
 #include <sys/vfs.h>
+#endif
 
 // include that is associated with pftool itself
 #include "pftool.h"
@@ -36,8 +38,8 @@ extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 extern int one_byte_read(const char *path);
-extern int copy_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st);
-extern int compare_file(const char *src_file, const char *dest_file, off_t offset, off_t length, off_t blocksize, struct stat src_st, int meta_data_only);
+extern int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st);
+extern int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
 
 //dmapi/gpfs
 #ifndef DISABLE_TAPE
@@ -403,7 +405,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   }
 
   //quick check that source is not nested
-  strncpy(temp_path, dirname(strndup(dest_path, PATHSIZE_PLUS)), PATHSIZE_PLUS);
+  strncpy(temp_path, dirname(strdup(dest_path)), PATHSIZE_PLUS);
   rc = stat(temp_path, &st);
   if (rc < 0){
     snprintf(errmsg, MESSAGESIZE, "%s: No such file or directory", dest_path);
@@ -1158,7 +1160,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
       while ((dit = readdir(dip)) != NULL){
         if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0){
           strncpy(full_path, path, PATHSIZE_PLUS);
-          if (full_path[strnlen(full_path, PATHSIZE_PLUS) - 1 ] != '/'){
+          if (full_path[strlen(full_path) - 1 ] != '/'){
             strncat(full_path, "/", 1);
           }
           strncat(full_path, dit->d_name, PATHSIZE_PLUS);
@@ -1280,7 +1282,7 @@ int stat_item(path_item *work_node, struct options o){
     linkname[numchars] = '\0';
     work_node->ftype = LINKFILE;
 #ifndef DISABLE_FUSE_CHUNKER
-    if (is_fuse_chunk(canonicalize_file_name(work_node->path))){
+    if (is_fuse_chunk(realpath(work_node->path, NULL))){
       if (lstat(linkname, &st) == -1) {
         snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
         errsend(FATAL, errmsg);
@@ -1330,7 +1332,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
   //chunks
   //place_holder fo current chunk_size
-  off_t chunk_size = 0;
+  size_t chunk_size = 0;
 
   double num_bytes_seen = 0;
   double ship_off = 2147483648; //2GB
@@ -1589,13 +1591,13 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     //if (st.st_size > 0 && st.st_blocks == 0){                                                                                                                                                                                                                                                          
     if (o.verbose){
       if (work_node.ftype == MIGRATEFILE){
-        sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n", modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid, (size_t) st.st_size, timebuf, work_node.path);
       }
       else if (work_node.ftype == PREMIGRATEFILE){
-        sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n", modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid, (size_t) st.st_size, timebuf, work_node.path);
       }
       else{
-        sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n", modebuf, st.st_blocks, st.st_uid, st.st_gid, st.st_size, timebuf, work_node.path);
+        sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n", modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid, (size_t) st.st_size, timebuf, work_node.path);
       }
       MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
       write_count++;
@@ -1724,7 +1726,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   path_item work_node;
   char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
   char copymsg[MESSAGESIZE];
-  off_t offset, length;
+  off_t offset;
+  size_t length;
   int num_copied_files = 0;
   double num_copied_bytes = 0;
 
@@ -1846,7 +1849,8 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
   path_item work_node;
   char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
   char copymsg[MESSAGESIZE];
-  off_t offset, length;
+  off_t offset; 
+  size_t length;
   int num_compared_files = 0;
   double num_compared_bytes = 0;
 
