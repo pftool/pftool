@@ -1,5 +1,5 @@
 #include <ctype.h>
-#include <malloc.h>
+//#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +37,7 @@ void replace (void);
 extern void flush_out (void);
 int lex (void);
 
-void main (void)
+int main (void)
 {
    /* Parser */
    int brace_level = 0, paren_level = 0, start_paren_level, start_brace_level;
@@ -493,6 +493,7 @@ arg_declaration:
 
    flush_out ();
    /*fprintf (stderr, "Done!\n");*/
+   return 0;
 }
 
 void replace (void)

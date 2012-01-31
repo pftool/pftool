@@ -13,7 +13,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, double *num_copied_bytes);
 void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes, int *num_examined_dirs);
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, double *num_examined_tape_bytes);
 #endif
 

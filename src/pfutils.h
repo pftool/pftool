@@ -26,28 +26,23 @@
 #include "mpi.h"
 
 //gpfs
-#ifndef DISABLE_TAPE
-
+#ifdef TAPE
 #ifdef HAVE_GPFS_H
 #include <gpfs.h>
 #ifdef HAVE_GPFS_FCNTL_H
 #include "gpfs_fcntl.h"
 #endif
-#else
-#define DISABLE_TAPE
 #endif
 
 
 #ifdef HAVE_DMAPI_H
 #include <dmapi.h>
-#else
-#define DISABLE_TAPE
 #endif
 
 #endif
 
 //fuse
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 #include <sys/xattr.h>
 #endif
 
@@ -68,7 +63,7 @@
 #define PANASASFS 1
 #define GPFSFS    2
 #define NULLFS    3
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 #define FUSEFS    4 
 
 #define FUSE_SUPER_MAGIC 0x65735546
@@ -101,7 +96,7 @@ enum cmd_opcode {
   PROCESSCMD,
   INPUTCMD,
   DIRCMD,
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   TAPECMD,
   TAPESTATCMD,
 #endif
@@ -154,7 +149,7 @@ struct options{
   char file_list[PATHSIZE_PLUS];
   int use_file_list;
   char jid[128];
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   char archive_path[PATHSIZE_PLUS];
   char fuse_path[PATHSIZE_PLUS];
   int use_fuse;
@@ -176,7 +171,7 @@ struct path_link{
   off_t offset;
   size_t length;
   enum filetype ftype;
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   int fuse_dest;
 #endif
 };
@@ -208,7 +203,7 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 
 //dmapi/gpfs specfic
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
 int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 #endif
@@ -224,7 +219,7 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 
 //worker utility functions
 void errsend(int fatal, char *error_text);
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 int is_fuse_chunk(const char *path);
 void set_fuse_chunk_data(path_item *work_node);
 int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
@@ -238,7 +233,7 @@ int processing_complete(int *proc_status, int nproc);
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
 #endif
 void send_manager_new_buffer(path_item *buffer, int *buffer_count);
@@ -255,7 +250,7 @@ void write_output(char *message, int log);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 #endif
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

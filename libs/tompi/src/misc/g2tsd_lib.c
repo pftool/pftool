@@ -1,7 +1,7 @@
 #define THREAD_AWARE
 
 #include <errno.h>
-#include <malloc.h>
+//#include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
 #include "mpii.h" /* really only gthread.h and optionally profile.h */

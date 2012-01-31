@@ -1,2 +1,8 @@
-SUBDIRS = src
+if THREADS
+SUBDIRS = libs src
 EXTRA_DIST = AUTHORS README COPYRIGHT autogen util
+ACLOCAL_AMFLAGS = -I m4
+else
+SUBDIRS = src
+endif
+

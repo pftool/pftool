@@ -42,7 +42,7 @@ extern int copy_file(const char *src_file, const char *dest_file, off_t offset, 
 extern int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
 
 //dmapi/gpfs
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 extern int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
 extern int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 #endif
@@ -53,7 +53,7 @@ extern void send_manager_chunk_busy();
 extern void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 extern void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 extern void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
 #endif
 
@@ -65,7 +65,7 @@ extern void write_output(char *message, int log);
 extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 extern void send_worker_queue_count(int target_rank, int queue_count);
 extern void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 extern void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 #endif
 extern void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
@@ -74,7 +74,7 @@ extern void send_worker_exit();
 
 //functions that use workers
 extern void errsend(int fatal, char *error_text);
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 extern int is_fuse_chunk(const char *path);
 extern void set_fuse_chunk_data(path_item *work_node);
 extern int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
@@ -155,7 +155,7 @@ int main(int argc, char *argv[]){
     o.chunk_at = 107374182400;
     o.chunksize = 107374182400;
 
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
     //so we don't make fuse files not on archive
     strncpy(o.archive_path, "", PATHSIZE_PLUS);
     //fuse
@@ -199,7 +199,7 @@ int main(int argc, char *argv[]){
         case 'S':
           o.chunksize = atof(optarg);
           break;
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
         case 'a':
           strncpy(o.archive_path, optarg, PATHSIZE_PLUS);
           break;
@@ -262,7 +262,7 @@ int main(int argc, char *argv[]){
   MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   MPI_Bcast(o.archive_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(o.fuse_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&o.use_fuse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -331,7 +331,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   int non_fatal = 0, examined_file_count = 0, examined_dir_count = 0;
   double examined_byte_count = 0;
   
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   int examined_tape_count = 0;
   double examined_tape_byte_count = 0;
 #endif
@@ -351,7 +351,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
   work_buf_list *stat_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
   int stat_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   work_buf_list *tape_buf_list = NULL;
   int tape_buf_list_size = 0;
 #endif
@@ -475,7 +475,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         }
 
         //handle tape
-#ifndef DISABLE_TAPE
+#ifdef TAPE
         work_rank = get_free_rank(proc_status, 3, nproc - 1);
         if (work_rank > -1 && tape_buf_list_size > 0){
           proc_status[work_rank] = 1;
@@ -506,7 +506,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           //delete the queue here
           delete_buf_list(&process_buf_list, &process_buf_list_size);
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
           delete_buf_list(&tape_buf_list, &tape_buf_list_size);
 #endif
 
@@ -553,7 +553,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
       case EXAMINEDSTATSCMD:
         manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count);
         break;
-#ifndef DISABLE_TAPE
+#ifdef TAPE
       case TAPESTATCMD:
         manager_add_tape_stats(rank, sending_rank, &examined_tape_count, &examined_tape_byte_count);
         break;
@@ -567,7 +567,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
           delete_buf_list(&dir_buf_list, &dir_buf_list_size);
         }
         break;
-#ifndef DISABLE_TAPE
+#ifdef TAPE
       case TAPECMD:
         manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
         if (o.work_type == LSWORK){
@@ -605,7 +605,7 @@ if (o.work_type == LSWORK){
   write_output(message, 1);
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", examined_tape_count);
   write_output(message, 1);
   sprintf(message, "INFO  FOOTER   Total Bytes on Tape: %0.0f\n", examined_tape_byte_count);
@@ -769,7 +769,7 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_fi
   *num_examined_dirs += num_dirs;
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, double *num_examined_tape_bytes){
   MPI_Status status;
   int num_tapes = 0;
@@ -914,7 +914,7 @@ void worker(int rank, struct options o){
       case DIRCMD:
         worker_readdir(rank, sending_rank, base_path, dest_node, 0, makedir, o);
         break;
-#ifndef DISABLE_TAPE
+#ifdef TAPE
       case TAPECMD:
         worker_taperecall(rank, sending_rank, dest_node, o);
         break;
@@ -1220,7 +1220,7 @@ int stat_item(path_item *work_node, struct options o){
   struct stat st;
   char errmsg[MESSAGESIZE];
   //dmapi
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   uid_t uid;
   int dmarray[3];
   char hexbuf[128];
@@ -1236,7 +1236,7 @@ int stat_item(path_item *work_node, struct options o){
   work_node->ftype = REGULARFILE;
 
   //dmapi to find managed files
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS){
     uid = getuid();
 #ifndef THREADS_ONLY
@@ -1281,7 +1281,7 @@ int stat_item(path_item *work_node, struct options o){
     }
     linkname[numchars] = '\0';
     work_node->ftype = LINKFILE;
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
     if (is_fuse_chunk(realpath(work_node->path, NULL))){
       if (lstat(linkname, &st) == -1) {
         snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
@@ -1292,7 +1292,7 @@ int stat_item(path_item *work_node, struct options o){
     }
 #endif
   }
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   //if it qualifies for fuse and is on the "archive" path
   if (work_node->st.st_size > o.fuse_chunk_at ){
     work_node->fuse_dest = 1;
@@ -1343,7 +1343,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   path_item dirbuffer[DIRBUFFER], regbuffer[COPYBUFFER];
   int dir_buffer_count = 0, reg_buffer_count = 0;
 
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   struct timeval tv;
   char myhost[512];
   char fusepath[PATHSIZE_PLUS];
@@ -1354,7 +1354,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 #endif
   
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   path_item tapebuffer[TAPEBUFFER];
   int tape_buffer_count = 0;
   int num_examined_tapes = 0;
@@ -1409,7 +1409,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
           }
 
           if (process == 1){
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
             if (out_node.ftype == FUSEFILE){
               //it's a fuse file unlink link dest and link
               if (o.different == 0 || (o.different == 1 && out_node.st.st_size > work_node.st.st_size)){
@@ -1436,7 +1436,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             }
 #endif
             //it's not fuse, unlink
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
             else{
 #endif
               rc = unlink(out_node.path);
@@ -1445,7 +1445,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 errsend(FATAL, errmsg);
               }
               out_node.ftype = NONE;
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
             }
 #endif
           }
@@ -1462,14 +1462,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         //parallel filesystem can do n-to-1
         if (o.parallel_dest){
           //non_archive files need to not be fuse
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
           if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0){
             work_node.fuse_dest = 0;
           }
 #endif
 
           chunk_size = o.chunksize;
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
           if(work_node.fuse_dest == 1){
             chunk_size = o.fuse_chunksize;
           }
@@ -1506,7 +1506,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             work_node.offset = chunk_curr_offset;
             //if we're not doing chunks OR we're done chunking
             
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 
             if ((!work_node.fuse_dest && work_node.st.st_size <= o.chunk_at) || 
                 //(work_node.fuse_dest && work_node.st.st_size <= o.fuse_chunk_at) || 
@@ -1531,9 +1531,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
               work_node.length = work_node.st.st_size;
               chunk_curr_offset = work_node.st.st_size;
             }
-#ifndef DISABLE_TAPE
+#ifdef TAPE
             if (work_node.ftype == MIGRATEFILE
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
               || (work_node.st.st_size > 0 && work_node.st.st_blocks == 0 && work_node.ftype == FUSEFILE)
 #endif
               ){
@@ -1552,7 +1552,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                 num_bytes_seen = 0;
               }      
-#ifndef DISABLE_TAPE
+#ifdef TAPE
             }
 #endif
           }
@@ -1576,7 +1576,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     if (! S_ISDIR(st.st_mode)){
       num_examined_files++;
       num_examined_bytes += st.st_size;
-#ifndef DISABLE_TAPE
+#ifdef TAPE
       if (work_node.ftype == MIGRATEFILE){
         num_examined_tapes++;
         num_examined_tape_bytes += st.st_size;
@@ -1622,7 +1622,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   while (reg_buffer_count != 0){
     send_manager_regs_buffer(regbuffer, &reg_buffer_count);
   } 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
   while (tape_buffer_count != 0){
     send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
   } 
@@ -1635,7 +1635,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
   *stat_count = 0;
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct options o){
   MPI_Status status;
 
@@ -1736,7 +1736,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
   
   int i, rc;
 
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   //partial file restart
   struct utimbuf ut, chunk_ut;
   uid_t userid, chunk_userid;
@@ -1771,11 +1771,11 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     offset = work_node.offset;
     length = work_node.length;
 
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
     if (work_node.fuse_dest == 0){
 #endif
       rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
     }
     else{
       userid = work_node.st.st_uid;

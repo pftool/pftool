@@ -26,7 +26,6 @@
 #define MPI_Unpack MPY_Unpack
 #endif
 
-
 void usage () {
 	// print usage statement 
 	printf ("********************** PFTOOL USAGE ************************************************************\n");
@@ -46,7 +45,7 @@ void usage () {
   printf (" [-s]                                      : block size for copy and compare\n");
   printf (" [-C]                                      : file size to start chunking (n to 1)\n");
   printf (" [-S]                                      : chunk size for copy\n");
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
   printf (" [-f]                                      : path to FUSE directory\n");
   printf (" [-d]                                      : number of directories used for FUSE backend\n");
   printf (" [-W]                                      : file size to start FUSE chunking\n");
@@ -132,7 +131,7 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf){
   sprintf (outhexbuf, "%s", smsg);
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 int read_inodes (const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray){
   const gpfs_iattr_t *iattrP;
   gpfs_iscan_t *iscanP = NULL;
@@ -912,7 +911,7 @@ void send_manager_examined_stats(int num_examined_files, double num_examined_byt
   }
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_bytes){
   send_command(MANAGER_PROC, TAPESTATCMD);
   //send the # of paths
@@ -940,7 +939,7 @@ void send_manager_dirs_buffer(path_item *buffer, int *buffer_count){
   send_path_buffer(MANAGER_PROC, DIRCMD, buffer, buffer_count);
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void send_manager_tape_buffer(path_item *buffer, int *buffer_count){
   //sends a chunk of regular files to the manager
   send_path_buffer(MANAGER_PROC, TAPECMD, buffer, buffer_count);
@@ -1012,7 +1011,7 @@ void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *wor
   send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
 }
 
-#ifndef DISABLE_TAPE
+#ifdef TAPE
 void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize){
   //send a worker a buffer list of paths to stat
   send_buffer_list(target_rank, TAPECMD, workbuflist, workbufsize);
@@ -1057,7 +1056,7 @@ void errsend(int fatal, char *error_text){
   }
 }
 
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
 int is_fuse_chunk(const char *path){
   //pass in a symlink's followed path to determine if it's a fuse file
   /*struct statfs *stfs;
@@ -1194,7 +1193,7 @@ void get_stat_fs_info(const char *path, int *fs){
     else if (stfs.f_type == PANFS_FILE) {
       *fs = PANASASFS;
     }
-#ifndef DISABLE_FUSE_CHUNKER
+#ifdef FUSE_CHUNKER
     else if (stfs.f_type == FUSE_SUPER_MAGIC){
       //fuse file
       *fs = GPFSFS;
