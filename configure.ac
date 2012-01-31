@@ -35,15 +35,18 @@ AM_CONFIG_HEADER([config.h])
 AC_PROG_CC([mpicc cc])
 
 # check for adequate mpi support
-AC_MSG_CHECKING([if $CC can compile MPI applications])
-AC_LINK_IFELSE([
+AS_IF([test x$enable_threads != xyes],
+[AC_MSG_CHECKING([if $CC can compile MPI applications])])
+
+AS_IF([test x$enable_threads != xyes],
+[AC_LINK_IFELSE([
     AC_LANG_PROGRAM(
         [[#include <mpi.h>]],
         [[MPI_Finalize();]])],
     [AC_MSG_RESULT([yes])],
     [AC_MSG_RESULT([no])
      AC_MSG_ERROR([$CC cannot compile MPI applications. cannot continue.])]
-)
+)])
 
 AM_PROG_CC_C_O
 AC_PROG_CC_C99
