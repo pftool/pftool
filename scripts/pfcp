@@ -97,7 +97,6 @@ def main():
 
   pfcmd = Commands()
   num_procs = config.get("num_procs", "pfcp")
-  pftool = ROOT_PATH("pftool")
 
   if threaded:
     pfcmd.add(pftool)

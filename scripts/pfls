@@ -56,7 +56,6 @@ def main():
 
   pfcmd = Commands()
   num_procs = config.get("num_procs", "pfls")
-  pftool = ROOT_PATH("pftool")
 
 
   if threaded:

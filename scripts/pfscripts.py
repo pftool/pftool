@@ -8,6 +8,7 @@ import ConfigParser
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
+pftool = ROOT_PATH("..", "bin", "pftool")
 
 class Work:
   COPY = 0
@@ -42,7 +43,7 @@ def get_jid():
   jid = user+time_id+hostname
   return jid
 
-def parse_config(options_path=ROOT_PATH("config", "pftool.cfg")):
+def parse_config(options_path=ROOT_PATH("..", "etc", "pftool.cfg")):
   config = ConfigParser.ConfigParser()
   config.read(options_path)
   return config

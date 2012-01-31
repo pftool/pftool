@@ -1,9 +1,10 @@
-bin_PROGRAMS = pftool
+bin_PROGRAMS = $(top_builddir)/bin/pftool
 
-pftool_SOURCES = \
+__top_builddir__bin_pftool_SOURCES = \
+debug.h \
 hashtbl.c hashtbl.h \
 pfutils.c pfutils.h \
-pftool.c pfutils.h 
+pftool.c pftool.h 
 
 if THREADS
 threads_cflags=-DTHREADS_ONLY -I$(top_srcdir)/libs/tompi/include
@@ -19,5 +20,5 @@ if FUSECHUNKER
 fusechunker_cflags=-DFUSE_CHUNKER
 endif
 
-pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags)
-pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags)
+__top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags)
+__top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags)

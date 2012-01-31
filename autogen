@@ -5,9 +5,9 @@ then
   mkdir m4
 fi
 
-if [ ! -d bin/config ]
+if [ ! -d bin ]
 then
-  mkdir -p bin/config
+  mkdir bin
 fi
 
 

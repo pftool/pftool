@@ -16,9 +16,6 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 # lets add some options to our CFLAGS variable
 AC_ARG_ENABLE(threads, [  --enable-threads]  [turn on threading (turn off mpi)])
 AM_CONDITIONAL([THREADS], [test x$enable_threads = xyes])
-#AS_IF([test "x$enable_threads" = "xyes"], [CFLAGS="$CFLAGS -DTHREADS_ONLY"])
-#AS_IF([test "x$enable_threads" = "xyes"], [CFLAGS="$CFLAGS -I$(top_srcdir)/libs/tompi/include"])
-#AS_IF([test "x$enable_threads" = "xyes"], [LIBS="$LIBS -L$(top_srcdir)/libs/tompi/src -lmpi -lpthread"])
 
 AC_ARG_ENABLE(tape, [  --enable-tape]  [turn on tape])
 AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
@@ -48,6 +45,9 @@ AS_IF([test x$enable_threads != xyes],
      AC_MSG_ERROR([$CC cannot compile MPI applications. cannot continue.])]
 )])
 
+AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
+AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
+
 AM_PROG_CC_C_O
 AC_PROG_CC_C99
 
@@ -73,7 +73,9 @@ AC_CHECK_FUNCS([memset strerror strtoul])
 AC_CONFIG_FILES([Makefile
                  libs/Makefile
                  libs/tompi/Makefile
-                 src/Makefile])
+                 src/Makefile
+                 scripts/Makefile
+                 etc/Makefile])
 
 AC_OUTPUT
 
