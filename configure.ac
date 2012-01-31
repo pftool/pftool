@@ -59,7 +59,7 @@ AC_CONFIG_MACRO_DIR([m4])
 
 # checks for header files.
 AC_CHECK_HEADERS([\
-signal.h getopt.h stdio.h string.h stdlib.h stat.h statfs.h time.h types.h vfs.h dirent.h libgen.h unistd.h errno.h utime.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h\
+vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h\
 ])
 
 # checks for typedefs, structures, and compiler characteristics.

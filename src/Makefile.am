@@ -16,7 +16,7 @@ tape_ldflags=-lgpfs -ldmapi
 endif
 
 if FUSECHUNKER
-fusechunker_clfags=-DFUSE_CHUNKER
+fusechunker_cflags=-DFUSE_CHUNKER
 endif
 
 pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags)
