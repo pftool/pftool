@@ -1,3 +1,14 @@
 #!/bin/bash
 
+if [ ! -d m4 ]
+then
+  mkdir m4
+fi
+
+if [ ! -d bin/config ]
+then
+  mkdir -p bin/config
+fi
+
+
 autoreconf --force --install 
