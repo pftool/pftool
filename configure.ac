@@ -1,4 +1,4 @@
-AC_PREREQ([2.60])
+AC_PREREQ([2.59])
 
 AC_INIT([pftool], [2.0], [agtorre@lanl.gov])
 
@@ -49,7 +49,8 @@ AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.c
 AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
 
 AM_PROG_CC_C_O
-AC_PROG_CC_C99
+#works with 2.6 and above
+#AC_PROG_CC_C99
 
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
