@@ -105,7 +105,7 @@ PRIVATE int MPII_enqueue (MPII_Msg_queue *qu, MPII_Msg *data)
 
 /* Return value is different here: returns 1 if a match was found, 0 otherwise
  */
-PRIVATE int MPII_queue_search (int *retry, MPII_Msg_queue *qu, int (*match) (void *, MPII_Msg *), void *arg, MPII_Msg *result)
+PRIVATE int MPII_queue_search (int *retry, MPII_Msg_queue *qu, void *match (void *, MPII_Msg *), void *arg, MPII_Msg *result)
 {
    int pos, last;
 
@@ -132,7 +132,7 @@ PRIVATE int MPII_queue_search (int *retry, MPII_Msg_queue *qu, int (*match) (voi
                pos, type2str (qu->q[pos].type), qu->next[pos]);
 #     endif
 
-      if (match (arg, &(qu->q[pos])))
+      if ((int *)match (arg, &(qu->q[pos])))
       {
 #        if DEBUG_QUEUE_SEARCH >= 1
             printf ("queue_search: Matched %s.\n", type2str (qu->q[pos].type));

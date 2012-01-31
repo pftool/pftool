@@ -220,6 +220,12 @@ typedef struct
 /* don't forget: */
 #define MPII_MAX_ERROR           17
 
+/*some externs*/
+extern void MPII_Get_global_init_first (void);
+extern void MPII_Main(int argv, char **argc);
+
 #include "iprotos.h"
+
+
 
 #endif

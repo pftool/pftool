@@ -19,7 +19,7 @@ PUBLIC int MPI_Wait (MPI_Request *request, MPI_Status *status)
    {
       case MPII_REQUEST_SSEND:
          lock (me->mutex);
-            while (!MPII_queue_search (&retry, &(me->queue), MPII_match_send,
+            while (!MPII_queue_search (&retry, &(me->queue), (void *)MPII_match_send,
                                        request, &msg))
                wait (me->cond, me->mutex);
          unlock (me->mutex);
@@ -33,7 +33,7 @@ PUBLIC int MPI_Wait (MPI_Request *request, MPI_Status *status)
 
       case MPII_REQUEST_RECV:
          lock (me->mutex);
-            while (!MPII_queue_search (&retry, &(me->queue), MPII_match_recv,
+            while (!MPII_queue_search (&retry, &(me->queue), (void *)MPII_match_recv,
                                        request, &msg))
                wait (me->cond, me->mutex);
          unlock (me->mutex);

@@ -29,7 +29,7 @@ PUBLIC int MPI_Ssend (void *buf, int count, MPI_Datatype datatype, int dest, int
          member);
    member = MPII_Me (comm);
    lock (member->mutex);
-      while (!MPII_queue_search (&retry, &(member->queue), MPII_match_send,
+      while (!MPII_queue_search (&retry, &(member->queue), (void *)MPII_match_send,
                                  &req, &msg))
          wait (member->cond, member->mutex);
    unlock (member->mutex);

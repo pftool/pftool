@@ -8,7 +8,7 @@
 PUBLIC int MPI_Finalize (void);
 PUBLIC double MPI_Wtime (void);
 PUBLIC int MPI_Init (int *argc, char ***argv);
-PUBLIC int MPI_Initialized (int *flag);
+PUBLIC int MPI_Initialized (long int *flag);
 PUBLIC int *MPII_Stack_size_ptr (void);
 PUBLIC int *MPII_Num_proc_ptr (void);
 PUBLIC MPI_Request *MPII_Request_null_ptr (void);

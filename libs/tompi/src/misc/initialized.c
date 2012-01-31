@@ -12,10 +12,10 @@ PUBLIC void MPII_Initialized_init ()
   }
 }
 
-PUBLIC int MPI_Initialized (int *flag)
+PUBLIC int MPI_Initialized (long int *flag)
 {
   MPII_Initialized_init ();
-  *flag = (int) get_tsd(MPII_init_key);
+  *flag = (long int) get_tsd(MPII_init_key);
   return MPI_SUCCESS;
 }
 

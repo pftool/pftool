@@ -33,8 +33,9 @@ static void *call_main (void *world)
    * we are now "renamed").  That is, make all the pre-init modifications to
    * global variables present in the new first thread.
    */
-  if (((MPI_Comm) world)->group->rank == 0)
+  if (((MPI_Comm) world)->group->rank == 0){
     MPII_Get_global_init_first ();
+  }
   
   /* Define MPI_COMM_WORLD */
   set_tsd (MPII_commworld_key, world);
@@ -240,7 +241,7 @@ PRIVATE void MPII_Slave ()
 
 PUBLIC int MPI_Init (int *argc, char ***argv)
 {
-  int initialized;
+  long int initialized;
   MPI_Group worldg;
 
   /* Make sure we don't get called more than once */

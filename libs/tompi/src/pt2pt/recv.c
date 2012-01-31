@@ -35,7 +35,7 @@ PUBLIC int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, in
 
    member = MPII_Me (comm);
    lock (member->mutex);
-      while (!MPII_queue_search (&retry, &(member->queue), MPII_match_recv,
+      while (!MPII_queue_search (&retry, &(member->queue), (void *)MPII_match_recv,
                                  &req, &msg))
          wait (member->cond, member->mutex);
    unlock (member->mutex);

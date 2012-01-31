@@ -19,7 +19,7 @@ int main (int argc, char *argv[])
   join_thread (MPII_threads[0], rval);
 
   /* Return the value returned from the first thread (as if it were us) */
-  return (int) rval;
+  return (long int) rval;
 }
 
 #endif

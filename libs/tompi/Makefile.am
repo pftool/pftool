@@ -62,4 +62,4 @@ $(top_srcdir)/libs/tompi/src/types/type_size.c
 #$(top_srcdir)/libs/tompi/src/misc/tsd.c 
 
 libmpi_la_CFLAGS="-I$(top_srcdir)/libs/tompi/include"
-#libmpi_la_LDFLAGS="-L$(top_srcdir)/libs/tompi/src"
+#libmpi_la_LDFLAGS="-L$(top_srcdir)/libs/tompi"
