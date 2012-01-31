@@ -6,15 +6,15 @@
 typedef size_t hash_size;
 
 typedef struct hashtbl {
-  hash_size size;
-  struct hashnode_s **nodes;
-  hash_size (*hashfunc)(const char *);
+    hash_size size;
+    struct hashnode_s **nodes;
+    hash_size (*hashfunc)(const char *);
 } HASHTBL;
 
 struct hashnode_s {
-  char *key;
-  double data;
-  struct hashnode_s *next;
+    char *key;
+    double data;
+    struct hashnode_s *next;
 };
 
 HASHTBL *hashtbl_create(hash_size size, hash_size (*hashfunc)(const char *));

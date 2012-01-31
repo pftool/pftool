@@ -32,10 +32,10 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
 void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o);
 
 
-#define NULL_DEVICE      "/dev/null"  
+#define NULL_DEVICE      "/dev/null"
 
 #define WAIT_TIME    1
-#define SANITY_TIMER  300 
+#define SANITY_TIMER  300
 
 
 #endif
