@@ -11,9 +11,7 @@ typedef struct
 } Option;
 
 /* Some local options */
-static MPII_threadinfo = 0;
 
-static int read_env = 0, read_args = 0;
 static Option vars[] = {
   {"TOMPI_NTHREAD", "-nthread", &MPII_nthread, VAR_POS_INT},
   {"TOMPI_THREADINFO", "-threadinfo", (int *) MPII_Thread_info, VAR_FUNC},
@@ -32,7 +30,7 @@ static void set_option (Option *o, char *val, char *where, char *what)
       else
       {
         fprintf (stderr, "TOMPI warning: %s %s ignored,\n",
-                 where, what, o->env);
+                 where, what);
         fprintf (stderr, "  since value `%s' is not a positive integer.", val);
       }
       break;
@@ -67,7 +65,6 @@ static void read_arguments (int *argc, char ***argv)
 {
   Option *o;
   int arg, future_arg;
-  char *val;
   static char desc[] = "Command-line argument";
 
   if (argc == NULL || argv == NULL)

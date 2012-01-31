@@ -100,6 +100,7 @@ PRIVATE int MPII_enqueue (MPII_Msg_queue *qu, MPII_Msg *data)
 
       qu->tail = pos;
    }
+   return 0;
 }
 
 /* Return value is different here: returns 1 if a match was found, 0 otherwise

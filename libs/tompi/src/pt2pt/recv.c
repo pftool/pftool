@@ -9,7 +9,7 @@ PUBLIC int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, in
 
    check_comm (comm);
    check_datatype (datatype, comm);
-   if (source < 0 || source > comm->group->size)
+   if (source < 0 || source > comm->group->size){
      if (source == MPI_PROC_NULL)
      {
        /* The following two equalities are defined in MPI-1 (section 3.11) */
@@ -18,8 +18,10 @@ PUBLIC int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, in
        status->MPII_COUNT = 0;
        return MPI_SUCCESS;
      }
-     else if (source != MPI_ANY_SOURCE)
+     else if (source != MPI_ANY_SOURCE){
        return MPII_Error (comm, MPII_RANK_RANGE);
+     }
+   }
 
    req.type = MPII_REQUEST_RECV;
    req.comm = comm;

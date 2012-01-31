@@ -24,13 +24,13 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
 
   if (comm->group->size == 1)
   {
-    memcopy (recvbuf, sendbuf, count * MPII_types[datatype].size);
+    memcpy (recvbuf, sendbuf, count * MPII_types[datatype].size);
     return MPI_SUCCESS;
   }
 
   if (comm->group->rank == root)
   {
-    int i, j;
+    int i;
     int len = count * MPII_types[datatype].size;
     void *tempbuf = MPII_Malloc (len);
 #ifdef ALLREDUCE
@@ -39,8 +39,8 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
 
     if (MPII_ops[op].commute)
     {
-      if (rval = MPI_Recv (recvbuf, count, datatype, MPI_ANY_SOURCE,
-                           MPII_REDUCE_TAG, comm, NULL))
+      if ((rval = MPI_Recv (recvbuf, count, datatype, MPI_ANY_SOURCE,
+                           MPII_REDUCE_TAG, comm, NULL)))
       {
         free (tempbuf);
         return rval;
@@ -49,8 +49,8 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
 
       for (i = 0; i < comm->group->size - 1; i++)
       {
-        if (rval = MPI_Recv (tempbuf, count, datatype, MPI_ANY_SOURCE,
-                             MPII_REDUCE_TAG, comm, NULL))
+        if ((rval = MPI_Recv (tempbuf, count, datatype, MPI_ANY_SOURCE,
+                             MPII_REDUCE_TAG, comm, NULL)))
         {
           free (tempbuf);
           return rval;
@@ -62,8 +62,8 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
     {
       if (root == 0)
         memmove (recvbuf, sendbuf, len);
-      else if (rval = MPI_Recv (recvbuf, count, datatype, 0,
-                                MPII_REDUCE_TAG, comm, NULL))
+      else if ((rval = MPI_Recv (recvbuf, count, datatype, 0,
+                                MPII_REDUCE_TAG, comm, NULL)))
       {
         free (tempbuf);
         return rval;
@@ -73,8 +73,8 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
       {
         if (root == i)
           memmove (tempbuf, sendbuf, len);
-        else if (rval = MPI_Recv (tempbuf, count, datatype, i,
-                                  MPII_REDUCE_TAG, comm, NULL))
+        else if ((rval = MPI_Recv (tempbuf, count, datatype, i,
+                                  MPII_REDUCE_TAG, comm, NULL)))
         {
           free (tempbuf);
           return rval;
@@ -87,8 +87,8 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
           break;
         }
 
-        if (rval = MPI_Recv (recvbuf, count, datatype, i,
-                             MPII_REDUCE_TAG, comm, NULL))
+        if ((rval = MPI_Recv (recvbuf, count, datatype, i,
+                             MPII_REDUCE_TAG, comm, NULL)))
         {
           free (tempbuf);
           return rval;
@@ -100,17 +100,18 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
     free (tempbuf);
 
 #ifdef ALLREDUCE
+    int j;
     reqs = mymalloc (comm->group->size - 1, MPI_Request);
     for (i = 0; i < root; i++)
-      if (rval = MPI_Isend (recvbuf, count, datatype, i, MPII_ALLREDUCE_TAG2,
-                            comm, &(reqs[i])))
+      if ((rval = MPI_Isend (recvbuf, count, datatype, i, MPII_ALLREDUCE_TAG2,
+                            comm, &(reqs[i]))))
       {
         free (reqs);
         return rval;
       }
     for (j = i++; i < comm->group->size; i++, j++)
-      if (rval = MPI_Isend (recvbuf, count, datatype, i, MPII_ALLREDUCE_TAG2,
-                            comm, &(reqs[j])))
+      if ((rval = MPI_Isend (recvbuf, count, datatype, i, MPII_ALLREDUCE_TAG2,
+                            comm, &(reqs[j]))))
       {
         free (reqs);
         return rval;
@@ -121,7 +122,7 @@ PUBLIC int MPI_Reduce (void *sendbuf, void *recvbuf, int count, MPI_Datatype dat
   }
   else
   {
-    if (rval = MPI_Send (sendbuf, count, datatype, root, MPII_REDUCE_TAG, comm))
+    if ((rval = MPI_Send (sendbuf, count, datatype, root, MPII_REDUCE_TAG, comm)))
       return rval;
 #ifdef ALLREDUCE
     rval = MPI_Recv (recvbuf, count, datatype, root, MPII_ALLREDUCE_TAG2, comm,

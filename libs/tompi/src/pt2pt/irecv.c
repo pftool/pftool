@@ -4,7 +4,7 @@ PUBLIC int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, i
 {
    int rval;
 
-   if (rval = MPI_Recv_init (buf, count, datatype, source, tag, comm, request))
+   if ((rval = MPI_Recv_init (buf, count, datatype, source, tag, comm, request)))
       return rval;
    request->persistent = 0;
    /* return MPI_Start (request); */

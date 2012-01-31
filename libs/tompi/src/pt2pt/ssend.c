@@ -9,11 +9,14 @@ PUBLIC int MPI_Ssend (void *buf, int count, MPI_Datatype datatype, int dest, int
 
    check_comm (comm);
    check_datatype (datatype, comm);
-   if (dest < 0 || dest > comm->group->size)
-       if (dest == MPI_PROC_NULL)
+   if (dest < 0 || dest > comm->group->size){
+       if (dest == MPI_PROC_NULL){
            return MPI_SUCCESS;
-       else
+       }
+       else{
            return MPII_Error (comm, MPII_RANK_RANGE);
+       }
+   }
 
    req.type = MPII_REQUEST_SSEND;
    req.comm = comm;

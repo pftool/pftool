@@ -82,9 +82,9 @@ PRIVATE void MPII_Master (int *argc, char ***argv, int part_of_MPI)
   for (i = 0; i < MPII_nthread; i++)
   {
     members[i] = mymalloc (1, MPII_Member);
-    if (error = new_mutex (members[i]->mutex))
+    if ((error = new_mutex (members[i]->mutex)))
       thread_error ("MPI_Init: Failed to create child mutex", error);
-    if (error = new_cond (members[i]->cond))
+    if ((error = new_cond (members[i]->cond)))
       thread_error ("MPI_Init: Failed to create child condition", error);
     if (MPII_queue_init (&(members[i]->queue)))
       MPII_Error (NULL, MPII_OUT_OF_MEMORY);
@@ -109,14 +109,14 @@ PRIVATE void MPII_Master (int *argc, char ***argv, int part_of_MPI)
   new_tsd (MPII_commworld_key);
 
   /* Prepare to synchronize with children */
-  if (error = new_mutex (mutex1))
+  if ((error = new_mutex (mutex1)))
     thread_error ("MPI_Init: Failed to create first mutex", error);
-  if (error = new_cond (cond1))
+  if ((error = new_cond (cond1)))
     thread_error ("MPI_Init: Failed to create first condition", error);
   ninit = 0;
-  if (error = new_mutex (mutex2))
+  if ((error = new_mutex (mutex2)))
     thread_error ("MPI_Init: Failed to create second mutex", error);
-  if (error = new_cond (cond2))
+  if ((error = new_cond (cond2)))
     thread_error ("MPI_Init: Failed to create second condition", error);
   go = 0;
 
@@ -140,8 +140,8 @@ PRIVATE void MPII_Master (int *argc, char ***argv, int part_of_MPI)
   for (; i < MPII_nthread; i++)
   {
     /* Spawn the child */
-    if (error = spawn_thread (call_main, (void *) MPII_worlds[i],
-                              MPII_threads[i]))
+    if ((error = spawn_thread (call_main, (void *) MPII_worlds[i],
+                              MPII_threads[i])))
     {
       thread_error ("MPI_Init: Failed to spawn thread", error);
       fprintf (stderr, "MPI_Init: I could only make a %d-process run\n",
@@ -172,7 +172,7 @@ PRIVATE void MPII_Master (int *argc, char ***argv, int part_of_MPI)
     printf ("Master: so far, %d out of %d have initialized.\n", ninit,
             MPII_nthread);
 #endif
-    if (error = wait (cond1, mutex1))
+    if ((error = wait (cond1, mutex1)))
       thread_error ("MPI_Init[0]: Failed at waiting for children to start up (ignoring)", error);
   }
   unlock (mutex1);
@@ -187,7 +187,7 @@ PRIVATE void MPII_Master (int *argc, char ***argv, int part_of_MPI)
   /* Wait for clean-up signals */
   lock (mutex1);
   while (ninit < nwait)
-    if (error = wait (cond1, mutex1))
+    if ((error = wait (cond1, mutex1)))
       thread_error ("MPI_Init[0]: Failed at waiting for children to initialize (ignoring)", error);
   unlock (mutex1);
   
@@ -210,7 +210,7 @@ PRIVATE void MPII_Slave ()
 #endif
   lock (mutex1);
   ninit++;
-  if (error = notify (cond1))
+  if ((error = notify (cond1)))
     thread_error ("MPI_Init: Couldn't notify master about starting up", error);
   unlock (mutex1);
 #if 0
@@ -220,7 +220,7 @@ PRIVATE void MPII_Slave ()
   /* Wait for a reply */
   lock (mutex2);
   while (!go)
-    if (error = wait (cond2, mutex2))
+    if ((error = wait (cond2, mutex2)))
       thread_error ("MPI_Init: Failed at waiting for master to give error code", error);
   unlock (mutex2);
   
@@ -230,9 +230,9 @@ PRIVATE void MPII_Slave ()
   /* Tell the master it is okay to delete the mutices and conds now */
   lock (mutex1);
   ninit++;
-  if (error = notify (cond1))
+  if ((error = notify (cond1)))
     thread_error ("MPI_Init: Failed at telling master about initialization", error);
-  if (error = unlock (mutex1))
+  if ((error = unlock (mutex1)))
     thread_error ("MPI_Init: Master deleted mutex1 too soon!", error);
 }
 
@@ -261,4 +261,5 @@ PUBLIC int MPI_Init (int *argc, char ***argv)
 
   /* Locally initialize other "subpackages" of TOMPI. */
   MPII_Local_attrib_init ();
+  return 0;
 }

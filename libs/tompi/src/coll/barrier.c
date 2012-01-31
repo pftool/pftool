@@ -15,8 +15,8 @@ PUBLIC int MPI_Barrier (MPI_Comm comm)
       MPI_Request *reqs = mymalloc (comm->group->size - 1, MPI_Request);
 
       for (i = 0; i < comm->group->rank; i++)
-         if (rval = MPI_Isend (NULL, 0, MPI_BYTE, i, MPII_BARRIER_TAG1,
-               comm, &(reqs[i])))
+         if ((rval = MPI_Isend (NULL, 0, MPI_BYTE, i, MPII_BARRIER_TAG1,
+               comm, &(reqs[i]))))
          {
             free (reqs);
             return rval;
@@ -27,17 +27,17 @@ PUBLIC int MPI_Barrier (MPI_Comm comm)
          return rval;
 
       for (i = 0; i < comm->group->rank; i++)
-         if (rval = MPI_Recv (NULL, 0, MPI_BYTE, MPI_ANY_SOURCE,
-               MPII_BARRIER_TAG2, comm, NULL))
+         if ((rval = MPI_Recv (NULL, 0, MPI_BYTE, MPI_ANY_SOURCE,
+               MPII_BARRIER_TAG2, comm, NULL)))
             return rval;
    }
    else
    {
-      if (rval = MPI_Recv (NULL, 0, MPI_BYTE, comm->group->size - 1,
-            MPII_BARRIER_TAG1, comm, NULL))
+      if ((rval = MPI_Recv (NULL, 0, MPI_BYTE, comm->group->size - 1,
+            MPII_BARRIER_TAG1, comm, NULL)))
          return rval;
-      if (rval = MPI_Send (NULL, 0, MPI_BYTE, comm->group->size - 1,
-            MPII_BARRIER_TAG2, comm))
+      if ((rval = MPI_Send (NULL, 0, MPI_BYTE, comm->group->size - 1,
+            MPII_BARRIER_TAG2, comm)))
          return rval;
    }
    return MPI_SUCCESS;

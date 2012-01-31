@@ -11,4 +11,5 @@ PUBLIC int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm)
   if (MPII_Is_captain (comm->group))
     (*newcomm)->context = MPII_New_context ();
   MPI_Bcast (&((*newcomm)->context), 1, MPII_CONTEXT_TYPE, 0, comm);
+  return 0;
 }

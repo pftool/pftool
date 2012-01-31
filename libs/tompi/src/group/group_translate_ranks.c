@@ -18,4 +18,5 @@ PUBLIC int MPI_Group_translate_ranks (MPI_Group group1, int n, int *ranks1, MPI_
         break;
       }
   }
+  return 0;
 }

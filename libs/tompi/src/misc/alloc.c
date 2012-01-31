@@ -8,6 +8,7 @@ PRIVATE void *MPII_Malloc (int size)
     MPII_Error (NULL, MPII_OUT_OF_MEMORY);
   else
     return p;
+  return NULL;
 }
 
 PRIVATE void *MPII_Realloc (void *old, int size)
@@ -21,4 +22,5 @@ PRIVATE void *MPII_Realloc (void *old, int size)
     MPII_Error (NULL, MPII_OUT_OF_MEMORY);
   else
     return p;
+  return NULL;
 }
