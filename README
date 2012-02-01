@@ -19,11 +19,9 @@ To install/uninstall
 - make uninstall
 
 config files located in etc/ -- require a new ./configure if changes are made locally
-- add the mpirun path for mpi
+- add the mpirun path for mpi (it may work as is, but I recommend the full path)
 - can modify the number of procs/threads for each program
 - can allow n-to-1 writes for the the destination
 
 To run:
-- ./scripts/pfls (of pfcm, pfcp)
-
-
+- ./scripts/pfls (or pfcm, pfcp)
