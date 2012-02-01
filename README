@@ -1,19 +1,29 @@
-For threaded version run:
-- make cleanall
-- make tompi
-- make pftool
+To start from base directory:
+- ./autogen
 
-For mpi version:
-- Add the correct mpi path for your environment to src/Makefile.mpi
-- make pftool-mpi
-- modify the config file in bin/mpi/config/pftool.cfg
+To configure threaded version:
+- ./configure --enable-threads
 
-For non generic versions modify:
-- src/Makefile
-- src/Makefile.mpi
-- commment the GENERIC_FS_FLAGS portions while uncommenting DLIB, then compile like normal.
+To configure mpi version:
+- ./configure
 
-Config file:
+Other options:
+- ./configure --help
+
+To compile
+- make clean
+- make all
+
+To install/uninstall
+- make install
+- make uninstall
+
+config files located in etc/ -- require a new ./configure if changes are made locally
 - add the mpirun path for mpi
 - can modify the number of procs/threads for each program
 - can allow n-to-1 writes for the the destination
+
+To run:
+- ./scripts/pfls (of pfcm, pfcp)
+
+
