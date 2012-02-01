@@ -988,8 +988,11 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     }
     chunk_num = offset/length;
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
-    //valueLen = getxattr(path, chunk_name, value, 10000, 0, 0);
+#ifdef __APPLE__
+    valueLen = getxattr(path, chunk_name, value, 10000, 0, 0);
+#else
     valueLen = getxattr(path, chunk_name, value, 10000);
+#endif
     if (valueLen != -1) {
         sscanf(value, "%10lld %10lld %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), userid, groupid);
     }
@@ -1007,8 +1010,12 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     chunk_num = offset/length;
     snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
     sprintf(value, "%lld %lld %d %d", (long long int) ut.actime, (long long int ) ut.modtime, userid, groupid);
+#ifdef __APPLE__
+    valueLen = setxattr(path, chunk_name, value, 10000, 0, XATTR_CREATE);
+#else
     valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
-    //valueLen = setxattr(path, chunk_name, value, 10000, 0, XATTR_CREATE);
+#endif
+
     if (valueLen != -1) {
         return 0;
     }
