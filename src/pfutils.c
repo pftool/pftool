@@ -1029,7 +1029,7 @@ void get_stat_fs_info(const char *path, int *fs) {
 
     rc = lstat(use_path, &st);
     if (rc < 0){
-      strncpy(use_path, dirname(strdup(path, PATHSIZE_PLUS)));
+      strcpy(use_path, dirname(strdup(path)));
       rc = lstat(use_path, &st);
       if (rc < 0){
         fprintf(stderr, "Failed to stat path %s\n", path);
