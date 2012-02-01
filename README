@@ -1,3 +1,8 @@
+To build:
+- need autotools with autconf version 2.59 (at least)
+- tools include autoconf, automake, m4, and libtool
+- standard OS installations of these should work
+
 To start from base directory:
 - ./autogen
 
