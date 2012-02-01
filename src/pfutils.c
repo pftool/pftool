@@ -929,8 +929,9 @@ void errsend(int fatal, char *error_text) {
 
 #ifdef FUSE_CHUNKER
 int is_fuse_chunk(const char *path) {
+#ifdef HAVE_SYS_VFS_H
     //pass in a symlink's followed path to determine if it's a fuse file
-    /*struct statfs *stfs;
+    struct statfs *stfs;
     char errortext[MESSAGESIZE];
 
 
@@ -946,9 +947,7 @@ int is_fuse_chunk(const char *path) {
     if (stfs.f_type == FUSE_SUPER_MAGIC){
       return 1;
     }
-    else{
-      return 0;
-    }*/
+#endif
     return 0;
 }
 
@@ -1019,7 +1018,8 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
 
 
 void get_stat_fs_info(const char *path, int *fs) {
-    /*struct stat st;
+#ifdef HAVE_SYS_VFS_H
+    struct stat st;
     struct statfs stfs;
     char errortext[MESSAGESIZE];
     int rc;
@@ -1061,8 +1061,10 @@ void get_stat_fs_info(const char *path, int *fs) {
     else{
       //symlink
       *fs = GPFSFS;
-    }*/
+    }
+#else
     *fs = ANYFS;
+#endif
 }
 
 int get_free_rank(int *proc_status, int start_range, int end_range) {
