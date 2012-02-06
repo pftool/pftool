@@ -909,15 +909,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
         syslog (LOG_ERR | LOG_USER, sysmsg);
         closelog();
     }
-#ifdef THREADS_ONLY
     printf("%s", msg);
-#else
-    strncat(output_buffer, msg, MESSAGESIZE);
-    (*output_count)++;
-    if (*output_count >= MESSAGEBUFFER || !o.verbose) {
-        worker_flush_output(output_buffer, output_count);
-    }
-#endif
 }
 
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o) {
@@ -925,7 +917,7 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     MPI_Status status;
     int message_count;
     char msg[MESSAGESIZE];
-    char outmsg[MESSAGESIZE+10];
+    //char outmsg[MESSAGESIZE+10];
     char *buffer;
     int buffersize;
     int position;
@@ -946,17 +938,8 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     for (i = 0; i < message_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
         MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
-        snprintf(outmsg, MESSAGESIZE+10, "RANK %3d: %s", sending_rank, msg);
-#ifdef THREADS_ONLY
-        printf("%s", outmsg);
-#else
-        strncat(output_buffer, outmsg, MESSAGESIZE);
-        (*output_count)++;
-        if (*output_count >= MESSAGEBUFFER) {
-            worker_flush_output(output_buffer, output_count);
-        }
-#endif
-        //printf("Rank %2d: %s", sending_rank, msg);
+        //snprintf(outmsg, MESSAGESIZE+10, "RANK %3d: %s", sending_rank, msg);
+        printf("RANK %3d: %s", sending_rank, msg);
     }
     free(buffer);
 }
