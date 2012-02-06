@@ -1,13 +1,13 @@
 /*
 *This material was prepared by the Los Alamos National Security, LLC (LANS) under
 *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
-*in the material are reserved by DOE on behalf of the Government and LANS 
-*pursuant to the contract. You are authorized to use the material for Government 
-*purposes but it is not to be released or distributed to the public. NEITHER THE 
-*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS 
-*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS 
-*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, 
-*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS 
+*in the material are reserved by DOE on behalf of the Government and LANS
+*pursuant to the contract. You are authorized to use the material for Government
+*purposes but it is not to be released or distributed to the public. NEITHER THE
+*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
+*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
+*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
+*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
@@ -28,6 +28,7 @@
 #define MPI_Pack MPY_Pack
 #define MPI_Unpack MPY_Unpack
 #endif
+
 
 void usage () {
     // print usage statement
@@ -414,18 +415,24 @@ int one_byte_read(const char *path) {
     return 0;
 }
 
-int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st) {
+int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank) {
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
     int rc;
     //1 MB copy size
     size_t completed = 0;
-    char *buf;
+    char *buf = '\0';
     char errormsg[MESSAGESIZE];
     //FILE *src_fd, *dest_fd;
     char source_file[PATHSIZE_PLUS], destination_file[PATHSIZE_PLUS];
+    int flags;
     //MPI_File src_fd, dest_fd;
     int src_fd, dest_fd;
+#ifdef PLFS
+    int plfs_src = 0, plfs_dest = 0;
+    int pid = getpid();
+    Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
+#endif
     int bytes_processed;
     //symlink
     char link_path[PATHSIZE_PLUS];
@@ -464,39 +471,78 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
-    src_fd = open(src_file, O_RDONLY);
-    if (src_fd < 0) {
-        sprintf(errormsg, "Failed to open file %s for read", src_file);
-        errsend(NONFATAL, errormsg);
-        return -1;
+#ifdef PLFS
+    rc = plfs_open(&plfs_src_fd, src_file, O_RDONLY, pid+rank, src_st.st_mode, NULL);
+    if (rc != 0) {
+#endif
+        src_fd = open(src_file, O_RDONLY);
+        if (src_fd < 0) {
+            sprintf(errormsg, "Failed to open file %s for read", src_file);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+#ifdef PLFS
     }
+    else {
+        plfs_src = 1;
+    }
+#endif
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
     if (src_st.st_size == length && offset == 0) {
-        dest_fd = open(destination_file, O_WRONLY | O_CREAT , 0600);
+        flags = O_WRONLY | O_CREAT;
     }
     else {
-        dest_fd = open(destination_file, O_WRONLY | O_CREAT | O_CONCURRENT_WRITE, 0600);
+        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
     }
-    if (dest_fd < 0) {
-        sprintf(errormsg, "Failed to open file %s for write", dest_file);
-        errsend(NONFATAL, errormsg);
-        return -1;
+#ifdef PLFS
+    rc = plfs_open(&plfs_dest_fd, destination_file, flags, pid+rank, src_st.st_mode, NULL);
+    if (rc != 0) {
+#endif
+        dest_fd = open(destination_file, flags, 0600);
+        if (dest_fd < 0) {
+            sprintf(errormsg, "Failed to open file %s for write", dest_file);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+#ifdef PLFS
     }
+    else {
+        plfs_dest = 1;
+    }
+#endif
     while (completed != length) {
         //1 MB is too big
         if ((length - completed) < blocksize) {
             blocksize = (length - completed);
         }
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-        bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+#ifdef PLFS
+        if (plfs_src) {
+            bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
+        }
+        else {
+#endif
+            bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+#ifdef PLFS
+        }
+#endif
         if (bytes_processed != blocksize) {
             sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
-        bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
+#ifdef PLFS
+        if (plfs_dest) {
+            bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
+        }
+        else {
+#endif
+            bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
+#ifdef PLFS
+        }
+#endif
         if (bytes_processed != blocksize) {
             sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
@@ -504,20 +550,36 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
         }
         completed += blocksize;
     }
-    //rc = MPI_File_close(&src_fd);
-    /*rc = close(src_fd);
-    if (rc != 0){
-      sprintf(errormsg, "Failed to close file: %s", src_file);
-      errsend(NONFATAL, errormsg);
-      return -1;
-    }*/
-    //rc = MPI_File_close(&dest_fd);
-    rc = close(dest_fd);
-    if (rc != 0) {
-        sprintf(errormsg, "Failed to close file: %s", dest_file);
-        errsend(NONFATAL, errormsg);
-        return -1;
+#ifdef PLFS
+    if (plfs_src) {
+        rc = plfs_close(plfs_src_fd, pid+rank, src_st.st_uid, O_RDONLY, NULL);
     }
+    else {
+#endif
+        rc = close(src_fd);
+        if (rc != 0) {
+            sprintf(errormsg, "Failed to close file: %s", src_file);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+#ifdef PLFS
+    }
+#endif
+#ifdef PLFS
+    if (plfs_dest) {
+        rc = plfs_close(plfs_dest_fd, pid+rank, src_st.st_uid, flags, NULL);
+    }
+    else {
+#endif
+        rc = close(dest_fd);
+        if (rc != 0) {
+            sprintf(errormsg, "Failed to close file: %s", dest_file);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+#ifdef PLFS
+    }
+#endif
     free(buf);
     if (offset == 0 && length == src_st.st_size) {
         if (update_stats(src_file, dest_file, src_st) != 0) {
@@ -639,7 +701,6 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
     if (rc != 0) {
         sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file, src_st.st_uid, src_st.st_gid);
         errsend(NONFATAL, errormsg);
-        return -1;
     }
     if (!S_ISLNK(src_st.st_mode)) {
         mode = src_st.st_mode & 07777;
@@ -647,7 +708,6 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
         if (rc != 0) {
             sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
             errsend(NONFATAL, errormsg);
-            return -1;
         }
         ut.actime = src_st.st_atime;
         ut.modtime = src_st.st_mtime;
@@ -655,7 +715,6 @@ int update_stats(const char *src_file, const char *dest_file, struct stat src_st
         if (rc != 0) {
             sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
             errsend(NONFATAL, errormsg);
-            return -1;
         }
     }
     return 0;
@@ -936,19 +995,16 @@ int is_fuse_chunk(const char *path) {
     //pass in a symlink's followed path to determine if it's a fuse file
     struct statfs *stfs;
     char errortext[MESSAGESIZE];
-
-
-    if (path == NULL){
-      return 0;
+    if (path == NULL) {
+        return 0;
     }
-
     if (statfs(path, stfs) < 0) {
-      snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-      errsend(FATAL, errortext);
+        snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+        errsend(FATAL, errortext);
     }
     //if (strstr(path, "/fusemnt/")){
-    if (stfs->f_type == FUSE_SUPER_MAGIC){
-      return 1;
+    if (stfs->f_type == FUSE_SUPER_MAGIC) {
+        return 1;
     }
 #endif
     return 0;
@@ -1018,7 +1074,6 @@ int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
 #else
     valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
 #endif
-
     if (valueLen != -1) {
         return 0;
     }
@@ -1036,43 +1091,40 @@ void get_stat_fs_info(const char *path, int *fs) {
     char errortext[MESSAGESIZE];
     int rc;
     char use_path[PATHSIZE_PLUS];
-
     strncpy(use_path, path, PATHSIZE_PLUS);
-
     rc = lstat(use_path, &st);
-    if (rc < 0){
-      strcpy(use_path, dirname(strdup(path)));
-      rc = lstat(use_path, &st);
-      if (rc < 0){
-        fprintf(stderr, "Failed to stat path %s\n", path);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-      }
+    if (rc < 0) {
+        strcpy(use_path, dirname(strdup(path)));
+        rc = lstat(use_path, &st);
+        if (rc < 0) {
+            fprintf(stderr, "Failed to stat path %s\n", path);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
     }
-
-    if (!S_ISLNK(st.st_mode)){
-      if (statfs(use_path, &stfs) < 0) {
-        snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-        errsend(FATAL, errortext);
-      }
-      if (stfs.f_type == GPFS_FILE) {
-        *fs = GPFSFS;
-      }
-      else if (stfs.f_type == PANFS_FILE) {
-        *fs = PANASASFS;
-      }
-    #ifdef FUSE_CHUNKER
-      else if (stfs.f_type == FUSE_SUPER_MAGIC){
-        //fuse file
-        *fs = GPFSFS;
-      }
-    #endif
-      else{
-        *fs = ANYFS;
-      }
+    if (!S_ISLNK(st.st_mode)) {
+        if (statfs(use_path, &stfs) < 0) {
+            snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+            errsend(FATAL, errortext);
+        }
+        if (stfs.f_type == GPFS_FILE) {
+            *fs = GPFSFS;
+        }
+        else if (stfs.f_type == PANFS_FILE) {
+            *fs = PANASASFS;
+        }
+#ifdef FUSE_CHUNKER
+        else if (stfs.f_type == FUSE_SUPER_MAGIC) {
+            //fuse file
+            *fs = GPFSFS;
+        }
+#endif
+        else {
+            *fs = ANYFS;
+        }
     }
-    else{
-      //symlink
-      *fs = GPFSFS;
+    else {
+        //symlink
+        *fs = GPFSFS;
     }
 #else
     *fs = ANYFS;

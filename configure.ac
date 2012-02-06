@@ -14,15 +14,17 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 
 # lets add some options to our CFLAGS variable
-AC_ARG_ENABLE(threads, [  --enable-threads]  [turn on threading (turn off mpi)])
+AC_ARG_ENABLE(threads, [  --enable-threads]  [Run in threading mode])
 AM_CONDITIONAL([THREADS], [test x$enable_threads = xyes])
 
-AC_ARG_ENABLE(tape, [  --enable-tape]  [turn on tape])
+AC_ARG_ENABLE(tape, [  --enable-tape]  [enable tape support])
 AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
 
-AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [turn on fusechunker])
+AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [enable fusechunker support])
 AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
 
+AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
+AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
 AM_CONFIG_HEADER([config.h])
 

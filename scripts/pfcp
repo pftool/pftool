@@ -63,11 +63,11 @@ def main():
     pass
 
   try: 
-    archive_path = config.get("options", "archive_path")
-    fuse_path = config.get("options", "fuse_path")
-    fuse_chunkdirs = config.get("options", "fuse_chunkdirs")
-    fuse_chunk_at = config.get("options", "fuse_chunk_at")
-    fuse_chunksize = config.get("options", "fuse_chunksize")
+    archive_path = config.get("environment", "archive_path")
+    fuse_path = config.get("fuse_chunker", "fuse_path")
+    fuse_chunkdirs = config.get("fuse_chunker", "fuse_chunkdirs")
+    fuse_chunk_at = config.get("fuse_chunker", "fuse_chunk_at")
+    fuse_chunksize = config.get("fuse_chunker", "fuse_chunksize")
   
     commands.add("-a", archive_path)
     commands.add("-f", fuse_path)
@@ -77,13 +77,26 @@ def main():
   except:
     pass
 
+  try:
+    plfs_chunksize = config.get("plfs", "plfs_chunksize")
+    commands.add("-z", plfs_chunksize)
+  except:
+    pass
+
 
   #parse additional options
   if options.different:
     commands.add("-n")
-  
-  commands.add("-p", *src)
+
+  try:
+    t = config.get("options", "parallel_dest")
+    if t.lower() == "true":
+        commands.add("-P")
+  except:
+    pass
+
   commands.add("-c", dest)
+  commands.add("-p", *src)
 
   threaded = False
   try:

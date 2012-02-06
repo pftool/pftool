@@ -1,13 +1,13 @@
 /*
 *This material was prepared by the Los Alamos National Security, LLC (LANS) under
 *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
-*in the material are reserved by DOE on behalf of the Government and LANS 
-*pursuant to the contract. You are authorized to use the material for Government 
-*purposes but it is not to be released or distributed to the public. NEITHER THE 
-*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS 
-*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS 
-*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, 
-*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS 
+*in the material are reserved by DOE on behalf of the Government and LANS
+*pursuant to the contract. You are authorized to use the material for Government
+*purposes but it is not to be released or distributed to the public. NEITHER THE
+*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
+*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
+*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
+*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
@@ -59,6 +59,11 @@
 #include <sys/xattr.h>
 #endif
 
+#ifdef PLFS
+#include "plfs.h"
+#endif
+
+#include "debug.h"
 
 
 #define PATHSIZE_PLUS (FILENAME_MAX+30)
@@ -68,7 +73,7 @@
 
 #define DIRBUFFER 5
 #define STATBUFFER 50
-#define COPYBUFFER 30
+#define COPYBUFFER 15
 #define CHUNKBUFFER COPYBUFFER
 #define TAPEBUFFER 5
 
@@ -143,6 +148,7 @@ enum filetype {
     LINKFILE,
     PREMIGRATEFILE,
     MIGRATEFILE,
+    PLFSFILE,
     NONE
 };
 
@@ -170,6 +176,9 @@ struct options {
     size_t fuse_chunk_at;
     size_t fuse_chunksize;
 #endif
+#ifdef PLFS
+    size_t plfs_chunksize;
+#endif
 
     //fs info
     int sourcefs;
@@ -186,6 +195,9 @@ struct path_link {
     enum filetype ftype;
 #ifdef FUSE_CHUNKER
     int fuse_dest;
+#endif
+#ifdef PLFS
+    int plfs_dest;
 #endif
 };
 typedef struct path_link path_item;
@@ -211,7 +223,7 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
-int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st);
+int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank);
 int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
 int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
 

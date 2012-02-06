@@ -1,13 +1,13 @@
 /*
 *This material was prepared by the Los Alamos National Security, LLC (LANS) under
 *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
-*in the material are reserved by DOE on behalf of the Government and LANS 
-*pursuant to the contract. You are authorized to use the material for Government 
-*purposes but it is not to be released or distributed to the public. NEITHER THE 
-*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS 
-*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS 
-*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, 
-*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS 
+*in the material are reserved by DOE on behalf of the Government and LANS
+*pursuant to the contract. You are authorized to use the material for Government
+*purposes but it is not to be released or distributed to the public. NEITHER THE
+*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
+*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
+*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
+*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
@@ -19,16 +19,8 @@
 #include <time.h>
 #include <syslog.h>
 
-//Regular Filesystem
-#ifdef HAVE_VFS_H
-#include <sys/vfs.h>
-#endif
-
 // include that is associated with pftool itself
 #include "pftool.h"
-#include "debug.h"
-
-#define STGPOOLSERVER_PORT 1664
 
 #ifdef THREADS_ONLY
 #define MPI_Abort MPY_Abort
@@ -43,8 +35,9 @@ extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 extern int one_byte_read(const char *path);
-extern int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st);
+extern int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank);
 extern int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
+
 
 //dmapi/gpfs
 #ifdef TAPE
@@ -162,9 +155,12 @@ int main(int argc, char *argv[]) {
         o.fuse_chunksize = 68719476736;
         o.fuse_chunkdirs = 10;
 #endif
+#ifdef PLFS
+        o.plfs_chunksize = 104857600;
+#endif
         o.work_type = LSWORK;
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:vrlPMnh")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:z:vrlPMnh")) != -1)
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -209,6 +205,11 @@ int main(int argc, char *argv[]) {
                 break;
             case 'A':
                 o.fuse_chunksize = atof(optarg);
+                break;
+#endif
+#ifdef PLFS
+            case 'z':
+                o.plfs_chunksize = atof(optarg);
                 break;
 #endif
             case 'n':
@@ -261,8 +262,12 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.fuse_chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.fuse_chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #endif
+#ifdef PLFS
+    MPI_Bcast(&o.plfs_chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+#endif
     MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    freopen( "/dev/null", "w", stderr );
     //Modifies the path based on recursion/wildcards
     //wildcard
     if (rank == MANAGER_PROC) {
@@ -1092,11 +1097,28 @@ int stat_item(path_item *work_node, struct options o) {
 #endif
     int numchars;
     char linkname[PATHSIZE_PLUS];
+#ifdef PLFS
+    int is_plfs = plfs_getattr(NULL, work_node->path, &st, 0);
+    if (is_plfs != 0) {
+        if (lstat(work_node->path, &st) == -1) {
+            is_plfs = plfs_getattr(NULL, dirname(work_node->path), &st, 0);
+            if (is_plfs == 0) {
+                work_node->ftype = PLFSFILE;
+            }
+            return -1;
+        }
+        work_node->ftype = REGULARFILE;
+    }
+    else {
+        work_node->ftype = PLFSFILE;
+    }
+#else
     if (lstat(work_node->path, &st) == -1) {
         return -1;
     }
-    work_node->st = st;
     work_node->ftype = REGULARFILE;
+#endif
+    work_node->st = st;
     //dmapi to find managed files
 #ifdef TAPE
     if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS) {
@@ -1141,12 +1163,17 @@ int stat_item(path_item *work_node, struct options o) {
         linkname[numchars] = '\0';
         work_node->ftype = LINKFILE;
 #ifdef FUSE_CHUNKER
-        if (is_fuse_chunk(realpath(work_node->path, NULL))) {
+#ifdef PLFS
+        if (work_node->ftype != PLFSFILE) &&
+#else
+        if (
+#endif
+            is_fuse_chunk(realpath(work_node->path, NULL))) {
             if (lstat(linkname, &st) == -1) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
                 errsend(FATAL, errmsg);
             }
-            work_node->st = st;
+            work_node->st = s &&t;
             work_node->ftype = FUSEFILE;
         }
 #endif
@@ -1175,6 +1202,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
     path_item work_node, out_node;
     int process = 0;
+    int parallel_dest = 0;
     //stat
     struct stat st;
     struct tm sttm;
@@ -1184,8 +1212,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     //chunks
     //place_holder fo current chunk_size
     size_t chunk_size = 0;
+    size_t chunk_at = 0;
     double num_bytes_seen = 0;
-    double ship_off = 2147483648; //2GB
+    //500 MB
+    size_t ship_off = 524288000;
     //int chunk_size = 1024;
     off_t chunk_curr_offset = 0;
     //classification
@@ -1235,6 +1265,17 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 process = 1;
                 strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
                 rc = stat_item(&out_node, o);
+                parallel_dest = o.parallel_dest;
+#ifdef PLFS
+                if(out_node.ftype == PLFSFILE) {
+                    parallel_dest = 1;
+                    work_node.plfs_dest = 1;
+                }
+                else {
+                    parallel_dest = o.parallel_dest;
+                    work_node.plfs_dest = 0;
+                }
+#endif
                 //if the out path exists
                 if (rc == 0) {
                     //Check if it's a valid match
@@ -1300,7 +1341,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             }
             if (process == 1) {
                 //parallel filesystem can do n-to-1
-                if (o.parallel_dest) {
+                if (parallel_dest) {
                     //non_archive files need to not be fuse
 #ifdef FUSE_CHUNKER
                     if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0) {
@@ -1308,9 +1349,11 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
 #endif
                     chunk_size = o.chunksize;
+                    chunk_at = o.chunk_at;
 #ifdef FUSE_CHUNKER
                     if(work_node.fuse_dest == 1) {
                         chunk_size = o.fuse_chunksize;
+                        chunk_at = o.fuse_chunk_at;
                     }
                     else if (work_node.ftype == FUSEFILE) {
                         set_fuse_chunk_data(&work_node);
@@ -1331,6 +1374,12 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                         }
                     }
 #endif
+#ifdef PLFS
+                    if(work_node.plfs_dest == 1) {
+                        chunk_size = o.plfs_chunksize;
+                        chunk_at = 0;
+                    }
+#endif
                     if (work_node.st.st_size == 0) {
                         work_node.offset = 0;
                         work_node.length = 0;
@@ -1341,14 +1390,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     while (chunk_curr_offset < work_node.st.st_size) {
                         work_node.offset = chunk_curr_offset;
                         //if we're not doing chunks OR we're done chunking
-#ifdef FUSE_CHUNKER
-                        if ((!work_node.fuse_dest && work_node.st.st_size <= o.chunk_at) ||
-                                //(work_node.fuse_dest && work_node.st.st_size <= o.fuse_chunk_at) ||
+                        if (work_node.st.st_size < chunk_at ||
                                 (chunk_curr_offset + chunk_size) >  work_node.st.st_size) {
-#else
-                        if ((work_node.st.st_size <= o.chunk_at) ||
-                                (chunk_curr_offset + chunk_size) >  work_node.st.st_size) {
-#endif
                             work_node.length = work_node.st.st_size - chunk_curr_offset;
                             chunk_curr_offset = work_node.st.st_size;
                         }
@@ -1473,7 +1516,8 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
     path_item workbuffer[STATBUFFER];
     int buffer_count = 0;
     double num_bytes_seen = 0;
-    double ship_off = 2147493648;
+    //500 MB
+    double ship_off = 524288000;
     int i, rc;
     PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the read_count from %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -1567,13 +1611,12 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         strncpy(path, work_node.path, PATHSIZE_PLUS);
         strncpy(out_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-        //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.offset;
         length = work_node.length;
 #ifdef FUSE_CHUNKER
         if (work_node.fuse_dest == 0) {
 #endif
-            rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
+            rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st, rank);
 #ifdef FUSE_CHUNKER
         }
         else {
@@ -1587,7 +1630,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                     chunk_groupid != groupid ||
                     chunk_ut.actime != ut.actime||
                     chunk_ut.modtime != ut.modtime) { //not a match
-                rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st);
+                rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st, rank);
                 set_fuse_chunk_attr(out_path, offset, length, ut, userid, groupid);
             }
             else {
@@ -1603,7 +1646,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                 else {
                     sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
                 }
-                MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+                //MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+                write_buffer_output(copymsg, MESSAGESIZE, 1);
+                out_position = 0;
             }
             num_copied_files +=1;
             if (!S_ISLNK(work_node.st.st_mode)) {
@@ -1616,9 +1661,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
             }
         }
     }
-    if (o.verbose) {
+    /*if (o.verbose) {
         write_buffer_output(writebuf, writesize, read_count);
-    }
+    }*/
     //update the chunk information
     if (buffer_count > 0) {
         send_manager_chunk_busy();
