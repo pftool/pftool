@@ -11,8 +11,12 @@
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
-#ifndef      __MPI_UTILS_H
-#define      __MPI_UTILS_H
+#ifndef      __PF_UTILS_H
+#define      __PF_UTILS_H
+
+//lets make sure things are 64 bit
+#define _LARGEFILE64_SOURCE 1
+#define _FILE_OFFSET_BITS 64
 
 #include "config.h"
 
