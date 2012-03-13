@@ -1156,7 +1156,7 @@ int stat_item(path_item *work_node, struct options o) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
                 errsend(FATAL, errmsg);
             }
-            work_node->st = s &&t;
+            work_node->st = st;
             work_node->ftype = FUSEFILE;
         }
 #endif
