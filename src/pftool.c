@@ -1020,7 +1020,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
                     if (full_path[strlen(full_path) - 1 ] != '/') {
                         strncat(full_path, "/", 1);
                     }
-                    strncat(full_path, dit->d_name, PATHSIZE_PLUS);
+                    strncat(full_path, dit->d_name, PATHSIZE_PLUS - strlen(full_path) - 1);
                     strncpy(work_node.path, full_path, PATHSIZE_PLUS);
                     rc = stat_item(&work_node, o);
                     if (rc != 0) {

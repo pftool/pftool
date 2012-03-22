@@ -340,7 +340,7 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_item 
             if (final_dest_path[strlen(final_dest_path)-1] != '/') {
                 strncat(final_dest_path, "/", PATHSIZE_PLUS);
             }
-            strncat(final_dest_path, path_slice, PATHSIZE_PLUS);
+            strncat(final_dest_path, path_slice, PATHSIZE_PLUS - strlen(final_dest_path) - 1);
         }
         rc = lstat(final_dest_path, &dest_st);
         if (S_ISDIR(beg_st.st_mode) && makedir == 1) {
@@ -384,7 +384,7 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
     }
     if (S_ISDIR(dest_node.st.st_mode)) {
         strncat(output_path, "/", PATHSIZE_PLUS);
-        strncat(output_path, path_slice, PATHSIZE_PLUS);
+        strncat(output_path, path_slice, PATHSIZE_PLUS - strlen(output_path) - 1);
     }
     return strdup(output_path);
 }
