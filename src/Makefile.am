@@ -21,8 +21,8 @@ fusechunker_cflags=-DFUSE_CHUNKER
 endif
 
 if PLFS
-plfs_cflags=-DPLFS
-plfs_ldflags=-lplfs
+plfs_cflags=${PLFS_CFLAGS} -DPLFS
+plfs_ldflags=${PLFS_LDFLAGS} -lplfs
 endif
 
 __top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags)
