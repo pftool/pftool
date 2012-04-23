@@ -82,12 +82,13 @@ def main():
       parser.error("please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
 
     try:
-      host_list = map(lambda x: x[0], filter(lambda x: x[1] == "ON", config.items("active_nodes")))
+      host_list = map(lambda x: x[0].lower(), filter(lambda x: x[1] == "ON", config.items("active_nodes")))
     except:
       parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
 
     pfcmd.add(mpigo)
-    pfcmd.add("-host", ",".join(host_list))
+    if "all" not in host_list:
+        pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
     pfcmd.add(pftool)
 
