@@ -26,6 +26,9 @@ AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
 AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
 AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
+AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
+AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
+
 AM_CONFIG_HEADER([config.h])
 
 

@@ -25,5 +25,9 @@ plfs_cflags=${PLFS_CFLAGS} -DPLFS
 plfs_ldflags=${PLFS_LDFLAGS} -lplfs
 endif
 
+if ALLSTATIC
+allstatic_ldflags=-all-static
+endif
+
 __top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags)
-__top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) 
+__top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)
