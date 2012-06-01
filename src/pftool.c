@@ -1148,7 +1148,7 @@ int stat_item(path_item *work_node, struct options o) {
         work_node->ftype = LINKFILE;
 #ifdef FUSE_CHUNKER
 #ifdef PLFS
-        if (work_node->ftype != PLFSFILE) &&
+        if (work_node->ftype != PLFSFILE &&
 #else
         if (
 #endif
@@ -1165,7 +1165,7 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef FUSE_CHUNKER
     //if it qualifies for fuse and is on the "archive" path
     if (work_node->st.st_size > o.fuse_chunk_at ) {
-        work_node->dest = FUSEDEST;
+        work_node->desttype = FUSEDEST;
     }
 #endif
     return 0;
