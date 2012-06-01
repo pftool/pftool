@@ -906,7 +906,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     if (o.logging == 1 && log == 1) {
         openlog ("PFTOOL-LOG", LOG_PID | LOG_CONS, LOG_USER);
         sprintf(sysmsg, "[pftool] [%s] - %s", o.jid, msg);
-        syslog (LOG_ERR | LOG_USER, sysmsg);
+        syslog (LOG_ERR | LOG_USER, "%s", sysmsg);
         closelog();
     }
     printf("%s", msg);
@@ -1080,6 +1080,7 @@ int stat_item(path_item *work_node, struct options o) {
 #endif
     int numchars;
     char linkname[PATHSIZE_PLUS];
+    work_node->desttype = REGULARDEST;
 #ifdef PLFS
     int is_plfs = plfs_getattr(NULL, work_node->path, &st, 0);
     if (is_plfs != 0) {
@@ -1164,10 +1165,7 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef FUSE_CHUNKER
     //if it qualifies for fuse and is on the "archive" path
     if (work_node->st.st_size > o.fuse_chunk_at ) {
-        work_node->fuse_dest = 1;
-    }
-    else {
-        work_node->fuse_dest = 0;
+        work_node->dest = FUSEDEST;
     }
 #endif
     return 0;
@@ -1252,11 +1250,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifdef PLFS
                 if(out_node.ftype == PLFSFILE) {
                     parallel_dest = 1;
-                    work_node.plfs_dest = 1;
+                    work_node.desttype = PLFSDEST;
                 }
                 else {
                     parallel_dest = o.parallel_dest;
-                    work_node.plfs_dest = 0;
                 }
 #endif
                 //if the out path exists
@@ -1327,14 +1324,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 if (parallel_dest) {
                     //non_archive files need to not be fuse
 #ifdef FUSE_CHUNKER
-                    if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0) {
-                        work_node.fuse_dest = 0;
+                    if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEDEST) {
+                        work_node.desttype = REGULARDEST;
                     }
 #endif
                     chunk_size = o.chunksize;
                     chunk_at = o.chunk_at;
 #ifdef FUSE_CHUNKER
-                    if(work_node.fuse_dest == 1) {
+                    if(work_node.desttype == FUSEDEST) {
                         chunk_size = o.fuse_chunksize;
                         chunk_at = o.fuse_chunk_at;
                     }
@@ -1342,7 +1339,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                         set_fuse_chunk_data(&work_node);
                         chunk_size = work_node.length;
                     }
-                    if (work_node.fuse_dest == 1) {
+                    if (work_node.desttype == FUSEDEST) {
                         if (o.work_type == COPYWORK) {
                             if (out_node.ftype == NONE) {
                                 gettimeofday(&tv, NULL);
@@ -1358,7 +1355,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
 #endif
 #ifdef PLFS
-                    if(work_node.plfs_dest == 1) {
+                    if(work_node.desttype == PLFSDEST) {
                         chunk_size = o.plfs_chunksize;
                         chunk_at = 0;
                     }
@@ -1597,7 +1594,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         offset = work_node.offset;
         length = work_node.length;
 #ifdef FUSE_CHUNKER
-        if (work_node.fuse_dest == 0) {
+        if (work_node.desttype != FUSEDEST) {
 #endif
             rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st, rank);
 #ifdef FUSE_CHUNKER

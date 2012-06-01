@@ -98,18 +98,6 @@ char *printmode (mode_t aflag, char *buf) {
     return buf;
 }
 
-void copy_byes_to_file (const char *b, int len, const char *out_path) {
-    short str_index;
-    unsigned char *ptr;
-    FILE *out;
-    ptr = (unsigned char *) b;  /* point to buffer location to start  */
-    out = fopen(out_path, "w");
-    for (str_index = 0; str_index < len; str_index++) {
-        fprintf(out, "%c", ptr[str_index]);
-    }
-    fclose(out);
-}
-
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
     short str_index;
     char smsg[64];
@@ -241,8 +229,6 @@ int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf) {
                 goto done;
             }
             hex_dump_bytes (dmattrbuf, 28, localhexbuf);
-            //copy_byes_to_file (dmattrbuf, 28, "/gpfstmnt/users/agtorre/pftool-rewrite/dmattrbuf.out");
-            //HB
             PRINT_DMAPI_DEBUG ("M dmapi_lookup localhexbuf %s\n", localhexbuf);
             strncpy (dmouthexbuf, localhexbuf, 128);
         }

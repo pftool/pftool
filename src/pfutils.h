@@ -156,6 +156,16 @@ enum filetype {
     NONE
 };
 
+enum desttype {
+    REGULARDEST,
+#ifdef FUSE_CHUNKER
+    FUSEDEST,
+#endif
+#ifdef PLFS
+    PLFSDEST
+#endif
+};
+
 //Structs and typedefs
 //options{
 struct options {
@@ -197,12 +207,7 @@ struct path_link {
     off_t offset;
     size_t length;
     enum filetype ftype;
-#ifdef FUSE_CHUNKER
-    int fuse_dest;
-#endif
-#ifdef PLFS
-    int plfs_dest;
-#endif
+    int desttype;
 };
 typedef struct path_link path_item;
 
