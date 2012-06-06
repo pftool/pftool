@@ -35,8 +35,9 @@ extern char *get_base_path(const char *path, int wildcard);
 extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 extern int one_byte_read(const char *path);
-extern int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank);
-extern int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
+extern int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
+extern int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
+extern int update_stats(path_item src_file, path_item dest_file);
 
 
 //dmapi/gpfs
@@ -846,7 +847,7 @@ void worker(int rank, struct options o) {
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
     MPI_Status status;
     int path_count;
-    path_item work_node;
+    path_item work_node, out_node;
     char *workbuf;
     int worksize, position;
     int hash_value, chunk_size, new_size;
@@ -883,7 +884,8 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
         //we've completed a file
         if (new_size == work_node.st.st_size) {
             hashtbl_remove(*chunk_hash, work_node.path);
-            update_stats(work_node.path, get_output_path(base_path, work_node, dest_node, o), work_node.st);
+            strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));
+            update_stats(work_node, out_node);
         }
         else {
             hashtbl_insert(*chunk_hash, work_node.path, new_size);
@@ -1080,7 +1082,7 @@ int stat_item(path_item *work_node, struct options o) {
 #endif
     int numchars;
     char linkname[PATHSIZE_PLUS];
-    work_node->desttype = REGULARDEST;
+    work_node->desttype = REGULARFILE;
 #ifdef PLFS
     int is_plfs = plfs_getattr(NULL, work_node->path, &st, 0);
     if (is_plfs != 0) {
@@ -1165,7 +1167,7 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef FUSE_CHUNKER
     //if it qualifies for fuse and is on the "archive" path
     if (work_node->st.st_size > o.fuse_chunk_at ) {
-        work_node->desttype = FUSEDEST;
+        work_node->desttype = FUSEFILE;
     }
 #endif
     return 0;
@@ -1250,7 +1252,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifdef PLFS
                 if(out_node.ftype == PLFSFILE) {
                     parallel_dest = 1;
-                    work_node.desttype = PLFSDEST;
+                    work_node.desttype = PLFSFILE;
                 }
                 else {
                     parallel_dest = o.parallel_dest;
@@ -1301,7 +1303,16 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifdef FUSE_CHUNKER
                         else {
 #endif
-                            rc = unlink(out_node.path);
+#ifdef PLFS
+                            if (out_node.ftype == PLFSFILE){
+                                rc = plfs_unlink(out_node.path);
+                            }
+                            else{
+#endif
+                                rc = unlink(out_node.path);
+#ifdef PLFS
+                            }
+#endif
                             if (rc < 0) {
                                 snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", out_node.path);
                                 errsend(FATAL, errmsg);
@@ -1324,14 +1335,14 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 if (parallel_dest) {
                     //non_archive files need to not be fuse
 #ifdef FUSE_CHUNKER
-                    if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEDEST) {
-                        work_node.desttype = REGULARDEST;
+                    if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEFILE) {
+                        work_node.desttype = REGULARFILE;
                     }
 #endif
                     chunk_size = o.chunksize;
                     chunk_at = o.chunk_at;
 #ifdef FUSE_CHUNKER
-                    if(work_node.desttype == FUSEDEST) {
+                    if(work_node.desttype == FUSEFILE) {
                         chunk_size = o.fuse_chunksize;
                         chunk_at = o.fuse_chunk_at;
                     }
@@ -1339,7 +1350,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                         set_fuse_chunk_data(&work_node);
                         chunk_size = work_node.length;
                     }
-                    if (work_node.desttype == FUSEDEST) {
+                    if (work_node.desttype == FUSEFILE) {
                         if (o.work_type == COPYWORK) {
                             if (out_node.ftype == NONE) {
                                 gettimeofday(&tv, NULL);
@@ -1355,7 +1366,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
 #endif
 #ifdef PLFS
-                    if(work_node.desttype == PLFSDEST) {
+                    if(work_node.desttype == PLFSFILE) {
                         chunk_size = o.plfs_chunksize;
                         chunk_at = 0;
                     }
@@ -1515,7 +1526,7 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        rc = one_byte_read(work_node.path);
+        rc = work_node.one_byte_read(work_node.path);
         if (rc == 0) {
             workbuffer[buffer_count] = work_node;
             buffer_count += 1;
@@ -1555,8 +1566,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     int worksize, writesize;
     int position, out_position;
     int read_count;
-    path_item work_node;
-    char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
+    path_item work_node, out_node;
     char copymsg[MESSAGESIZE];
     off_t offset;
     size_t length;
@@ -1589,14 +1599,13 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        strncpy(path, work_node.path, PATHSIZE_PLUS);
-        strncpy(out_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
         offset = work_node.offset;
         length = work_node.length;
+        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
 #ifdef FUSE_CHUNKER
-        if (work_node.desttype != FUSEDEST) {
+        if (work_node.desttype != FUSEFILE) {
 #endif
-            rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st, rank);
+            rc = copy_file(work_node, out_node, o.blocksize, rank);
 #ifdef FUSE_CHUNKER
         }
         else {
@@ -1604,14 +1613,14 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
             groupid = work_node.st.st_gid;
             ut.actime = work_node.st.st_atime;
             ut.modtime = work_node.st.st_mtime;
-            rc = get_fuse_chunk_attr(out_path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid);
+            rc = get_fuse_chunk_attr(out_node.path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid);
             if (rc == -1 ||
                     chunk_userid != userid ||
                     chunk_groupid != groupid ||
                     chunk_ut.actime != ut.actime||
                     chunk_ut.modtime != ut.modtime) { //not a match
-                rc = copy_file(path, out_path, offset, length, o.blocksize, work_node.st, rank);
-                set_fuse_chunk_attr(out_path, offset, length, ut, userid, groupid);
+                rc = copy_file(work_node, out_node, o.blocksize, rank);
+                set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else {
                 rc = -1;
@@ -1621,10 +1630,10 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         if (rc >= 0) {
             if (o.verbose) {
                 if (S_ISLNK(work_node.st.st_mode)) {
-                    sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_path, path);
+                    sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_node.path, work_node.path);
                 }
                 else {
-                    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", path, (long long)offset, (long long)length, out_path);
+                    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", work_node.path, (long long)offset, (long long)length, out_node.path);
                 }
                 //MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
                 write_buffer_output(copymsg, MESSAGESIZE, 1);
@@ -1664,8 +1673,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     int worksize, writesize;
     int position, out_position;
     int read_count;
-    path_item work_node;
-    char path[PATHSIZE_PLUS], out_path[PATHSIZE_PLUS];
+    path_item work_node, out_node;
     char copymsg[MESSAGESIZE];
     off_t offset;
     size_t length;
@@ -1692,17 +1700,16 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        strncpy(path, work_node.path, PATHSIZE_PLUS);
-        strncpy(out_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.offset;
         length = work_node.length;
-        rc = compare_file(path, out_path, offset, length, o.blocksize, work_node.st, o.meta_data_only);
+        rc = compare_file(work_node, out_node, o.blocksize, o.meta_data_only);
         if (o.meta_data_only || work_node.ftype == LINKFILE) {
-            sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", path, out_path);
+            sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
         }
         else {
-            sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s", path, (long long)offset, (long long)length, out_path);
+            sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s", work_node.path, (long long)offset, (long long)length, out_node.path);
         }
         if (rc == 0) {
             strncat(copymsg, " -- SUCCESS\n", MESSAGESIZE);

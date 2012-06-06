@@ -401,7 +401,7 @@ int one_byte_read(const char *path) {
     return 0;
 }
 
-int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank) {
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank) {
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
     int rc;
@@ -410,12 +410,12 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     char *buf = '\0';
     char errormsg[MESSAGESIZE];
     //FILE *src_fd, *dest_fd;
-    char source_file[PATHSIZE_PLUS], destination_file[PATHSIZE_PLUS];
     int flags;
     //MPI_File src_fd, dest_fd;
     int src_fd, dest_fd;
+    off_t offset = src_file.offset;
+    size_t length = src_file.length;
 #ifdef PLFS
-    int plfs_src = 0, plfs_dest = 0;
     int pid = getpid();
     Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
 #endif
@@ -424,29 +424,27 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     char link_path[PATHSIZE_PLUS];
     int numchars;
     //can't be const for MPI_IO
-    strncpy(source_file, src_file, PATHSIZE_PLUS);
-    strncpy(destination_file, dest_file, PATHSIZE_PLUS);
-    if (S_ISLNK(src_st.st_mode)) {
-        numchars = readlink(src_file, link_path, PATHSIZE_PLUS);
+    if (S_ISLNK(src_file.st.st_mode)) {
+        numchars = readlink(src_file.path, link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
-            sprintf(errormsg, "Failed to read link %s", src_file);
+            sprintf(errormsg, "Failed to read link %s", src_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        rc = symlink(link_path,destination_file);
+        rc = symlink(link_path,dest_file.path);
         if (rc < 0) {
-            sprintf(errormsg, "Failed to create symlink %s -> %s", destination_file, link_path);
+            sprintf(errormsg, "Failed to create symlink %s -> %s", dest_file.path, link_path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        if (update_stats(src_file, dest_file, src_st) != 0) {
+        if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
         return 0;
     }
     //incase someone accidently set and offset+length that exceeds the file bounds
-    if ((src_st.st_size - offset) < length) {
-        length = src_st.st_size - offset;
+    if ((src_file.st.st_size - offset) < length) {
+        length = src_file.st.st_size - offset;
     }
     //a file less then 1 MB
     if (length < blocksize) {
@@ -458,45 +456,45 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
 #ifdef PLFS
-    rc = plfs_open(&plfs_src_fd, src_file, O_RDONLY, pid+rank, src_st.st_mode, NULL);
-    if (rc != 0) {
-#endif
-        src_fd = open(src_file, O_RDONLY);
-        if (src_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for read", src_file);
-            errsend(NONFATAL, errormsg);
-            return -1;
-        }
-#ifdef PLFS
+    if (src_file.ftype == PLFSFILE){
+        src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
     }
     else {
-        plfs_src = 1;
+#endif
+        src_fd = open(src_file.path, O_RDONLY);
+#ifdef PLFS
     }
 #endif
+    if (src_fd < 0) {
+        sprintf(errormsg, "Failed to open file %s for read", src_file.path);
+        errsend(NONFATAL, errormsg);
+        return -1;
+    }
+
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
-    if (src_st.st_size == length && offset == 0) {
+    if (src_file.st.st_size == length && offset == 0) {
         flags = O_WRONLY | O_CREAT;
     }
     else {
         flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
     }
 #ifdef PLFS
-    rc = plfs_open(&plfs_dest_fd, destination_file, flags, pid+rank, src_st.st_mode, NULL);
-    if (rc != 0) {
+    if (src_file.desttype == PLFSFILE){
+        dest_fd = plfs_open(&plfs_dest_fd, dest_file.path, flags, pid+rank, src_file.st.st_mode, NULL);
+    }
+    else{
 #endif
-        dest_fd = open(destination_file, flags, 0600);
-        if (dest_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for write", dest_file);
-            errsend(NONFATAL, errormsg);
-            return -1;
-        }
+        dest_fd = open(dest_file.path, flags, 0600);
 #ifdef PLFS
     }
-    else {
-        plfs_dest = 1;
-    }
 #endif
+    if (dest_fd < 0) {
+        sprintf(errormsg, "Failed to open file %s for write", dest_file.path);
+        errsend(NONFATAL, errormsg);
+        return -1;
+    }
+
     while (completed != length) {
         //1 MB is too big
         if ((length - completed) < blocksize) {
@@ -504,7 +502,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
         }
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
 #ifdef PLFS
-        if (plfs_src) {
+        if (src_file.ftype == PLFSFILE) {
             bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
         }
         else {
@@ -514,13 +512,13 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
         }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file.path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
 #ifdef PLFS
-        if (plfs_dest) {
+        if (src_file.desttype == PLFSFILE) {
             bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
         }
         else {
@@ -530,21 +528,21 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
         }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         completed += blocksize;
     }
 #ifdef PLFS
-    if (plfs_src) {
-        rc = plfs_close(plfs_src_fd, pid+rank, src_st.st_uid, O_RDONLY, NULL);
+    if (src_file.ftype == PLFSFILE) {
+        rc = plfs_close(plfs_src_fd, pid+rank, src_file.st.st_uid, O_RDONLY, NULL);
     }
     else {
 #endif
         rc = close(src_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", src_file);
+            sprintf(errormsg, "Failed to close file: %s", src_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -552,14 +550,14 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     }
 #endif
 #ifdef PLFS
-    if (plfs_dest) {
-        rc = plfs_close(plfs_dest_fd, pid+rank, src_st.st_uid, flags, NULL);
+    if (src_file.desttype == PLFSFILE) {
+        rc = plfs_close(plfs_dest_fd, pid+rank, src_file.st.st_uid, flags, NULL);
     }
     else {
 #endif
         rc = close(dest_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file);
+            sprintf(errormsg, "Failed to close file: %s", dest_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -567,8 +565,8 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
     }
 #endif
     free(buf);
-    if (offset == 0 && length == src_st.st_size) {
-        if (update_stats(src_file, dest_file, src_st) != 0) {
+    if (offset == 0 && length == src_file.st.st_size) {
+        if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
     }
@@ -576,7 +574,7 @@ int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t 
 }
 
 
-int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only) {
+int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only) {
     struct stat dest_st;
     size_t completed = 0;
     char *ibuf;
@@ -586,16 +584,19 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
     char errormsg[MESSAGESIZE];
     int rc;
     int crc;
+    off_t offset = src_file.offset;
+    size_t length = src_file.length;
+
     // dest doesn't exist
-    if (lstat(dest_file, &dest_st) == -1) {
+    if (lstat(dest_file.path, &dest_st) == -1) {
         return 2;
     }
-    if (src_st.st_size == dest_st.st_size &&
-            (src_st.st_mtime == dest_st.st_mtime  ||
-             S_ISLNK(src_st.st_mode))&&
-            src_st.st_mode == dest_st.st_mode &&
-            src_st.st_uid == dest_st.st_uid &&
-            src_st.st_gid == dest_st.st_gid) {
+    if (src_file.st.st_size == dest_st.st_size &&
+            (src_file.st.st_mtime == dest_st.st_mtime  ||
+             S_ISLNK(src_file.st.st_mode))&&
+            src_file.st.st_mode == dest_st.st_mode &&
+            src_file.st.st_uid == dest_st.st_uid &&
+            src_file.st.st_gid == dest_st.st_gid) {
         //metadata compare
         if (meta_data_only) {
             return 0;
@@ -603,21 +604,21 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
         //byte compare
         ibuf = malloc(blocksize * sizeof(char));
         obuf = malloc(blocksize * sizeof(char));
-        src_fd = open(src_file, O_RDONLY);
+        src_fd = open(src_file.path, O_RDONLY);
         if (src_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare source", src_file);
+            sprintf(errormsg, "Failed to open file %s for compare source", src_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        dest_fd = open(dest_file, O_RDONLY);
+        dest_fd = open(dest_file.path, O_RDONLY);
         if (dest_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file);
+            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         //incase someone accidently set and offset+length that exceeds the file bounds
-        if ((src_st.st_size - offset) < length) {
-            length = src_st.st_size - offset;
+        if ((src_file.st.st_size - offset) < length) {
+            length = src_file.st.st_size - offset;
         }
         //a file less then blocksize
         if (length < blocksize) {
@@ -633,13 +634,13 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
             }
             bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %d bytes instead of %zd for compare", src_file, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %d bytes instead of %zd for compare", src_file.path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
             bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
@@ -653,13 +654,13 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
         }
         rc = close(src_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", src_file);
+            sprintf(errormsg, "Failed to close file: %s", src_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         rc = close(dest_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file);
+            sprintf(errormsg, "Failed to close file: %s", dest_file.path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -678,28 +679,55 @@ int compare_file(const char *src_file, const char *dest_file, off_t offset, size
     return 0;
 }
 
-int update_stats(const char *src_file, const char *dest_file, struct stat src_st) {
+int update_stats(path_item src_file, path_item dest_file) {
     int rc;
     char errormsg[MESSAGESIZE];
     int mode;
     struct utimbuf ut;
-    rc = lchown(dest_file, src_st.st_uid, src_st.st_gid);
+#ifdef PLFS
+    if (src_file.desttype == PLFSFILE){
+        rc = plfs_chown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+    }
+    else{
+#endif
+        rc = lchown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+#ifdef PLFS
+    }   
+#endif
     if (rc != 0) {
-        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file, src_st.st_uid, src_st.st_gid);
+        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
         errsend(NONFATAL, errormsg);
     }
-    if (!S_ISLNK(src_st.st_mode)) {
-        mode = src_st.st_mode & 07777;
-        rc = chmod(dest_file, mode);
+    if (!S_ISLNK(src_file.st.st_mode)) {
+        mode = src_file.st.st_mode & 07777;
+#ifdef PLFS
+        if (src_file.desttype == PLFSFILE){
+            rc = plfs_chmod(dest_file.path, mode);
+        }
+        else{
+#endif
+            rc = chmod(dest_file.path, mode);
+#ifdef PLFS
+        }
+#endif
         if (rc != 0) {
-            sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file, mode);
+            sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file.path, mode);
             errsend(NONFATAL, errormsg);
         }
-        ut.actime = src_st.st_atime;
-        ut.modtime = src_st.st_mtime;
-        rc = utime(dest_file, &ut);
+        ut.actime = src_file.st.st_atime;
+        ut.modtime = src_file.st.st_mtime;
+#ifdef PLFS
+        if (src_file.desttype == PLFSFILE){
+            rc = plfs_utime(dest_file.path, &ut);
+        }
+        else{
+#endif
+            rc = utime(dest_file.path, &ut);
+#ifdef PLFS
+        }
+#endif
         if (rc != 0) {
-            sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file);
+            sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file.path);
             errsend(NONFATAL, errormsg);
         }
     }

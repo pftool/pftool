@@ -156,16 +156,6 @@ enum filetype {
     NONE
 };
 
-enum desttype {
-    REGULARDEST,
-#ifdef FUSE_CHUNKER
-    FUSEDEST,
-#endif
-#ifdef PLFS
-    PLFSDEST
-#endif
-};
-
 //Structs and typedefs
 //options{
 struct options {
@@ -207,7 +197,7 @@ struct path_link {
     off_t offset;
     size_t length;
     enum filetype ftype;
-    int desttype;
+    enum filetype desttype;
 };
 typedef struct path_link path_item;
 
@@ -232,9 +222,9 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
-int copy_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int rank);
-int compare_file(const char *src_file, const char *dest_file, off_t offset, size_t length, size_t blocksize, struct stat src_st, int meta_data_only);
-int update_stats(const char *src_file, const char *dest_file, struct stat src_st);
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
+int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
+int update_stats(path_item src_file, path_item dest_file);
 
 //dmapi/gpfs specfic
 #ifdef TAPE
