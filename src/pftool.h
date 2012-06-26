@@ -24,10 +24,10 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 void manager_workdone(int rank, int sending_rank, int *proc_status);
 int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
-void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, double *num_copied_bytes);
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes, int *num_examined_dirs);
+void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, size_t *num_copied_bytes);
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs);
 #ifdef TAPE
-void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, double *num_examined_tape_bytes);
+void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, size_t *num_examined_tape_bytes);
 #endif
 
 //worker rank operations

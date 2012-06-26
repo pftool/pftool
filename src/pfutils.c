@@ -451,7 +451,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         blocksize = length;
     }
     buf = malloc(blocksize * sizeof(char));
-    memset(buf, 0, sizeof(buf));
+    memset(buf, 0, blocksize);
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
@@ -626,8 +626,8 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
         }
         crc = 0;
         while (completed != length) {
-            memset(ibuf, 0, sizeof(ibuf));
-            memset(obuf, 0, sizeof(obuf));
+            memset(ibuf, 0, blocksize);
+            memset(obuf, 0, blocksize);
             //blocksize is too big
             if ((length - completed) < blocksize) {
                 blocksize = (length - completed);
@@ -699,6 +699,15 @@ int update_stats(path_item src_file, path_item dest_file) {
         errsend(NONFATAL, errormsg);
     }
     if (!S_ISLNK(src_file.st.st_mode)) {
+#ifdef FUSE_CHUNKER
+        if (src_file.desttype == FUSEFILE){
+            rc = chown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+            if (rc != 0) {
+                sprintf(errormsg, "Failed to change ownership of fuse chunked file: %s to %d:%d", dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+                errsend(NONFATAL, errormsg);
+            }
+        }
+#endif
         mode = src_file.st.st_mode & 07777;
 #ifdef PLFS
         if (src_file.desttype == PLFSFILE){
@@ -838,7 +847,7 @@ void send_manager_chunk_busy() {
     send_command(MANAGER_PROC, CHUNKBUSYCMD);
 }
 
-void send_manager_copy_stats(int num_copied_files, double num_copied_bytes) {
+void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
     send_command(MANAGER_PROC, COPYSTATSCMD);
     //send the # of paths
     if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -847,12 +856,12 @@ void send_manager_copy_stats(int num_copied_files, double num_copied_bytes) {
     }
     //send the # of paths
     if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_copied_byes %0.0f to rank %d\n", num_copied_bytes, MANAGER_PROC);
+        fprintf(stderr, "Failed to send num_copied_byes %zd to rank %d\n", num_copied_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
 }
 
-void send_manager_examined_stats(int num_examined_files, double num_examined_bytes, int num_examined_dirs) {
+void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs) {
     send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
     //send the # of paths
     if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -860,7 +869,7 @@ void send_manager_examined_stats(int num_examined_files, double num_examined_byt
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_bytes %0.0f to rank %d\n", num_examined_bytes, MANAGER_PROC);
+        fprintf(stderr, "Failed to send num_examined_bytes %zd to rank %d\n", num_examined_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -870,7 +879,7 @@ void send_manager_examined_stats(int num_examined_files, double num_examined_byt
 }
 
 #ifdef TAPE
-void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_bytes) {
+void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes) {
     send_command(MANAGER_PROC, TAPESTATCMD);
     //send the # of paths
     if (MPI_Send(&num_examined_tapes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -878,7 +887,7 @@ void send_manager_tape_stats(int num_examined_tapes, double num_examined_tape_by
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     if (MPI_Send(&num_examined_tape_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_tape_bytes %0.0f to rank %d\n", num_examined_tape_bytes, MANAGER_PROC);
+        fprintf(stderr, "Failed to send num_examined_tape_bytes %zd to rank %d\n", num_examined_tape_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
 }

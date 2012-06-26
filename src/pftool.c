@@ -319,10 +319,10 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     int *proc_status;
     struct timeval in, out;
     int non_fatal = 0, examined_file_count = 0, examined_dir_count = 0;
-    double examined_byte_count = 0;
+    size_t examined_byte_count = 0;
 #ifdef TAPE
     int examined_tape_count = 0;
-    double examined_tape_byte_count = 0;
+    size_t examined_tape_byte_count = 0;
 #endif
     int makedir = 0;
     char message[MESSAGESIZE], errmsg[MESSAGESIZE];
@@ -331,7 +331,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     path_item dest_node;
     path_list *iter = NULL;
     int  num_copied_files = 0;
-    double num_copied_bytes = 0;
+    size_t num_copied_bytes = 0;
     work_buf_list *stat_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
     int stat_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
 #ifdef TAPE
@@ -549,13 +549,13 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
     write_output(message, 1);
     if (o.work_type == LSWORK) {
-        sprintf(message, "INFO  FOOTER   Total Bytes Examined: %0.0f\n", examined_byte_count);
+        sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
         write_output(message, 1);
     }
 #ifdef TAPE
     sprintf(message, "INFO  FOOTER   Total Files on Tape: %d\n", examined_tape_count);
     write_output(message, 1);
-    sprintf(message, "INFO  FOOTER   Total Bytes on Tape: %0.0f\n", examined_tape_byte_count);
+    sprintf(message, "INFO  FOOTER   Total Bytes on Tape: %zd\n", examined_tape_byte_count);
     write_output(message, 1);
 #endif
     sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
@@ -563,14 +563,14 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     if (o.work_type == COPYWORK) {
         sprintf(message, "INFO  FOOTER   Total Files Copied: %d\n", num_copied_files);
         write_output(message, 1);
-        sprintf(message, "INFO  FOOTER   Total Bytes Copied: %0.0f\n", num_copied_bytes);
+        sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
         write_output(message, 1);
         if ((num_copied_bytes/(1024*1024)) > 0 ) {
-            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %0.0f\n", (num_copied_bytes/(1024*1024)));
+            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024*1024)));
             write_output(message, 1);
         }
         if((num_copied_bytes/(1024*1024)) > 0 ) {
-            sprintf(message, "INFO  FOOTER   Data Rate: %0.0f MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
+            sprintf(message, "INFO  FOOTER   Data Rate: %zd MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
             write_output(message, 1);
         }
     }
@@ -578,7 +578,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         sprintf(message, "INFO  FOOTER   Total Files Compared: %d\n", num_copied_files);
         write_output(message, 1);
         if (o.meta_data_only == 0) {
-            sprintf(message, "INFO  FOOTER   Total Bytes Compared: %0.0f\n", num_copied_bytes);
+            sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
             write_output(message, 1);
         }
     }
@@ -650,10 +650,10 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
     }
 }
 
-void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, double *num_copied_bytes) {
+void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, size_t *num_copied_bytes) {
     MPI_Status status;
     int num_files;
-    double num_bytes;
+    size_t num_bytes;
     //gather the # of copied files
     PRINT_MPI_DEBUG("rank %d: manager_add_copy_stats() Receiving num_copied_files from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&num_files, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -668,10 +668,10 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, d
     *num_copied_bytes += num_bytes;
 }
 
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, double *num_examined_bytes, int *num_examined_dirs) {
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs) {
     MPI_Status status;
     int num_files = 0;
-    double num_bytes = 0;
+    size_t num_bytes = 0;
     int num_dirs = 0;
     //gather the # of examined files
     PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
@@ -692,10 +692,10 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_fi
 }
 
 #ifdef TAPE
-void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, double *num_examined_tape_bytes) {
+void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes, size_t *num_examined_tape_bytes) {
     MPI_Status status;
     int num_tapes = 0;
-    double  num_bytes = 0;
+    size_t  num_bytes = 0;
     PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_tapes from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&num_tapes, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
@@ -733,7 +733,7 @@ void worker(int rank, struct options o) {
     int output_count = 0;
     if (rank == OUTPUT_PROC) {
         output_buffer = (char *) malloc(MESSAGESIZE*MESSAGEBUFFER*sizeof(char));
-        memset(output_buffer,'\0', sizeof(output_buffer));
+        memset(output_buffer,'\0', sizeof(MESSAGESIZE*MESSAGEBUFFER));
     }
     if (rank == ACCUM_PROC) {
         if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
@@ -850,7 +850,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
     path_item work_node, out_node;
     char *workbuf;
     int worksize, position;
-    int hash_value, chunk_size, new_size;
+    size_t hash_value, chunk_size, new_size;
     int i;
     //gather the # of files
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
@@ -951,7 +951,7 @@ void worker_flush_output(char *output_buffer, int *output_count) {
     if (*output_count > 0) {
         printf("%s", output_buffer);
         (*output_count) = 0;
-        memset(output_buffer,'\0', sizeof(output_buffer));
+        memset(output_buffer,'\0', sizeof(output_count));
     }
 }
 
@@ -1180,7 +1180,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     int writesize;
     int write_count = 0;
     int num_examined_files = 0;
-    double num_examined_bytes = 0;
+    size_t num_examined_bytes = 0;
     int num_examined_dirs = 0;
     char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
     path_item work_node, out_node;
@@ -1196,7 +1196,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     //place_holder fo current chunk_size
     size_t chunk_size = 0;
     size_t chunk_at = 0;
-    double num_bytes_seen = 0;
+    size_t num_bytes_seen = 0;
     //500 MB
     size_t ship_off = 524288000;
     //int chunk_size = 1024;
@@ -1217,7 +1217,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     path_item tapebuffer[TAPEBUFFER];
     int tape_buffer_count = 0;
     int num_examined_tapes = 0;
-    double num_examined_tape_bytes = 0;
+    size_t num_examined_tape_bytes = 0;
 #endif
     //write_count = stat_count;
     writesize = MESSAGESIZE * MESSAGEBUFFER;
@@ -1506,9 +1506,9 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
     path_item work_node;
     path_item workbuffer[STATBUFFER];
     int buffer_count = 0;
-    double num_bytes_seen = 0;
+    size_t num_bytes_seen = 0;
     //500 MB
-    double ship_off = 524288000;
+    size_t ship_off = 524288000;
     int i, rc;
     PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the read_count from %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -1571,7 +1571,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     off_t offset;
     size_t length;
     int num_copied_files = 0;
-    double num_copied_bytes = 0;
+    size_t num_copied_bytes = 0;
     path_item chunks_copied[CHUNKBUFFER];
     int buffer_count = 0;
     int i, rc;
@@ -1678,7 +1678,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     off_t offset;
     size_t length;
     int num_compared_files = 0;
-    double num_compared_bytes = 0;
+    size_t num_compared_bytes = 0;
     path_item chunks_copied[CHUNKBUFFER];
     int buffer_count = 0;
     int i, rc;
