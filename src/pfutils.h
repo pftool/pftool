@@ -77,7 +77,7 @@
 
 #define DIRBUFFER 5
 #define STATBUFFER 50
-#define COPYBUFFER 15
+#define COPYBUFFER 1
 #define CHUNKBUFFER COPYBUFFER
 #define TAPEBUFFER 5
 
@@ -244,10 +244,10 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 //worker utility functions
 void errsend(int fatal, char *error_text);
 #ifdef FUSE_CHUNKER
-int is_fuse_chunk(const char *path);
+int is_fuse_chunk(const char *path, struct options o);
 void set_fuse_chunk_data(path_item *work_node);
-int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
-int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid);
+int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
+int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
 #endif
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 void get_stat_fs_info(const char *path, int *fs);

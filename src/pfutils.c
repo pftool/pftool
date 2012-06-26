@@ -405,7 +405,6 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
     int rc;
-    //1 MB copy size
     size_t completed = 0;
     char *buf = '\0';
     char errormsg[MESSAGESIZE];
@@ -419,7 +418,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     int pid = getpid();
     Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
 #endif
-    int bytes_processed;
+    size_t bytes_processed;
     //symlink
     char link_path[PATHSIZE_PLUS];
     int numchars;
@@ -442,16 +441,12 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
         return 0;
     }
-    //incase someone accidently set and offset+length that exceeds the file bounds
-    if ((src_file.st.st_size - offset) < length) {
-        length = src_file.st.st_size - offset;
-    }
     //a file less then 1 MB
     if (length < blocksize) {
         blocksize = length;
     }
     buf = malloc(blocksize * sizeof(char));
-    memset(buf, 0, blocksize);
+    memset(buf, '\0', blocksize);
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
@@ -501,6 +496,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
             blocksize = (length - completed);
         }
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
+        memset(buf, '\0', blocksize);
 #ifdef PLFS
         if (src_file.ftype == PLFSFILE) {
             bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
@@ -1013,24 +1009,13 @@ void errsend(int fatal, char *error_text) {
 }
 
 #ifdef FUSE_CHUNKER
-int is_fuse_chunk(const char *path) {
-#ifdef HAVE_SYS_VFS_H
-    //pass in a symlink's followed path to determine if it's a fuse file
-    struct statfs *stfs;
-    char errortext[MESSAGESIZE];
-    if (path == NULL) {
-        return 0;
-    }
-    if (statfs(path, stfs) < 0) {
-        snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-        errsend(FATAL, errortext);
-    }
-    //if (strstr(path, "/fusemnt/")){
-    if (stfs->f_type == FUSE_SUPER_MAGIC) {
-        return 1;
-    }
-#endif
+int is_fuse_chunk(const char *path, struct options o) {
+  if (strstr(path, o.fuse_path)){
+    return 1;
+  } 
+  else{
     return 0;
+  }
 }
 
 void set_fuse_chunk_data(path_item *work_node) {
@@ -1060,7 +1045,7 @@ void set_fuse_chunk_data(path_item *work_node) {
     work_node->length = length;
 }
 
-int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid) {
+int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid) {
     char value[10000];
     int valueLen = 0;
     char chunk_name[50];
@@ -1084,7 +1069,7 @@ int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf
     return 0;
 }
 
-int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid) {
+int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid) {
     char value[10000];
     int valueLen = 0;
     char chunk_name[50];

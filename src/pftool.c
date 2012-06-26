@@ -74,10 +74,10 @@ extern void send_worker_exit();
 //functions that use workers
 extern void errsend(int fatal, char *error_text);
 #ifdef FUSE_CHUNKER
-extern int is_fuse_chunk(const char *path);
+extern int is_fuse_chunk(const char *path, struct options o);
 extern void set_fuse_chunk_data(path_item *work_node);
-extern int get_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
-extern int set_fuse_chunk_attr(const char *path, int offset, int length, struct utimbuf ut, uid_t userid, gid_t groupid);
+extern int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
+extern int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
 #endif
 extern int get_free_rank(int *proc_status, int start_range, int end_range);
 extern int processing_complete(int *proc_status, int nproc);
@@ -900,6 +900,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     MPI_Status status;
     char msg[MESSAGESIZE];
     char sysmsg[MESSAGESIZE + 50];
+
     //gather the message to print
     PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from %d\n", rank, sending_rank);
     if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -1063,7 +1064,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
             fclose(fp);
         }
     }
-    while(buffer_count != 0) {
+  while(buffer_count != 0) {
         process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
     }
     free(workbuf);
@@ -1152,9 +1153,9 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef PLFS
         if (work_node->ftype != PLFSFILE &&
 #else
-        if (
+        if ( 
 #endif
-            is_fuse_chunk(realpath(work_node->path, NULL))) {
+            is_fuse_chunk(realpath(work_node->path, NULL), o)) {
             if (lstat(linkname, &st) == -1) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
                 errsend(FATAL, errmsg);
@@ -1614,7 +1615,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
             ut.actime = work_node.st.st_atime;
             ut.modtime = work_node.st.st_mtime;
             rc = get_fuse_chunk_attr(out_node.path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid);
-            if (rc == -1 ||
+            if ( rc == -1 ||
                     chunk_userid != userid ||
                     chunk_groupid != groupid ||
                     chunk_ut.actime != ut.actime||
@@ -1623,7 +1624,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else {
-                rc = -1;
+                rc = 0;
             }
         }
 #endif
