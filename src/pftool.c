@@ -1245,11 +1245,11 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         //it's not a directory
         else {
             //do this for all regular files AND fuse+symylinks
+            parallel_dest = o.parallel_dest;
+            strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+            rc = stat_item(&out_node, o);
             if (o.work_type == COPYWORK) {
                 process = 1;
-                strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-                rc = stat_item(&out_node, o);
-                parallel_dest = o.parallel_dest;
 #ifdef PLFS
                 if(out_node.ftype == PLFSFILE) {
                     parallel_dest = 1;
@@ -1330,6 +1330,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             }
             else if (o.work_type == COMPAREWORK) {
                 process = 1;
+                work_node.desttype = out_node.ftype;
             }
             if (process == 1) {
                 //parallel filesystem can do n-to-1
@@ -1346,6 +1347,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     if(work_node.desttype == FUSEFILE) {
                         chunk_size = o.fuse_chunksize;
                         chunk_at = o.fuse_chunk_at;
+                      
                     }
                     else if (work_node.ftype == FUSEFILE) {
                         set_fuse_chunk_data(&work_node);
@@ -1702,6 +1704,7 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+        stat_item(&out_node, o);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.offset;
         length = work_node.length;

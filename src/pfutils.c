@@ -576,7 +576,7 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
     char *ibuf;
     char *obuf;
     int src_fd, dest_fd;
-    int bytes_processed;
+    size_t bytes_processed;
     char errormsg[MESSAGESIZE];
     int rc;
     int crc;
@@ -584,9 +584,20 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
     size_t length = src_file.length;
 
     // dest doesn't exist
-    if (lstat(dest_file.path, &dest_st) == -1) {
+#ifdef FUSE_CHUNKER
+    if (dest_file.ftype == FUSEFILE){
+      if (stat(dest_file.path, &dest_st) == -1){
         return 2;
+      }
     }
+    else{
+#endif
+      if (lstat(dest_file.path, &dest_st) == -1) {
+          return 2;
+      }
+#ifdef FUSE_CHUNKER
+    }
+#endif
     if (src_file.st.st_size == dest_st.st_size &&
             (src_file.st.st_mtime == dest_st.st_mtime  ||
              S_ISLNK(src_file.st.st_mode))&&
@@ -630,13 +641,13 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
             }
             bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %d bytes instead of %zd for compare", src_file.path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", src_file.path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
             bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", dest_file.path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
@@ -1010,7 +1021,7 @@ void errsend(int fatal, char *error_text) {
 
 #ifdef FUSE_CHUNKER
 int is_fuse_chunk(const char *path, struct options o) {
-  if (strstr(path, o.fuse_path)){
+  if (path && strstr(path, o.fuse_path)){
     return 1;
   } 
   else{
