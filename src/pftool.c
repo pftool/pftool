@@ -268,7 +268,7 @@ int main(int argc, char *argv[]) {
 #endif
     MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
-    freopen( "/dev/null", "w", stderr );
+    //freopen( "/dev/null", "w", stderr );
     //Modifies the path based on recursion/wildcards
     //wildcard
     if (rank == MANAGER_PROC) {
