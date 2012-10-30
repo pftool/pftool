@@ -28,78 +28,6 @@
 #define MPI_Unpack MPY_Unpack
 #endif
 
-//External Declarations
-extern void usage();
-extern char *printmode (mode_t aflag, char *buf);
-extern char *get_base_path(const char *path, int wildcard);
-extern void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
-extern char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
-extern int one_byte_read(const char *path);
-extern int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
-extern int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
-extern int update_stats(path_item src_file, path_item dest_file);
-
-
-//dmapi/gpfs
-#ifdef TAPE
-extern int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
-extern int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
-#endif
-
-//manager
-extern void send_manager_nonfatal_inc();
-extern void send_manager_chunk_busy();
-extern void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
-extern void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
-
-#ifdef TAPE
-extern void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
-#endif
-
-extern void send_manager_new_buffer(path_item *buffer, int *buffer_count);
-extern void send_manager_work_done();
-
-//worker
-extern void write_output(char *message, int log);
-extern void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
-extern void send_worker_queue_count(int target_rank, int queue_count);
-extern void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-#ifdef TAPE
-extern void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-#endif
-extern void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-extern void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-extern void send_worker_exit();
-
-//functions that use workers
-extern void errsend(int fatal, char *error_text);
-#ifdef FUSE_CHUNKER
-extern int is_fuse_chunk(const char *path, struct options o);
-extern void set_fuse_chunk_data(path_item *work_node);
-extern int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
-extern int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
-#endif
-extern int get_free_rank(int *proc_status, int start_range, int end_range);
-extern int processing_complete(int *proc_status, int nproc);
-
-//queues
-extern void enqueue_path(path_list **head, path_list **tail, char *path, int *count);
-extern void print_queue_path(path_list *head);
-extern void delete_queue_path(path_list **head, int *count);
-extern void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count);
-extern void dequeue_node(path_list **head, path_list **tail, int *count);
-extern void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize);
-
-//buffers
-extern void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size);
-extern void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
-extern void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
-
-//fake mpi
-extern int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm);
-extern int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm);
-extern int MPY_Abort(MPI_Comm comm, int errorcode);
-
 int main(int argc, char *argv[]) {
     //general variables
     int i;
@@ -326,9 +254,9 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 #endif
     int makedir = 0;
     char message[MESSAGESIZE], errmsg[MESSAGESIZE];
-    char beginning_path[PATHSIZE_PLUS], base_path[PATHSIZE_PLUS], temp_path[PATHSIZE_PLUS];
+    char base_path[PATHSIZE_PLUS], temp_path[PATHSIZE_PLUS];
     struct stat st;
-    path_item dest_node;
+    path_item beginning_node, dest_node;
     path_list *iter = NULL;
     int  num_copied_files = 0;
     size_t num_copied_bytes = 0;
@@ -339,6 +267,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     int tape_buf_list_size = 0;
 #endif
     int mpi_ret_code, rc;
+    int start = 1;
     //path stuff
     int wildcard = 0;
     if (input_queue_count > 1) {
@@ -350,10 +279,29 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
     if (!o.use_file_list) {
         //setup paths
-        strncpy(beginning_path, input_queue_head->data.path, PATHSIZE_PLUS);
-        strncpy(base_path, get_base_path(beginning_path, wildcard), PATHSIZE_PLUS);
+        strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
+        strncpy(base_path, get_base_path(beginning_node.path, wildcard), PATHSIZE_PLUS);
         if (o.work_type != LSWORK) {
-            get_dest_path(beginning_path, dest_path, &dest_node, makedir, input_queue_count, o);
+
+            //need to stat_item sooner, we're doing a mkdir we shouldn't be here.
+            rc = stat_item(&beginning_node, o);
+            get_dest_path(beginning_node, dest_path, &dest_node, makedir, input_queue_count, o);
+            rc = stat_item(&dest_node, o);
+
+            if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
+#ifdef PLFS
+                if (dest_node.ftype == PLFSFILE){
+                    plfs_mkdir(dest_node.path, S_IRWXU);
+                }
+                else {
+#endif
+                    mkdir(dest_node.path, S_IRWXU);
+#ifdef PLFS
+                }
+#endif
+                rc = stat_item(&dest_node, o);
+            }
+
             //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
             mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
             if (mpi_ret_code < 0) {
@@ -393,7 +341,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
     write_output(message, 1);
-    sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_path);
+    sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_node.path);
     write_output(message, 1);
     //starttime
     gettimeofday(&in, NULL);
@@ -427,9 +375,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
                 PRINT_PROC_DEBUG("=============\n");
                 //work_rank = get_free_rank(proc_status, 3, nproc - 1);
                 work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                if ((o.recurse && work_rank != -1 && dir_buf_list_size != 0) || (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
+                if (((start == 1 || o.recurse) && work_rank != -1 && dir_buf_list_size != 0) ||
+                    (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
                     proc_status[work_rank] = 1;
                     send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
+                    start = 0;
                 }
                 else if (!o.recurse) {
                     delete_buf_list(&dir_buf_list, &dir_buf_list_size);
@@ -480,11 +430,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             break;
         }
         //grab message type
-        PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type\n", rank);
         if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
+        PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type %d from rank %d\n", rank, type_cmd, sending_rank);
         //do operations based on the message
         switch(type_cmd) {
         case WORKDONECMD:
@@ -514,9 +464,6 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             break;
         case DIRCMD:
             manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
-            if (o.recurse == 0) {
-                delete_buf_list(&dir_buf_list, &dir_buf_list_size);
-            }
             break;
 #ifdef TAPE
         case TAPECMD:
@@ -542,6 +489,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     gettimeofday(&out, NULL);
     int elapsed_time = out.tv_sec - in.tv_sec;
     //Manager is done, cleaning have the other ranks exit
+    //make sure there's no pending output
     sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
     write_output(message, 1);
     sprintf(message, "INFO  FOOTER   =================================================================================\n");
@@ -766,11 +714,11 @@ void worker(int rank, struct options o) {
     }
     //This should only be done once and by one proc to get everything started
     if (rank == START_PROC) {
-        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd\n", rank);
         if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
+        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
         worker_readdir(rank, sending_rank, base_path, dest_node, 1, makedir, o);
     }
     //change this to get request first, process, then get work
@@ -792,11 +740,11 @@ void worker(int rank, struct options o) {
         }
 #endif
         //grab message type
-        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd\n", rank);
         if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
+        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
         //do operations based on the message
         switch(type_cmd) {
         case OUTCMD:
@@ -902,17 +850,23 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     char sysmsg[MESSAGESIZE + 50];
 
     //gather the message to print
-    PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from %d\n", rank, sending_rank);
     if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive msg\n");
     }
+    PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from rank %d\n", rank, sending_rank);
     if (o.logging == 1 && log == 1) {
         openlog ("PFTOOL-LOG", LOG_PID | LOG_CONS, LOG_USER);
         sprintf(sysmsg, "[pftool] [%s] - %s", o.jid, msg);
         syslog (LOG_ERR | LOG_USER, "%s", sysmsg);
         closelog();
     }
-    printf("%s", msg);
+    if (sending_rank == MANAGER_PROC){
+        printf("%s", msg);
+    }
+    else{
+        printf("RANK %3d: %s", sending_rank, msg);
+    }
+    fflush(stdout);
 }
 
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o) {
@@ -945,6 +899,7 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
         printf("RANK %3d: %s", sending_rank, msg);
     }
     free(buffer);
+    fflush(stdout);
 }
 
 
@@ -971,6 +926,10 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
     int buffer_count = 0;
     DIR *dip;
     struct dirent *dit;
+#ifdef PLFS
+    char dname[PATHSIZE_PLUS];
+    Plfs_dirp *pdirp;
+#endif
     //filelist
     FILE *fp;
     int i, rc;
@@ -991,7 +950,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         //first time through, not using a filelist
         if (start == 1 && o.use_file_list == 0) {
-            rc = stat_item(&work_node, o);
+                rc = stat_item(&work_node, o);
             if (rc != 0) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
                 if (o.work_type == LSWORK) {
@@ -1006,47 +965,125 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
             buffer_count++;
         }
         else if (o.use_file_list == 0) {
-            if ((dip = opendir(work_node.path)) == NULL) {
-                snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
-                errsend(NONFATAL, errmsg);
-                continue;
+#ifdef PLFS
+            if (work_node.ftype == PLFSFILE){
+                if ((rc = plfs_opendir_c(work_node.path,&pdirp)) != 0){
+                    snprintf(errmsg, MESSAGESIZE, "Failed to open plfs dir %s\n", work_node.path);
+                    errsend(NONFATAL, errmsg);
+                    continue;
+                }
             }
+
+            else{
+#endif
+                if ((dip = opendir(work_node.path)) == NULL) {
+                    snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
+                    errsend(NONFATAL, errmsg);
+                    continue;
+                }
+#ifdef PLFS
+            }
+#endif
             if (makedir == 1) {
                 strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-                mkdir(mkdir_path, S_IRWXU);
+#ifdef PLFS
+                struct stat st_temp;
+                if (plfs_getattr(NULL, dirname(mkdir_path), &st_temp, 0) == 0){
+                    plfs_mkdir(mkdir_path, S_IRWXU);
+                }
+                else{
+#endif
+                    mkdir(mkdir_path, S_IRWXU);
+#ifdef PLFS
+                }
+#endif
             }
             strncpy(path, work_node.path, PATHSIZE_PLUS);
             //we're not a file list
-            while ((dit = readdir(dip)) != NULL) {
-                if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0) {
-                    strncpy(full_path, path, PATHSIZE_PLUS);
-                    if (full_path[strlen(full_path) - 1 ] != '/') {
-                        strncat(full_path, "/", 1);
+#ifdef PLFS
+            if (work_node.ftype == PLFSFILE){
+                while (1) {
+                    rc = plfs_readdir_c(pdirp, dname, PATHSIZE_PLUS);
+                    if (rc != 0){
+                        snprintf(errmsg, MESSAGESIZE, "Failed to plfs_readdir path %s", work_node.path);
+                        errsend(NONFATAL, errmsg);
+                        break;
                     }
-                    strncat(full_path, dit->d_name, PATHSIZE_PLUS - strlen(full_path) - 1);
-                    strncpy(work_node.path, full_path, PATHSIZE_PLUS);
-                    rc = stat_item(&work_node, o);
-                    if (rc != 0) {
-                        snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
-                        if (o.work_type == LSWORK) {
-                            errsend(NONFATAL, errmsg);
-                            continue;
-                        }
-                        else {
-                            errsend(FATAL, errmsg);
-                        }
+                    if (strlen(dname) == 0){
+                        break;
                     }
-                    workbuffer[buffer_count] = work_node;
-                    buffer_count++;
-                    if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                    if (strncmp(dname, ".", PATHSIZE_PLUS) != 0 && strncmp(dname, "..", PATHSIZE_PLUS) != 0) {
+                        strncpy(full_path, path, PATHSIZE_PLUS);
+                        if (full_path[strlen(full_path) - 1 ] != '/') {
+                            strncat(full_path, "/", 1);
+                        }
+                        strncat(full_path, dname, PATHSIZE_PLUS - strlen(full_path) - 1);
+                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
+                        rc = stat_item(&work_node, o);
+                        if (rc != 0) {
+                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+                            if (o.work_type == LSWORK) {
+                                errsend(NONFATAL, errmsg);
+                                continue;
+                            }
+                            else {
+                                errsend(FATAL, errmsg);
+                            }
+                        }
+                        workbuffer[buffer_count] = work_node;
+                        buffer_count++;
+                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                        }
                     }
                 }
             }
-            if (closedir(dip) == -1) {
-                snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
-                errsend(1, errmsg);
+            else{
+#endif
+                while ((dit = readdir(dip)) != NULL) {
+                    if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0) {
+                        strncpy(full_path, path, PATHSIZE_PLUS);
+                        if (full_path[strlen(full_path) - 1 ] != '/') {
+                            strncat(full_path, "/", 1);
+                        }
+                        strncat(full_path, dit->d_name, PATHSIZE_PLUS - strlen(full_path) - 1);
+                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
+                        rc = stat_item(&work_node, o);
+                        if (rc != 0) {
+                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+                            if (o.work_type == LSWORK) {
+                                errsend(NONFATAL, errmsg);
+                                continue;
+                            }
+                            else {
+                                errsend(FATAL, errmsg);
+                            }
+                        }
+                        workbuffer[buffer_count] = work_node;
+                        buffer_count++;
+                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                        }
+                    }
+                }
+#ifdef PLFS
             }
+            if (work_node.ftype == PLFSFILE){
+                if (plfs_closedir_c(pdirp) != 0) {
+                    snprintf(errmsg, MESSAGESIZE, "Failed to plfs_closedir: %s", work_node.path);
+                    errsend(1, errmsg);
+                }
+
+            }
+            else{
+#endif
+                if (closedir(dip) == -1) {
+                    snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
+                    errsend(1, errmsg);
+                }
+#ifdef PLFS
+            }
+#endif
         }
         //we were provided a file list
         else {
@@ -1084,26 +1121,32 @@ int stat_item(path_item *work_node, struct options o) {
     int numchars;
     char linkname[PATHSIZE_PLUS];
     work_node->desttype = REGULARFILE;
+    work_node->ftype = REGULARFILE;
 #ifdef PLFS
-    int is_plfs = plfs_getattr(NULL, work_node->path, &st, 0);
-    if (is_plfs != 0) {
-        if (lstat(work_node->path, &st) == -1) {
-            is_plfs = plfs_getattr(NULL, dirname(work_node->path), &st, 0);
-            if (is_plfs == 0) {
-                work_node->ftype = PLFSFILE;
-            }
-            return -1;
-        }
-        work_node->ftype = REGULARFILE;
-    }
-    else {
+    //plfs_get attr on the base file
+    int rc = plfs_getattr(NULL, work_node->path, &st, 0);
+    if (rc == 0){
         work_node->ftype = PLFSFILE;
+    }
+    else{
+        rc = plfs_getattr(NULL, dirname(work_node->path), &st, 0);
+        if (rc == 0) {
+            work_node->ftype = PLFSFILE;
+        }
+        else {
+            rc = lstat(work_node->path, &st);
+            if (rc == 0){
+                work_node->ftype = REGULARFILE;
+            }
+            else{
+                return -1;
+            }
+        }
     }
 #else
     if (lstat(work_node->path, &st) == -1) {
         return -1;
     }
-    work_node->ftype = REGULARFILE;
 #endif
     work_node->st = st;
     //dmapi to find managed files
@@ -1639,7 +1682,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                     sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", work_node.path, (long long)offset, (long long)length, out_node.path);
                 }
                 //MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
-                write_buffer_output(copymsg, MESSAGESIZE, 1);
+                //write_buffer_output(copymsg, MESSAGESIZE, 1);
+                write_output(copymsg, 0);
                 out_position = 0;
             }
             num_copied_files +=1;

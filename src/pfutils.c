@@ -278,7 +278,14 @@ char *get_base_path(const char *path, int wildcard) {
     char base_path[PATHSIZE_PLUS], dir_name[PATHSIZE_PLUS];
     struct stat st;
     int rc;
-    rc = lstat(path, &st);
+#ifdef PLFS
+    rc = plfs_getattr(NULL, path, &st, 0);
+    if (rc != 0){
+#endif
+        rc = lstat(path, &st);
+#ifdef PLFS
+    }
+#endif
     if (rc < 0) {
         fprintf(stderr, "Failed to stat path %s\n", path);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -299,23 +306,27 @@ char *get_base_path(const char *path, int wildcard) {
     return strdup(base_path);
 }
 
-void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o) {
+void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o) {
     int rc;
     struct stat beg_st, dest_st;
     char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
     char *path_slice;
     strncpy(final_dest_path, dest_path, PATHSIZE_PLUS);
-    strncpy(temp_path, beginning_path, PATHSIZE_PLUS);
+    strncpy(temp_path, beginning_node.path, PATHSIZE_PLUS);
     while (temp_path[strlen(temp_path)-1] == '/') {
         temp_path[strlen(temp_path)-1] = '\0';
     }
     //recursion special cases
     if (o.recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0 && o.work_type != COMPAREWORK) {
-        rc = lstat(beginning_path, &beg_st);
-        if (rc < 0) {
-            errsend(FATAL, "Unable to stat beginning_path in get_dest_path.\n");
-        }
+        beg_st = beginning_node.st;
+#ifdef PLFS
+    rc = plfs_getattr(NULL, dest_path, &dest_st, 0);
+    if (rc != 0){
+#endif
         rc = lstat(dest_path, &dest_st);
+#ifdef PLFS
+    }
+#endif
         if (rc >= 0 && S_ISDIR(dest_st.st_mode) && S_ISDIR(beg_st.st_mode) && num_paths == 1) {
             if (strstr(temp_path, "/") == NULL) {
                 path_slice = (char *)temp_path;
@@ -327,10 +338,6 @@ void get_dest_path(const char *beginning_path, const char *dest_path, path_item 
                 strncat(final_dest_path, "/", PATHSIZE_PLUS);
             }
             strncat(final_dest_path, path_slice, PATHSIZE_PLUS - strlen(final_dest_path) - 1);
-        }
-        rc = lstat(final_dest_path, &dest_st);
-        if (S_ISDIR(beg_st.st_mode) && makedir == 1) {
-            mkdir(final_dest_path, S_IRWXU);
         }
     }
     rc = lstat(final_dest_path, &dest_st);
@@ -348,6 +355,7 @@ char *get_output_path(const char *base_path, path_item src_node, path_item dest_
     char *path_slice;
     //remove a trailing slash
     strncpy(output_path, dest_node.path, PATHSIZE_PLUS);
+
     while (output_path[strlen(output_path) - 1] == '/') {
         output_path[strlen(output_path) - 1] = '\0';
     }
@@ -508,7 +516,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %d bytes instead of %zd", src_file.path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: Read %ld bytes instead of %zd", src_file.path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -524,7 +532,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: write %d bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: write %ld bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }

@@ -106,7 +106,7 @@
 typedef unsigned long long int uint_64;
 //mpi_commands
 enum cmd_opcode {
-    EXITCMD = 1,
+    EXITCMD,
     UPDCHUNKCMD,
     OUTCMD,
     BUFFEROUTCMD,
@@ -141,13 +141,13 @@ enum cmd_opcode {
 #define NONFATAL 0
 
 enum wrk_type {
-    COPYWORK = 0,
+    COPYWORK,
     LSWORK,
     COMPAREWORK
 };
 
 enum filetype {
-    REGULARFILE = 0,
+    REGULARFILE,
     FUSEFILE,
     LINKFILE,
     PREMIGRATEFILE,
@@ -219,7 +219,7 @@ typedef struct work_buffer_list work_buf_list;
 void usage();
 char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
-void get_dest_path(const char *beginning_path, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
+void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
 int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
