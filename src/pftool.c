@@ -988,7 +988,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
                 strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
 #ifdef PLFS
                 struct stat st_temp;
-                if (plfs_getattr(NULL, dirname(mkdir_path), &st_temp, 0) == 0){
+                if (plfs_getattr(NULL, dirname(strdup(mkdir_path)), &st_temp, 0) == 0){
                     plfs_mkdir(mkdir_path, S_IRWXU);
                 }
                 else{
@@ -1129,7 +1129,7 @@ int stat_item(path_item *work_node, struct options o) {
         work_node->ftype = PLFSFILE;
     }
     else{
-        rc = plfs_getattr(NULL, dirname(work_node->path), &st, 0);
+        rc = plfs_getattr(NULL, dirname(strdup(work_node->path)), &st, 0);
         if (rc == 0) {
             work_node->ftype = PLFSFILE;
         }
