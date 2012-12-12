@@ -48,6 +48,31 @@ def parse_config(options_path=ROOT_PATH("..", "etc", "pftool.cfg")):
   config.read(options_path)
   return config
 
+def findexec(executable, path=None):
+  """
+  Try to find 'executable' in the directories listed in 'path' (a
+  string listing directories separated by 'os.pathsep'; defaults to
+  os.environ['PATH']).  Returns the complete filename or None if not
+  found
+  """
+ 
+  if executable[0] == os.pathsep and os.access(executable, os.X_OK):
+    return executable
+
+  if path is None:
+    path = os.environ['PATH']
+  paths = path.split(os.pathsep)
+
+  for dir in paths:
+    fullexec = os.path.join(dir,executable)
+    try:
+      st = os.stat(fullexec)
+    except os.error:
+      continue
+    if os.path.exists(fullexec) and os.access(fullexec, os.X_OK):	# is executable
+      return fullexec
+  return None
+
 def busy(): 
     print"""
 *******************************************************************

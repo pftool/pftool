@@ -11,6 +11,9 @@ def main():
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
   parser.add_option("-t", dest="threaded", default=False, action="store_true", help="run threaded mode vs mpi mode")
+  parser.add_option("-x", dest="synSize", default=None, metavar="SIZE", help="development only. Option may be used for future feature")
+  parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
+  
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -36,11 +39,17 @@ def main():
     commands.add("-l")
   
 
-  if options.verbose:
+  if options.verbose:				# add verbose flag to PFTOOL command line
     commands.add("-v")
+  if options.synSize is not None:		# add synthetic data size to PFTOOL command line
+    commands.add("-x")
+    commands.add(parser.values.synSize)
+  if options.synPattern is not None:		# add synthetic pattern to PFTOOL command line
+    commands.add("-X")
+    commands.add(parser.values.synPattern)
 
   base_name = os.path.dirname(src[0])
-  if options.recurse:
+  if options.recurse:				# add recursive flag to PFTOOL command line
     commands.add("-r")
     for i in src:
       if os.path.dirname(i) != base_name:
@@ -126,6 +135,9 @@ def main():
       parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
 
     pfcmd.add(mpigo)
+    mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
+    pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
+
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
@@ -141,6 +153,7 @@ def main():
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
 
 
+#  print pfcmd.commands
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]

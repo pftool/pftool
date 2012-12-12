@@ -88,8 +88,12 @@ int main(int argc, char *argv[]) {
         o.plfs_chunksize = 104857600;
 #endif
         o.work_type = LSWORK;
+#ifdef GEN_SYNDATA
+	o.syn_pattern[0] = '\0';		// Make sure synthetic data pattern file or name is clear
+	o.syn_size = 0;				// Clear the synthetic data size
+#endif
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:z:vrlPMnh")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:X:x:z:vrlPMnh")) != -1)
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -110,13 +114,27 @@ int main(int argc, char *argv[]) {
                 o.use_file_list = 1;
                 break;
             case 's':
-                o.blocksize = atof(optarg);
+                o.blocksize = str2Size(optarg);
                 break;
             case 'C':
-                o.chunk_at = atof(optarg);
+                o.chunk_at = str2Size(optarg);
                 break;
             case 'S':
-                o.chunksize = atof(optarg);
+                o.chunksize = str2Size(optarg);
+                break;
+	    case 'X':
+#ifdef GEN_SYNDATA
+                strncpy(o.syn_pattern, optarg, 128);
+#else
+		errsend(NONFATAL,"-X not recognized by this version of PFTOOL");
+#endif
+                break;
+	    case 'x':
+#ifdef GEN_SYNDATA
+                o.syn_size = str2Size(optarg);
+#else
+		errsend(NONFATAL,"-x not recognized by this version of PFTOOL");
+#endif
                 break;
 #ifdef FUSE_CHUNKER
             case 'a':
@@ -130,15 +148,15 @@ int main(int argc, char *argv[]) {
                 o.fuse_chunkdirs = atoi(optarg);
                 break;
             case 'W':
-                o.fuse_chunk_at = atof(optarg);
+                o.fuse_chunk_at = str2Size(optarg);
                 break;
             case 'A':
-                o.fuse_chunksize = atof(optarg);
+                o.fuse_chunksize = str2Size(optarg);
                 break;
 #endif
 #ifdef PLFS
             case 'z':
-                o.plfs_chunksize = atof(optarg);
+                o.plfs_chunksize = str2Size(optarg);
                 break;
 #endif
             case 'n':
@@ -196,6 +214,11 @@ int main(int argc, char *argv[]) {
 #endif
     MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+#ifdef GEN_SYNDATA
+    MPI_Bcast(o.syn_pattern, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.syn_size, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+#endif
+
     //freopen( "/dev/null", "w", stderr );
     //Modifies the path based on recursion/wildcards
     //wildcard
@@ -277,7 +300,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     if (o.work_type == COPYWORK) {
         makedir = 1;
     }
-    if (!o.use_file_list) {
+    if (!o.use_file_list) {				// If not using a file list -> broadcast the destination path
         //setup paths
         strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
         strncpy(base_path, get_base_path(beginning_node.path, wildcard), PATHSIZE_PLUS);
@@ -314,7 +337,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             errsend(FATAL, "Failed to Bcast base_path");
         }
     }
-    iter = input_queue_head;
+    iter = input_queue_head;				// Make sure there are no multiple roots for a recursive operation
     if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1 && o.work_type != LSWORK) {
         while (iter != NULL) {
             if (strncmp(get_base_path(iter->data.path, wildcard), base_path, PATHSIZE_PLUS) != 0) {
@@ -950,7 +973,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         //first time through, not using a filelist
         if (start == 1 && o.use_file_list == 0) {
-                rc = stat_item(&work_node, o);
+            rc = stat_item(&work_node, o);
             if (rc != 0) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
                 if (o.work_type == LSWORK) {
@@ -1147,6 +1170,10 @@ int stat_item(path_item *work_node, struct options o) {
     if (lstat(work_node->path, &st) == -1) {
         return -1;
     }
+#endif
+#ifdef GEN_SYNDATA
+    if(o.syn_size)			// We are generating synthetic data, and NOT copying data in file. Need to muck with the file size
+       st.st_size = o.syn_size;
 #endif
     work_node->st = st;
     //dmapi to find managed files
@@ -1609,6 +1636,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     //When a worker is told to copy, it comes here
     MPI_Status status;
     char *workbuf, *writebuf;
+#ifdef GEN_SYNDATA
+    syndata_buffer *synbuf = NULL;
+#endif
     int worksize, writesize;
     int position, out_position;
     int read_count;
@@ -1640,6 +1670,11 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive workbuf\n");
     }
+
+#ifdef GEN_SYNDATA
+    if(o.syn_size) 
+       synbuf = syndataCreateBuffer(o.syn_pattern[0]?o.syn_pattern:(char*)&rank);		// If no pattern id is given -> use rank as a seed for random data
+#endif
     position = 0;
     out_position = 0;
     for (i = 0; i < read_count; i++) {
@@ -1651,7 +1686,11 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
 #ifdef FUSE_CHUNKER
         if (work_node.desttype != FUSEFILE) {
 #endif
+#ifdef GEN_SYNDATA
+            rc = copy_file(work_node, out_node, o.blocksize, synbuf, rank);
+#else
             rc = copy_file(work_node, out_node, o.blocksize, rank);
+#endif
 #ifdef FUSE_CHUNKER
         }
         else {
@@ -1665,7 +1704,11 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                     chunk_groupid != groupid ||
                     chunk_ut.actime != ut.actime||
                     chunk_ut.modtime != ut.modtime) { //not a match
+#  ifdef GEN_SYNDATA
+            	rc = copy_file(work_node, out_node, o.blocksize, synbuf, rank);
+#  else
                 rc = copy_file(work_node, out_node, o.blocksize, rank);
+#  endif
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else {
@@ -1709,6 +1752,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
     send_manager_work_done(rank);
+#ifdef GEN_SYNDATA
+    syndataDestroyBuffer(synbuf);
+#endif
     free(workbuf);
     free(writebuf);
 }

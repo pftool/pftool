@@ -1,10 +1,23 @@
 bin_PROGRAMS = $(top_builddir)/bin/pftool
 
+if SYNDATA
 __top_builddir__bin_pftool_SOURCES = \
 debug.h \
 hashtbl.c hashtbl.h \
+str.c str.h \
+syndata.c syndata.h \
 pfutils.c pfutils.h \
 pftool.c pftool.h 
+
+syndata_cflags=-DGEN_SYNDATA
+else
+__top_builddir__bin_pftool_SOURCES = \
+debug.h \
+hashtbl.c hashtbl.h \
+str.c str.h \
+pfutils.c pfutils.h \
+pftool.c pftool.h 
+endif
 
 if THREADS
 threads_cflags=-DTHREADS_ONLY -I$(top_srcdir)/libs/tompi/include
@@ -29,5 +42,5 @@ if ALLSTATIC
 allstatic_ldflags=-all-static
 endif
 
-__top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags)
+__top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags)
 __top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)

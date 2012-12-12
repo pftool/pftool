@@ -60,6 +60,10 @@ void usage () {
     printf (" [-l]                                      : turn on logging to /var/log/mesages\n");
     printf (" [-P]                                      : force destination filesystem to be treated as parallel\n");
     printf (" [-M]                                      : perform block compare, default: metadata compare\n");
+#ifdef GEN_SYNDATA
+    printf (" [-X]                                      : specify a synthetic data pattern file or constant default: none\n");
+    printf (" [-x]                                      : synthetic file size. If specified, file(s) will be synthetic data of specified size\n");
+#endif
     printf (" [-v]                                      : user verbose output\n");
     printf (" [-h]                                      : print Usage information\n");
     printf (" \n");
@@ -409,7 +413,11 @@ int one_byte_read(const char *path) {
     return 0;
 }
 
+#ifdef GEN_SYNDATA
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank) {
+#else
 int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank) {
+#endif
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
     int rc;
@@ -458,21 +466,27 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
-#ifdef PLFS
-    if (src_file.ftype == PLFSFILE){
-        src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
-    }
-    else {
+#ifdef GEN_SYNDATA
+    if(!syndataExists(synbuf)) {
 #endif
-        src_fd = open(src_file.path, O_RDONLY);
 #ifdef PLFS
+        if (src_file.ftype == PLFSFILE){
+            src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
+        }
+        else {
+#endif
+            src_fd = open(src_file.path, O_RDONLY);
+#ifdef PLFS
+        }
+#endif
+        if (src_fd < 0) {
+            sprintf(errormsg, "Failed to open file %s for read", src_file.path);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+#ifdef GEN_SYNDATA
     }
 #endif
-    if (src_fd < 0) {
-        sprintf(errormsg, "Failed to open file %s for read", src_file.path);
-        errsend(NONFATAL, errormsg);
-        return -1;
-    }
 
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
@@ -505,14 +519,30 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
         memset(buf, '\0', blocksize);
+#ifdef GEN_SYNDATA
+        if(!syndataExists(synbuf)) {
+#endif
 #ifdef PLFS
-        if (src_file.ftype == PLFSFILE) {
-            bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
+           if (src_file.ftype == PLFSFILE) {
+               bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
+           }
+           else {
+#endif
+               bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+#ifdef PLFS
+           }
+#endif
+#ifdef GEN_SYNDATA
         }
         else {
-#endif
-            bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
-#ifdef PLFS
+	    int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
+
+            if(bytes_processed = syndataFill(synbuf,buf,buflen)) {
+               sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", bytes_processed);
+               errsend(NONFATAL, errormsg);
+	       return -1;
+	    }
+	    bytes_processed = buflen;				// On a successful call to syndataFill(), bytes_processed equals 0
         }
 #endif
         if (bytes_processed != blocksize) {
@@ -538,19 +568,25 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
         completed += blocksize;
     }
-#ifdef PLFS
-    if (src_file.ftype == PLFSFILE) {
-        rc = plfs_close(plfs_src_fd, pid+rank, src_file.st.st_uid, O_RDONLY, NULL);
-    }
-    else {
+#ifdef GEN_SYNDATA
+    if(!syndataExists(synbuf)) {
 #endif
-        rc = close(src_fd);
-        if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", src_file.path);
-            errsend(NONFATAL, errormsg);
-            return -1;
-        }
 #ifdef PLFS
+       if (src_file.ftype == PLFSFILE) {
+           rc = plfs_close(plfs_src_fd, pid+rank, src_file.st.st_uid, O_RDONLY, NULL);
+       }
+       else {
+#endif
+           rc = close(src_fd);
+           if (rc != 0) {
+               sprintf(errormsg, "Failed to close file: %s", src_file.path);
+               errsend(NONFATAL, errormsg);
+               return -1;
+           }
+#ifdef PLFS
+       }
+#endif
+#ifdef GEN_SYNDATA
     }
 #endif
 #ifdef PLFS

@@ -23,6 +23,9 @@ AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
 AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [enable fusechunker support])
 AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
 
+AC_ARG_ENABLE(syndata, [  --enable-syndata]  [enable synthetic data generation support])
+AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
+
 AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
 AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 

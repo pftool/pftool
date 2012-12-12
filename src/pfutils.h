@@ -38,6 +38,7 @@
 #include <errno.h>
 #include <utime.h>
 
+#include "str.h"
 
 //mpi
 #include "mpi.h"
@@ -65,6 +66,11 @@
 
 #ifdef PLFS
 #include "plfs.h"
+#endif
+
+//synthetic data generation
+#ifdef GEN_SYNDATA
+#  include "syndata.h"
 #endif
 
 #include "debug.h"
@@ -172,6 +178,8 @@ struct options {
     char file_list[PATHSIZE_PLUS];
     int use_file_list;
     char jid[128];
+    char syn_pattern[128];
+    size_t syn_size;
 #ifdef FUSE_CHUNKER
     char archive_path[PATHSIZE_PLUS];
     char fuse_path[PATHSIZE_PLUS];
@@ -222,7 +230,11 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
+#ifdef GEN_SYNDATA
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
+#else
 int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
+#endif
 int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
 int update_stats(path_item src_file, path_item dest_file);
 
