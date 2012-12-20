@@ -98,7 +98,7 @@ def main():
     commands.add("-n")
 
   try:
-    t = config.get("options", "parallel_dest")
+    t = config.get("environment", "parallel_dest")
     if t.lower() == "true":
         commands.add("-P")
   except:
