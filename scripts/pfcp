@@ -123,21 +123,38 @@ def main():
 
 
   pfcmd = Commands()
-  num_procs = config.get("num_procs", "pfcp")
 
-  if threaded:
+  if threaded:								# running in threaded mode on a single node
+    num_procs = config.get("num_procs", "pfcp")				# get the maximum # of threads
+	# build threaded command
     pfcmd.add(pftool)
     pfcmd.add("-nthread", num_procs)
-  else:
+  else:									# use MPI and potentially multiple nodes
+	# determine which hosts to run on
+    host_list,procs = get_nodeallocation()				# read job control variables - if any
+    if len(host_list) == 0:						# no job control variables - use configured values in config file
+      try:
+        host_list = map(lambda x: x[0].lower(), filter(lambda x: x[1] == "ON", config.items("active_nodes")))
+      except:
+        parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
+      procs = int(config.get("num_procs", "pfcp"))
+      
+    if "all" not in host_list:						# chance are that host_list came from job control variables ...
+      try:
+        min_procs = int(config.get("num_procs", "min_per_node"))
+      except:
+        parser.error("please specify a minmum number of processes to run on each mpi host (e.g. min_per_node: 2)")
+      host_cnt = len(host_list)
+      test_procs = min_procs * host_cnt
+      if test_procs > procs:						# if configured for greater minimum procs -> use that number
+        procs = test_procs
+      num_procs = str(procs)
+
+	# build mpi command
     try:
       mpigo = config.get("environment", "mpirun")
     except:
       parser.error("please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
-
-    try:
-      host_list = map(lambda x: x[0].lower(), filter(lambda x: x[1] == "ON", config.items("active_nodes")))
-    except:
-      parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
 
     pfcmd.add(mpigo)
     mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
@@ -148,6 +165,7 @@ def main():
     pfcmd.add("-n", num_procs)
     pfcmd.add(pftool)
     
+	# add PFTOOL arguments
   pfcmd.add(*commands.commands)
 
   host = gethostname()
@@ -158,7 +176,7 @@ def main():
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
 
 
-#  print pfcmd.commands
+#  print pfcmd.commands							# print the command out used to run PFTOOL
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]
