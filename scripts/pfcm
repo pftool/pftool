@@ -53,10 +53,15 @@ def main():
   if base_dest_name and not os.path.exists(base_dest_name):
    parser.error("%s - No such file or directory"%(dest)) 
   
-  for i in src:
-    if not os.path.exists(i):
-      parser.error("cannot stat '%s': No such file or directory"%(i))
-  
+  #for i in src:
+  #  if not os.path.exists(i):
+  #    parser.error("cannot stat '%s': No such file or directory"%(i))
+  try:
+    writesize = config.get("options", "writesize")
+    commands.add("-s", writesize);
+  except:
+      pass
+
   try:
     chunk_at = config.get("options", "chunk_at")
     chunksize = config.get("options", "chunksize")

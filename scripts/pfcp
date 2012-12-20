@@ -62,6 +62,11 @@ def main():
   #for i in src:
   #  if not os.path.exists(i):
   #    parser.error("cannot stat '%s': No such file or directory"%(i))
+  try:
+    writesize = config.get("options", "writesize")
+    commands.add("-s", writesize);
+  except:
+    pass
 
   try:
     chunk_at = config.get("options", "chunk_at")
