@@ -148,7 +148,8 @@ def main():
       test_procs = min_procs * host_cnt
       if test_procs > procs:						# if configured for greater minimum procs -> use that number
         procs = test_procs
-      num_procs = str(procs)
+
+    num_procs = str(procs)						# make sure number pf processes is assigned
 
 	# build mpi command
     try:
@@ -176,7 +177,7 @@ def main():
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
 
 
-#  print pfcmd.commands							# print the command out used to run PFTOOL
+  print pfcmd.commands							# print the command out used to run PFTOOL
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]
