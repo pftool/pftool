@@ -2,8 +2,8 @@
           PFTool: Parallel File Tool
 ###############################################################################
 
-PFTool is parallel file tool used that can stat, copy, and compare files in
-parallel. It's optimized for an HPC workload and uses MPI for message passing.
+PFTool (Parallel File Tool) can stat, copy, and compare files in parallel. 
+It's optimized for an HPC workload and uses MPI for message passing.
 A threaded version is available and can be configured at build time.
 
 Additional info:
