@@ -1,1 +1,1 @@
-sysconf_DATA = pftool.cfg 
+#sysconf_DATA = pftool.cfg 

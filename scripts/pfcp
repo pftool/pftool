@@ -10,7 +10,6 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
-  parser.add_option("-t", dest="threaded", default=False, action="store_true", help="run threaded mode vs mpi mode")
   parser.add_option("-x", dest="synSize", default=None, metavar="SIZE", help="development only. Option may be used for future feature")
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
   

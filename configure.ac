@@ -53,8 +53,8 @@ AS_IF([test x$enable_threads != xyes],
      AC_MSG_ERROR([$CC cannot compile MPI applications. cannot continue.])]
 )])
 
-AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
-AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
+#AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
+#AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
 
 AM_PROG_CC_C_O
 #works with 2.6 and above

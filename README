@@ -1,32 +1,107 @@
-To build:
-- need autotools with autconf version 2.59 (at least)
-- tools include autoconf, automake, m4, and libtool
-- standard OS installations of these should work
+###############################################################################
+          PFTool: Parallel File Tool
+###############################################################################
 
-To start from base directory:
-- ./autogen
+PFTool is parallel file tool used that can stat, copy, and compare files in
+parallel. It's optimized for an HPC workload and uses MPI for message passing.
+A threaded version is available and can be configured at build time.
 
-To configure threaded version:
-- ./configure --enable-threads
+Additional info:
+Available under LANL LACC-2012-072.
+see COPYRIGHT file
 
-To configure mpi version:
-- ./configure
+***************************************************************************
+Dependencies
+***************************************************************************
 
-Other options:
-- ./configure --help
+autoconf
+automake
+m4
+libtool
+mpi
 
-To compile
-- make clean
-- make all
+***************************************************************************
+Installing PFTool
+***************************************************************************
+From the top-level directory
 
-To install/uninstall
-- make install
-- make uninstall
+./autogen
 
-config files located in etc/ -- require a new ./configure if changes are made locally
-- add the mpirun path for mpi (it may work as is, but I recommend the full path)
-- can modify the number of procs/threads for each program
-- can allow n-to-1 writes for the the destination
+#To configure the base version:
+./configure
 
-To run:
-- ./scripts/pfls (or pfcm, pfcp)
+#To configure the threaded version:
+#./configure --enable-threads
+
+#Other options:
+#./configure --help
+
+./make clean
+./make all
+./make install
+
+create pftool.cfg and copy it into {install_prefix}/etc. 
+
+***************************************************************************
+Configuration
+***************************************************************************
+{install_prefix}/etc/pftool.cfg is read by the pftool scripts pfls, pfcm, pfcp
+
+example config files located in ./etc/ for threaded and mpi modes. 
+
+NOTE:
+if you build with --enable-threads you MUST specify:
+	[environment]
+	threaded: True
+	
+otherwise specify:
+	[environment]
+	threaded: False
+	
+this cannot be changed at runtime
+
+
+***************************************************************************
+Using PFtool
+***************************************************************************
+PFTool can be invoked directly, but the preferred method is through helper
+scripts located in {install_prefix}/scripts/
+
+-----------
+
+Usage: pfls [options] sourcePath
+
+pfls --  list file(s) based on sourcePath in parallel
+
+Options:
+  -h, --help     show this help message and exit
+  -R             list directories recursively
+  -v             verbose result output
+  -i INPUT_LIST  input file list
+
+-----------
+
+Usage: pfcm [options] sourcePath destinationPath
+
+pfcm -- compare file(s) from sourcePath to destinationPath in parallel
+
+Options:
+  -h, --help  show this help message and exit
+  -R          copy directories recursively
+  -M          changes to Block-by-Block vs Metadata only
+  -v          verbose result output
+
+-----------
+
+Usage: pfcp [options] sourcePath destinationPath
+
+pfcp -- copy file(s) from sourcePath to destinationPath in parallel
+
+Options:
+  -h, --help  show this help message and exit
+  -R          copy directories recursively
+  -v          verbose result output
+  -n          only copy files that have a different date or file size than the
+              same files at the destination or not in the destination
+
+

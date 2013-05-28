@@ -10,7 +10,6 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
-  parser.add_option("-t", dest="threaded", default=False, action="store_true", help="run threaded mode vs mpi mode")
   (options, args) = parser.parse_args()
 
   config = parse_config()
