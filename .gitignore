@@ -45,3 +45,4 @@ m4
 src/.libs
 bin
 etc/pftool.cfg
+ar-lib

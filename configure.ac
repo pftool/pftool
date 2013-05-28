@@ -32,7 +32,7 @@ AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 
-AM_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADER([config.h])
 
 
 # checks for programs.
@@ -60,6 +60,7 @@ AM_PROG_CC_C_O
 #works with 2.6 and above
 #AC_PROG_CC_C99
 
+AM_PROG_AR
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 

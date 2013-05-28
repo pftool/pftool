@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "str.h"
@@ -37,7 +38,6 @@
 size_t str2Size(char* ss)
 {
 	size_t sizeNoUnits;					// return value
-	int     err;
 	int     ii;
 	int	minusOne = FALSE;				// flag to indicate that string specified as <num><units>-1 (i.e. 20MB-1)
 	int     nn;						// length of unprocessed string
@@ -49,17 +49,17 @@ size_t str2Size(char* ss)
 		size_t	mult;           /* multiplier associated with units */
 	};
 	static struct unitsTblStruct unitsTbl[] = {
-		"p",    1000L*1000L*1000L*1000L*1000L,
-		"t",    1000L*1000L*1000L*1000L,
-		"g",    1000*1000*1000,
-		"m",    1000*1000,
-		"k",    1000,
-		"P",    1024L*1024L*1024L*1024L*1024L,
-		"T",    1024L*1024L*1024L*1024L,
-		"G",    1024*1024*1024,
-		"M",    1024*1024,
-		"K",    1024,
-		0,      1,
+    {"p",    1000L*1000L*1000L*1000L*1000L},
+    {"t",    1000L*1000L*1000L*1000L},
+    {"g",    1000*1000*1000},
+    {"m",    1000*1000},
+    {"k",    1000},
+    {"P",    1024L*1024L*1024L*1024L*1024L},
+  	{"T",    1024L*1024L*1024L*1024L},
+    {"G",    1024*1024*1024},
+    {"M",    1024*1024},
+    {"K",    1024},
+    {0,      1},
 	};
 
 	if(strIsBlank(ss)) return((size_t)(-1));		// No conversion took place
