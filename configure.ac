@@ -60,7 +60,8 @@ AM_PROG_CC_C_O
 #works with 2.6 and above
 #AC_PROG_CC_C99
 
-AM_PROG_AR
+m4_pattern_allow([AM_PROG_AR])
+m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 
