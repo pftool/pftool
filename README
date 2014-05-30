@@ -40,7 +40,22 @@ From the top-level directory
 ./make all
 ./make install
 
-create pftool.cfg and copy it into {install_prefix}/etc. 
+Note that pftool.cfg is created and installed into {install_prefix}/etc
+during the "make install". Setting in this file should be reviewed and 
+modified based on the configuration of the cluster the software is
+running on. 
+
+***************************************************************************
+PFTool RPM
+***************************************************************************
+To build an RPM, from the top-level directory:
+
+cd package
+make rpm
+
+Rpmbuild is used by this make file to generate the RPM. It is assumed that
+the directory/tree $HOME/rpmbuild exists and has the subdirectories SOURCES,
+BUILD, and RPMS. The resulting RPM is written to $HOME/rpmbuild/RPMS.
 
 ***************************************************************************
 Configuration
@@ -60,6 +75,19 @@ otherwise specify:
 	
 this cannot be changed at runtime
 
+***************************************************************************
+Versioning
+***************************************************************************
+In order to change the version number for this project, modify the following
+line in ./configure.ac:
+
+AC_INIT([pftool], [2.0.5], [dsherril@lanl.gov])
+
+Then rerun
+
+./configure
+
+Note that the maintainer information can be changed as well.
 
 ***************************************************************************
 Using PFtool
