@@ -73,6 +73,9 @@ def main():
       parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
       
     pfcmd.add(mpigo)
+    mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
+    pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
+
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
