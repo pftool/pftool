@@ -698,7 +698,7 @@ void worker(int rank, struct options o) {
     int message_ready = 0, probecount = 0;
     int prc;
 #endif
-    char *output_buffer;
+    char *output_buffer = (char*)NULL;
     int type_cmd;
     int mpi_ret_code;
     char base_path[PATHSIZE_PLUS];
