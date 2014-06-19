@@ -105,6 +105,11 @@ def main():
     t = config.get("environment", "parallel_dest")
     if t.lower() == "true":
         commands.add("-P")
+        dest_dir = os.path.dirname(dest)
+        if dest_dir == "":
+          dest_dir = "."
+        dest_fstype = subprocess.Popen("df -TP " + dest_dir + " | grep -v Filesystem | awk -F ' ' '{print $2}'", stdout=subprocess.PIPE, shell=True).stdout.read()
+        commands.add("-t", dest_fstype.rstrip())			# specify the filesystem type for the destination on parallel transfers. In may make a difference! - cds 6/2014
   except:
     pass
 

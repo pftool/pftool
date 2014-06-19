@@ -168,6 +168,7 @@ struct options {
     int verbose;
     int recurse;
     int logging;
+    char dest_fstype[128];			// specifies the FS type of the destination
     int different;
     int parallel_dest;
     int work_type;
@@ -206,6 +207,7 @@ struct path_link {
     size_t length;
     enum filetype ftype;
     enum filetype desttype;
+    char fstype[128];
 };
 typedef struct path_link path_item;
 

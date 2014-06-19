@@ -57,6 +57,7 @@ void usage () {
 #endif
     printf (" [-n]                                      : operate on file if different\n");
     printf (" [-r]                                      : recursive operation down directory tree\n");
+    printf (" [-t]                                      : specify file system type of destination file/directory\n");
     printf (" [-l]                                      : turn on logging to /var/log/mesages\n");
     printf (" [-P]                                      : force destination filesystem to be treated as parallel\n");
     printf (" [-M]                                      : perform block compare, default: metadata compare\n");
@@ -315,6 +316,7 @@ void get_dest_path(path_item beginning_node, const char *dest_path, path_item *d
     struct stat beg_st, dest_st;
     char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
     char *path_slice;
+
     strncpy(final_dest_path, dest_path, PATHSIZE_PLUS);
     strncpy(temp_path, beginning_node.path, PATHSIZE_PLUS);
     while (temp_path[strlen(temp_path)-1] == '/') {
@@ -427,7 +429,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     //FILE *src_fd, *dest_fd;
     int flags;
     //MPI_File src_fd, dest_fd;
-    int src_fd, dest_fd;
+    int src_fd, dest_fd = -1;
     off_t offset = src_file.offset;
     size_t length = src_file.length;
 #ifdef PLFS
@@ -438,6 +440,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     //symlink
     char link_path[PATHSIZE_PLUS];
     int numchars;
+
     //can't be const for MPI_IO
     if (S_ISLNK(src_file.st.st_mode)) {
         numchars = readlink(src_file.path, link_path, PATHSIZE_PLUS);
@@ -490,11 +493,13 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
-    if (src_file.st.st_size == length && offset == 0) {
-        flags = O_WRONLY | O_CREAT;
+    if ((src_file.st.st_size == length && offset == 0) || strncmp(dest_file.fstype,"panfs",5)) {	// no chunking or not writing to PANFS - cds 6/2014
+       flags = O_WRONLY | O_CREAT;
+       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT", dest_file.fstype);
     }
-    else {
-        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
+    else {												// Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
+       flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
+       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE", dest_file.fstype);
     }
 #ifdef PLFS
     if (src_file.desttype == PLFSFILE){
@@ -502,12 +507,12 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     }
     else{
 #endif
-        dest_fd = open(dest_file.path, flags, 0600);
+       	dest_fd = open(dest_file.path, flags, 0600);
 #ifdef PLFS
     }
 #endif
     if (dest_fd < 0) {
-        sprintf(errormsg, "Failed to open file %s for write", dest_file.path);
+        sprintf(errormsg, "Failed to open file %s for write (errno = %d)", dest_file.path, errno);
         errsend(NONFATAL, errormsg);
         return -1;
     }

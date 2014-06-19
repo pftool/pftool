@@ -66,6 +66,7 @@ int main(int argc, char *argv[]) {
         o.recurse = 0;
         o.logging = 0;
         o.meta_data_only = 1;
+        strncpy(o.dest_fstype, "Unknown", 128);
         strncpy(o.jid, "TestJob", 128);
         o.parallel_dest = 0;
         //1MB
@@ -93,7 +94,7 @@ int main(int argc, char *argv[]) {
 	o.syn_size = 0;				// Clear the synthetic data size
 #endif
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:X:x:z:vrlPMnh")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:vrlPMnh")) != -1)
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -105,6 +106,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'j':
                 strncpy(o.jid, optarg, 128);
+                break;
+            case 't':
+                strncpy(o.dest_fstype, optarg, 128);
                 break;
             case 'w':
                 o.work_type = atoi(optarg);
@@ -194,6 +198,7 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.logging, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.dest_fstype, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -1683,6 +1688,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         offset = work_node.offset;
         length = work_node.length;
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+        strncpy(out_node.fstype,o.dest_fstype,128);						// make sure destination filesystem type is assigned for copy - cds 6/2014
 #ifdef FUSE_CHUNKER
         if (work_node.desttype != FUSEFILE) {
 #endif
