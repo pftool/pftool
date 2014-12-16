@@ -49,22 +49,26 @@ void usage () {
     printf (" [-s]                                      : block size for copy and compare\n");
     printf (" [-C]                                      : file size to start chunking (n to 1)\n");
     printf (" [-S]                                      : chunk size for copy\n");
+
 #ifdef FUSE_CHUNKER
     printf (" [-f]                                      : path to FUSE directory\n");
     printf (" [-d]                                      : number of directories used for FUSE backend\n");
     printf (" [-W]                                      : file size to start FUSE chunking\n");
     printf (" [-A]                                      : FUSE chunk size for copy\n");
 #endif
+
     printf (" [-n]                                      : operate on file if different\n");
     printf (" [-r]                                      : recursive operation down directory tree\n");
     printf (" [-t]                                      : specify file system type of destination file/directory\n");
     printf (" [-l]                                      : turn on logging to /var/log/mesages\n");
     printf (" [-P]                                      : force destination filesystem to be treated as parallel\n");
     printf (" [-M]                                      : perform block compare, default: metadata compare\n");
+
 #ifdef GEN_SYNDATA
     printf (" [-X]                                      : specify a synthetic data pattern file or constant default: none\n");
     printf (" [-x]                                      : synthetic file size. If specified, file(s) will be synthetic data of specified size\n");
 #endif
+
     printf (" [-v]                                      : user verbose output\n");
     printf (" [-h]                                      : print Usage information\n");
     printf (" \n");
@@ -72,23 +76,27 @@ void usage () {
     return;
 }
 
+// print the mode <aflag> into buffer <buf> in a regular 'pretty' format
 char *printmode (mode_t aflag, char *buf) {
-    // print the mode in a regular 'pretty' format
-    static int m0[] = { 1, S_IREAD >> 0, 'r', '-' };
+
+    static int m0[] = { 1, S_IREAD  >> 0, 'r', '-' };
     static int m1[] = { 1, S_IWRITE >> 0, 'w', '-' };
     static int m2[] = { 3, S_ISUID | S_IEXEC, 's', S_IEXEC, 'x', S_ISUID, 'S', '-' };
-    static int m3[] = { 1, S_IREAD >> 3, 'r', '-' };
+
+    static int m3[] = { 1, S_IREAD  >> 3, 'r', '-' };
     static int m4[] = { 1, S_IWRITE >> 3, 'w', '-' };
     static int m5[] = { 3, S_ISGID | (S_IEXEC >> 3), 's',
                         S_IEXEC >> 3, 'x', S_ISGID, 'S', '-'
                       };
-    static int m6[] = { 1, S_IREAD >> 6, 'r', '-' };
+    static int m6[] = { 1, S_IREAD  >> 6, 'r', '-' };
     static int m7[] = { 1, S_IWRITE >> 6, 'w', '-' };
     static int m8[] = { 3, S_ISVTX | (S_IEXEC >> 6), 't', S_IEXEC >> 6, 'x', S_ISVTX, 'T', '-' };
     static int *m[] = { m0, m1, m2, m3, m4, m5, m6, m7, m8 };
+
     int i, j, n;
-    int *p = (int *) 1;;
+    int *p = (int *) 1;
     buf[0] = S_ISREG (aflag) ? '-' : S_ISDIR (aflag) ? 'd' : S_ISLNK (aflag) ? 'l' : S_ISFIFO (aflag) ? 'p' : S_ISCHR (aflag) ? 'c' : S_ISBLK (aflag) ? 'b' : S_ISSOCK (aflag) ? 's' : '?';
+
     for (i = 0; i <= 8; i++) {
         for (n = m[i][0], j = 1; n > 0; n--, j += 2) {
             p = m[i];
@@ -325,13 +333,14 @@ void get_dest_path(path_item beginning_node, const char *dest_path, path_item *d
     //recursion special cases
     if (o.recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0 && o.work_type != COMPAREWORK) {
         beg_st = beginning_node.st;
+
 #ifdef PLFS
-    rc = plfs_getattr(NULL, dest_path, &dest_st, 0);
-    if (rc != 0){
+        rc = plfs_getattr(NULL, dest_path, &dest_st, 0);
+        if (rc != 0){
 #endif
-        rc = lstat(dest_path, &dest_st);
+           rc = lstat(dest_path, &dest_st);
 #ifdef PLFS
-    }
+        }
 #endif
         if (rc >= 0 && S_ISDIR(dest_st.st_mode) && S_ISDIR(beg_st.st_mode) && num_paths == 1) {
             if (strstr(temp_path, "/") == NULL) {
@@ -416,10 +425,11 @@ int one_byte_read(const char *path) {
 }
 
 #ifdef GEN_SYNDATA
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank) {
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank)
 #else
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank) {
+int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank)
 #endif
+{
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
     int rc;
@@ -464,7 +474,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     if (length < blocksize) {
         blocksize = length;
     }
-    buf = malloc(blocksize * sizeof(char));
+    buf = (char*)malloc(blocksize * sizeof(char));
     memset(buf, '\0', blocksize);
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
@@ -658,8 +668,8 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
             return 0;
         }
         //byte compare
-        ibuf = malloc(blocksize * sizeof(char));
-        obuf = malloc(blocksize * sizeof(char));
+        ibuf = (char*)malloc(blocksize * sizeof(char));
+        obuf = (char*)malloc(blocksize * sizeof(char));
         src_fd = open(src_file.path, O_RDONLY);
         if (src_fd < 0) {
             sprintf(errormsg, "Failed to open file %s for compare source", src_file.path);
@@ -805,7 +815,7 @@ int request_response(int type_cmd) {
     int response;
     send_command(MANAGER_PROC, type_cmd);
     if (MPI_Recv(&response, 1, MPI_INT, MANAGER_PROC, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-        errsend(FATAL, "Failed to receive response\n");
+       errsend(FATAL, "Failed to receive response\n");
     }
     return response;
 }
@@ -834,7 +844,7 @@ void send_path_list(int target_rank, int command, int num_send, path_list **list
         workcount = *list_count;
     }
     worksize = workcount * sizeof(path_item);
-    char *workbuf = (char *) malloc(worksize * sizeof(char));
+    char *workbuf = (char*)malloc(worksize * sizeof(char));
     while(path_count < workcount) {
         path_count++;
         MPI_Pack(&(*list_head)->data, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
@@ -972,7 +982,7 @@ void send_manager_new_buffer(path_item *buffer, int *buffer_count) {
     send_path_buffer(MANAGER_PROC, INPUTCMD, buffer, buffer_count);
 }
 
-void send_manager_work_done() {
+void send_manager_work_done(int ignored) {
     //the worker is finished processing, notify the manager
     send_command(MANAGER_PROC, WORKDONECMD);
 }
@@ -1050,7 +1060,7 @@ void send_worker_exit(int target_rank) {
 
 
 //functions that use workers
-void errsend(int fatal, char *error_text) {
+void errsend(int fatal, const char *error_text) {
     //send an error message to the outputproc. Die if fatal.
     char errormsg[MESSAGESIZE];
     if (fatal) {
@@ -1225,7 +1235,7 @@ int processing_complete(int *proc_status, int nproc) {
 //Queue Function Definitions
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     //stick a path on the end of the queue
-    path_list *new_node = malloc(sizeof(path_list));
+   path_list *new_node = (path_list*)malloc(sizeof(path_list));
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
     new_node->next = NULL;
     if (*head == NULL) {
@@ -1267,7 +1277,7 @@ void delete_queue_path(path_list **head, int *count) {
 
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     //enqueue a node using an existing node (does a new allocate, but allows us to pass nodes instead of paths)
-    path_list *temp_node = malloc(sizeof(path_list));
+   path_list *temp_node = (path_list*)malloc(sizeof(path_list));
     temp_node->data = new_node->data;
     temp_node->next = NULL;
     if (*head == NULL) {
@@ -1296,7 +1306,7 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 
 void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
     work_buf_list *current_pos = *workbuflist;
-    work_buf_list *new_buf_item = malloc(sizeof(work_buf_list));
+    work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
     if (*workbufsize < 0) {
         *workbufsize = 0;
     }

@@ -16,6 +16,5 @@
 
 // Function Declarations
 size_t str2Size(char *ss);
-int strIsBlank(char *s);
 
 #endif  // __STR_H

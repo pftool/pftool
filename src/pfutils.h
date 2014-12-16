@@ -110,6 +110,7 @@
 #define DevMinor(x) ((x)&0xFFFF)
 #define DevMajor(x) ((unsigned)(x)>>16)
 typedef unsigned long long int uint_64;
+
 //mpi_commands
 enum cmd_opcode {
     EXITCMD,
@@ -165,30 +166,36 @@ enum filetype {
 //Structs and typedefs
 //options{
 struct options {
-    int verbose;
-    int recurse;
-    int logging;
-    char dest_fstype[128];			// specifies the FS type of the destination
-    int different;
-    int parallel_dest;
-    int work_type;
-    int meta_data_only;
+    int    verbose;
+    int    recurse;
+    int    logging;
+    char   dest_fstype[128];			// specifies the FS type of the destination
+    int    different;
+    int    parallel_dest;
+    int    work_type;
+    int    meta_data_only;
     size_t blocksize;
     size_t chunk_at;
     size_t chunksize;
-    char file_list[PATHSIZE_PLUS];
-    int use_file_list;
-    char jid[128];
-    char syn_pattern[128];
+
+    char   file_list[PATHSIZE_PLUS];
+    int    use_file_list;
+    char   jid[128];
+
+#if GEN_SYNDATA
+    char   syn_pattern[128];
     size_t syn_size;
+#endif
+
 #ifdef FUSE_CHUNKER
-    char archive_path[PATHSIZE_PLUS];
-    char fuse_path[PATHSIZE_PLUS];
-    int use_fuse;
-    int fuse_chunkdirs;
+    char   archive_path[PATHSIZE_PLUS];
+    char   fuse_path[PATHSIZE_PLUS];
+    int    use_fuse;
+    int    fuse_chunkdirs;
     size_t fuse_chunk_at;
     size_t fuse_chunksize;
 #endif
+
 #ifdef PLFS
     size_t plfs_chunksize;
 #endif
@@ -200,87 +207,88 @@ struct options {
 
 
 // A queue to store all of our input nodes
-struct path_link {
-    char path[PATHSIZE_PLUS];
-    struct stat st;
-    off_t offset;
-    size_t length;
+typedef struct path_item {
+    char          path[PATHSIZE_PLUS];
+    struct stat   st;
+    off_t         offset;
+    size_t        length;
     enum filetype ftype;
     enum filetype desttype;
-    char fstype[128];
-};
-typedef struct path_link path_item;
+    char          fstype[128];
+} path_item;
 
-struct path_queue {
+typedef struct path_list {
     //char path[PATHSIZE_PLUS];
     path_item data;
-    struct path_queue *next;
-};
-typedef struct path_queue path_list;
+    struct path_list *next;
+} path_list;
 
-struct work_buffer_list {
+typedef struct work_buf_list {
     char *buf;
     int size;
-    struct work_buffer_list *next;
-};
-typedef struct work_buffer_list work_buf_list;
+    struct work_buf_list *next;
+} work_buf_list;
 
 //Function Declarations
-void usage();
+void  usage();
 char *printmode (mode_t aflag, char *buf);
 char *get_base_path(const char *path, int wildcard);
-void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
+void  get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
-int one_byte_read(const char *path);
+int   one_byte_read(const char *path);
 #ifdef GEN_SYNDATA
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
+int   copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
 #else
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
+int   copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
 #endif
-int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
-int update_stats(path_item src_file, path_item dest_file);
+int   compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
+int   update_stats(path_item src_file, path_item dest_file);
 
 //dmapi/gpfs specfic
 #ifdef TAPE
-int read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
-int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
+int   read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
+int   dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 #endif
 
 
 //local functions
-int request_response(int type_cmd);
-int request_input_queuesize();
+int  request_response(int type_cmd);
+int  request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
 void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize);
 
 //worker utility functions
-void errsend(int fatal, char *error_text);
+void errsend(int fatal, const char *error_text);
+
 #ifdef FUSE_CHUNKER
-int is_fuse_chunk(const char *path, struct options o);
+int  is_fuse_chunk(const char *path, struct options o);
 void set_fuse_chunk_data(path_item *work_node);
-int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
-int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
+int  get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
+int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
 #endif
+
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 void get_stat_fs_info(const char *path, int *fs);
-int get_free_rank(int *proc_status, int start_range, int end_range);
-int processing_complete(int *proc_status, int nproc);
+int  get_free_rank(int *proc_status, int start_range, int end_range);
+int  processing_complete(int *proc_status, int nproc);
 
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
+
 #ifdef TAPE
 void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
 #endif
+
 void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs);
 void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes);
-void send_manager_work_done();
+void send_manager_work_done(int ignored);
 
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
@@ -288,9 +296,11 @@ void write_output(char *message, int log);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+
 #ifdef TAPE
 void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 #endif
+
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_exit(int target_rank);

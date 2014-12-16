@@ -29,9 +29,6 @@
 #define MPI_Unpack MPY_Unpack
 #endif
 
-// Did we successfully configure to use C++ ?
-class Foo {
-};
 
 int main(int argc, char *argv[]) {
 
@@ -71,6 +68,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error in MPI_Comm_rank\n");
         return -1;
     }
+
     //Process using getopt
     //initialize options
     if (rank == MANAGER_PROC) {
@@ -85,6 +83,7 @@ int main(int argc, char *argv[]) {
         o.blocksize = (1024 * 1024);
         o.chunk_at  = (100ULL * 1024 * 1024 * 1024); // 107374182400
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
+
 #ifdef FUSE_CHUNKER
         //so we don't make fuse files not on archive
         strncpy(o.archive_path, "", PATHSIZE_PLUS);
@@ -200,7 +199,7 @@ int main(int argc, char *argv[]) {
                 o.meta_data_only = 0;
                 break;
             case 'v':
-                o.verbose = 1;
+                o.verbose += 1;
                 break;
 
             case 'h':
@@ -214,6 +213,10 @@ int main(int argc, char *argv[]) {
             }
     }
     MPI_Barrier(MPI_COMM_WORLD);
+
+    if (o.verbose && (rank == MANAGER_PROC)) {
+        printf("ranks = %d\n", nproc);
+    }
 
     //broadcast all the options
     MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -248,6 +251,20 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(o.syn_pattern, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.syn_size, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #endif
+
+    // providing multiple '-v' args on the command line increases the value
+    // of o.verbose.  Any non-zero value turns on verbosity.  However, if
+    // o.verbose > 1, we also sleep for 5 seconds here.  That allows a user
+    // to attach gdb to the running process.  We have a script that can do
+    // this quickly.
+    if (o.verbose > 1) {
+        fprintf(stderr, "sleeping to allow gdb to attach ... ");
+        fflush(stdout);
+        sleep(5);
+        fprintf(stderr, "done.\n");
+
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
 
     //freopen( "/dev/null", "w", stderr );
     //Modifies the path based on recursion/wildcards
@@ -623,6 +640,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     char *workbuf;
     int worksize, position;
     int i;
+
     //gather the # of files
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -630,6 +648,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     }
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {

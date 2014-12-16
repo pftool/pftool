@@ -18,7 +18,7 @@
 
 static char *mystrdup(const char *s) {
     char *b;
-    if(!(b=malloc(strlen(s)+1))) {
+    if(!(b=(char*)malloc(strlen(s)+1))) {
         return NULL;
     }
     strcpy(b, s);
@@ -36,10 +36,10 @@ static hash_size def_hashfunc(const char *key) {
 
 HASHTBL *hashtbl_create(hash_size size, hash_size (*hashfunc)(const char *)) {
     HASHTBL *hashtbl;
-    if(!(hashtbl=malloc(sizeof(HASHTBL)))) {
+    if(!(hashtbl=(HASHTBL*)malloc(sizeof(HASHTBL)))) {
         return NULL;
     }
-    if(!(hashtbl->nodes=calloc(size, sizeof(struct hashnode_s *)))) {
+    if(!(hashtbl->nodes=(struct hashnode_s**)calloc(size, sizeof(struct hashnode_s *)))) {
         free(hashtbl);
         return NULL;
     }
@@ -81,7 +81,7 @@ int hashtbl_insert(HASHTBL *hashtbl, const char *key, size_t data) {
         }
         node=node->next;
     }
-    if(!(node=malloc(sizeof(struct hashnode_s)))) {
+    if(!(node=(hashnode_s*)malloc(sizeof(struct hashnode_s)))) {
         return -1;
     }
     if(!(node->key=mystrdup(key))) {
@@ -151,7 +151,7 @@ int hashtbl_resize(HASHTBL *hashtbl, hash_size size) {
     struct hashnode_s *node,*next;
     newtbl.size=size;
     newtbl.hashfunc=hashtbl->hashfunc;
-    if(!(newtbl.nodes=calloc(size, sizeof(struct hashnode_s *)))) {
+    if(!(newtbl.nodes=(struct hashnode_s**)calloc(size, sizeof(struct hashnode_s *)))) {
         return -1;
     }
     for(n=0; n<hashtbl->size; ++n) {
