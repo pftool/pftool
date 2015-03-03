@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <stdarg.h>             // va_list, vsnprintf()
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -28,7 +29,7 @@
 #include <sys/types.h>
 
 #ifdef HAVE_SYS_VFS_H
-#include <sys/vfs.h>
+#  include <sys/vfs.h>
 #endif
 
 #include <dirent.h>
@@ -45,67 +46,84 @@
 
 //gpfs
 #ifdef TAPE
-#ifdef HAVE_GPFS_H
-#include <gpfs.h>
-#ifdef HAVE_GPFS_FCNTL_H
-#include "gpfs_fcntl.h"
-#endif
-#endif
+#  ifdef HAVE_GPFS_H
+#    include <gpfs.h>
+#    ifdef HAVE_GPFS_FCNTL_H
+#      include "gpfs_fcntl.h"
+#    endif
+#  endif
 
-
-#ifdef HAVE_DMAPI_H
-#include <dmapi.h>
-#endif
+#  ifdef HAVE_DMAPI_H
+#    include <dmapi.h>
+#  endif
 
 #endif
 
 //fuse
 #ifdef FUSE_CHUNKER
-#include <sys/xattr.h>
+#  include <sys/xattr.h>
 #endif
 
 #ifdef PLFS
-#include "plfs.h"
+#  include "plfs.h"
 #endif
 
 //synthetic data generation
 #ifdef GEN_SYNDATA
 #  include "syndata.h"
+#else
+   typedef void*  SyndataBufPtr;   /* eliminates some need for #ifdefs */
+#  define syndataExists(PTR)  (PTR)  /* eliminates some need for #ifdefs */
 #endif
+
 
 #include "debug.h"
 
 
-#define PATHSIZE_PLUS (FILENAME_MAX+30)
-#define ERRORSIZE PATHSIZE_PLUS
-#define MESSAGESIZE PATHSIZE_PLUS
-#define MESSAGEBUFFER 400
+#define PATHSIZE_PLUS  (FILENAME_MAX+30)
+#define ERRORSIZE      PATHSIZE_PLUS
+#define MESSAGESIZE    PATHSIZE_PLUS
+#define MESSAGEBUFFER  400
 
-#define DIRBUFFER 5
-#define STATBUFFER 50
-#define COPYBUFFER 15
-#define CHUNKBUFFER COPYBUFFER
-#define TAPEBUFFER 5
+#define DIRBUFFER      5
+#define STATBUFFER     50
+#define COPYBUFFER     15
+#define CHUNKBUFFER    COPYBUFFER
+#define TAPEBUFFER     5
 
-#define ANYFS     0
-#define PANASASFS 1
-#define GPFSFS    2
-#define NULLFS    3
-#ifdef FUSE_CHUNKER
-#define FUSEFS    4
 
-#define FUSE_SUPER_MAGIC 0x65735546
-#define FUSE_FILE        0x65735546
-#endif
-#define GPFS_FILE        0x47504653
-#define PANFS_FILE       0xAAd7AAEA
-#define EXT2_FILE        0xEF53
-#define EXT3_FILE        0xEF53
-#define EXT4_FILE        0xEF53
-#define PNFS_FILE        0X00000000
-#define ANY_FILE         0X00000000
+// <sys/vfs.h> provides statfs(), which operates on a struct statfs,
+// similarly to what stat() does with struct fs.  statfs.f_type identifies
+// various known file-system types.  Ours also includes these:
+#define FUSE_SUPER_MAGIC  0x65735546
+#define FUSE_FILE         0x65735546
+#define GPFS_FILE         0x47504653
+#define PANFS_FILE        0xAAd7AAEA
+#define EXT2_FILE         0xEF53
+#define EXT3_FILE         0xEF53
+#define EXT4_FILE         0xEF53
+#define PNFS_FILE         0X00000000
+#define ANY_FILE          0X00000000
+
+// get_stat_fs_info() translates the statfs.f_types (above) into these, for
+// convenience.  These are then stored in options.sourcefs/destfs, where
+// they are completely ignored, except for one test in #ifdef TAPE.
+// Actually, they are also examined one other place: in the initializations
+// of worker(), if the command-line didn't specify '-P' (parallel
+// destination), and options.destfs is PANASAS, GPFS, NULL, or FUSE, then
+// the destination is considered to be parallel anyhow.  We're converting
+// to an enum, so it will be obvious where these things are (not) used.
+enum SrcDstFSType {
+   ANYFS      = 0,
+   PANASASFS  = 1,
+   GPFSFS     = 2,
+   NULLFS     = 3,
+   FUSEFS     = 4
+};
 
 #define O_CONCURRENT_WRITE          020000000000
+
+
 
 #define DevMinor(x) ((x)&0xFFFF)
 #define DevMajor(x) ((unsigned)(x)>>16)
@@ -147,81 +165,95 @@ enum cmd_opcode {
 #define FATAL 1
 #define NONFATAL 0
 
-enum wrk_type {
+enum WorkType {
     COPYWORK,
     LSWORK,
     COMPAREWORK
 };
 
-enum filetype {
-    REGULARFILE,
-    FUSEFILE,
-    LINKFILE,
-    PREMIGRATEFILE,
-    MIGRATEFILE,
-    PLFSFILE,
-    NONE
+enum FileType {
+   TBD = 0,                     // unknown
+   REGULARFILE,
+   FUSEFILE,
+   LINKFILE,
+   PREMIGRATEFILE,              // for TAPE
+   MIGRATEFILE,                 // for TAPE
+   PLFSFILE,
+   S3FILE,
+   SYNDATA,                     // synthetic data (no file)
+   NONE                         // deleted?  irrelevant?  see stat_item()
+};
+
+// this is currently only used in three places:
+// (a) command-line option '-t' initializes options.dest_fstype
+// (b) worker_copylist() copies from options.dest_fstype to out_node.fstype
+// (c) copy_file() checks to see whether (dest_file.fstype == PAN_FS)
+enum FSType {
+   UNKNOWN_FS =0,
+   PAN_FS,
 };
 
 //Structs and typedefs
 //options{
 struct options {
-    int    verbose;
-    int    recurse;
-    int    logging;
-    char   dest_fstype[128];			// specifies the FS type of the destination
-    int    different;
-    int    parallel_dest;
-    int    work_type;
-    int    meta_data_only;
-    size_t blocksize;
-    size_t chunk_at;
-    size_t chunksize;
+    int     verbose;
+    int     recurse;
+    int     logging;
+    FSType  dest_fstype;			// specifies the FS type of the destination
+    int     different;
+    int     parallel_dest;
+    int     work_type;
+    int     meta_data_only;
+    size_t  blocksize;
+    size_t  chunk_at;
+    size_t  chunksize;
 
-    char   file_list[PATHSIZE_PLUS];
-    int    use_file_list;
-    char   jid[128];
+    char    file_list[PATHSIZE_PLUS];
+    int     use_file_list;
+    char    jid[128];
 
 #if GEN_SYNDATA
-    char   syn_pattern[128];
-    size_t syn_size;
+    char    syn_pattern[128];
+    size_t  syn_size;
 #endif
 
 #ifdef FUSE_CHUNKER
-    char   archive_path[PATHSIZE_PLUS];
-    char   fuse_path[PATHSIZE_PLUS];
-    int    use_fuse;
-    int    fuse_chunkdirs;
-    size_t fuse_chunk_at;
-    size_t fuse_chunksize;
+    char    archive_path[PATHSIZE_PLUS];
+    char    fuse_path[PATHSIZE_PLUS];
+    int     use_fuse;
+    int     fuse_chunkdirs;
+    size_t  fuse_chunk_at;
+    size_t  fuse_chunksize;
 #endif
 
 #ifdef PLFS
-    size_t plfs_chunksize;
+    size_t  plfs_chunksize;
 #endif
 
-    //fs info
-    int sourcefs;
-    int destfs;
+    // see ANYFS, etc, #define'd above.
+    SrcDstFSType  sourcefs;
+    SrcDstFSType  destfs;
 };
 
 
-// A queue to store all of our input nodes
+// the basic object used by pftool internals
 typedef struct path_item {
-    char          path[PATHSIZE_PLUS];
+    FileType      ftype;
+    FileType      dest_ftype;
+    FSType        fstype;
     struct stat   st;
     off_t         offset;
-    size_t        length;
-    enum filetype ftype;
-    enum filetype desttype;
-    char          fstype[128];
+    size_t        length;       // (remaining) data in the file
+    char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
 } path_item;
 
+
+// A queue to store all of our input nodes
 typedef struct path_list {
-    //char path[PATHSIZE_PLUS];
     path_item data;
     struct path_list *next;
 } path_list;
+
 
 typedef struct work_buf_list {
     char *buf;
@@ -229,20 +261,18 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
+
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);
-char *get_base_path(const char *path, int wildcard);
-void  get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
-char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
+void  get_base_path(char* base_path, const path_item* path, int wildcard);
+void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item* beginning_node,
+                    int makedir, int num_paths, struct options& o);
+void  get_output_path(char* output_path, const char *base_path, path_item* src_node, path_item* dest_node, struct options& o);
 int   one_byte_read(const char *path);
-#ifdef GEN_SYNDATA
-int   copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
-#else
-int   copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
-#endif
-int   compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
-int   update_stats(path_item src_file, path_item dest_file);
+int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf=NULL);
+int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only);
+int   update_stats(path_item* src_file, path_item* dest_file);
 
 //dmapi/gpfs specfic
 #ifdef TAPE
@@ -261,16 +291,17 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 
 //worker utility functions
 void errsend(int fatal, const char *error_text);
+void errsend_fmt(int fatal, const char *format, ...);
 
 #ifdef FUSE_CHUNKER
-int  is_fuse_chunk(const char *path, struct options o);
+int  is_fuse_chunk(const char *path, struct options& o);
 void set_fuse_chunk_data(path_item *work_node);
 int  get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
 int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
 #endif
 
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
-void get_stat_fs_info(const char *path, int *fs);
+void get_stat_fs_info(const char *path, SrcDstFSType *fs);
 int  get_free_rank(int *proc_status, int start_range, int end_range);
 int  processing_complete(int *proc_status, int nproc);
 
@@ -292,7 +323,7 @@ void send_manager_work_done(int ignored);
 
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
-void write_output(char *message, int log);
+void write_output(const char *message, int log);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

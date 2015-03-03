@@ -39,39 +39,39 @@ void usage () {
     printf ("   directories encountered.\n");
     printf ("2. Apply various data moving operations based on the selected options \n");
     printf ("\n");
-    printf ("mpirun -np totalprocesses pftool [options]\n");
+    printf ("mpirun -np <totalprocesses> pftool [options]\n");
+    printf ("\n");
     printf (" Options\n");
-    printf (" [-p]                                      : path to start parallel tree walk (required argument)\n");
-    printf (" [-c]                                      : destination path for data movement\n");
-    printf (" [-j]                                      : unique jobid for the pftool job\n");
-    printf (" [-w]                                      : work type: copy, list, or compare\n");
-    printf (" [-i]                                      : process paths in a file list instead of walking the file system\n");
-    printf (" [-s]                                      : block size for copy and compare\n");
-    printf (" [-C]                                      : file size to start chunking (n to 1)\n");
-    printf (" [-S]                                      : chunk size for copy\n");
+    printf (" [-p]         path to start parallel tree walk (required argument)\n");
+    printf (" [-c]         destination path for data movement\n");
+    printf (" [-j]         unique jobid for the pftool job\n");
+    printf (" [-w]         work type: { 0=copy | 1=list | 2=compare}\n");
+    printf (" [-i]         process paths in a file list instead of walking the file system\n");
+    printf (" [-s]         block size for COPY and COMPARE\n");
+    printf (" [-C]         file size to start chunking (for N:1)\n");
+    printf (" [-S]         chunk size for COPY\n");
+    printf (" [-n]         operate on file if different\n");
+    printf (" [-r]         recursive operation down directory tree\n");
+    printf (" [-t]         specify file system type of destination file/directory\n");
+    printf (" [-l]         turn on logging to /var/log/mesages\n");
+    printf (" [-P]         force destination filesystem to be treated as parallel\n");
+    printf (" [-M]         perform block-compare, default: metadata-compare\n");
+    printf (" [-v]         user verbose output\n");
+    printf (" [-h]         print Usage information\n");
 
-#ifdef FUSE_CHUNKER
-    printf (" [-f]                                      : path to FUSE directory\n");
-    printf (" [-d]                                      : number of directories used for FUSE backend\n");
-    printf (" [-W]                                      : file size to start FUSE chunking\n");
-    printf (" [-A]                                      : FUSE chunk size for copy\n");
-#endif
+    printf("\n");
+    printf("      [if configured with --enable-fusechunker\n");
+    printf (" [-f]         path to FUSE directory\n");
+    printf (" [-d]         number of directories used for FUSE backend\n");
+    printf (" [-W]         file size to start FUSE chunking\n");
+    printf (" [-A]         FUSE chunk size for copy\n");
+    printf("\n");
 
-    printf (" [-n]                                      : operate on file if different\n");
-    printf (" [-r]                                      : recursive operation down directory tree\n");
-    printf (" [-t]                                      : specify file system type of destination file/directory\n");
-    printf (" [-l]                                      : turn on logging to /var/log/mesages\n");
-    printf (" [-P]                                      : force destination filesystem to be treated as parallel\n");
-    printf (" [-M]                                      : perform block compare, default: metadata compare\n");
-
-#ifdef GEN_SYNDATA
-    printf (" [-X]                                      : specify a synthetic data pattern file or constant default: none\n");
-    printf (" [-x]                                      : synthetic file size. If specified, file(s) will be synthetic data of specified size\n");
-#endif
-
-    printf (" [-v]                                      : user verbose output\n");
-    printf (" [-h]                                      : print Usage information\n");
+    printf("      [if configured with --enable-syndata\n");
+    printf (" [-X]         specify a synthetic data pattern file or constant. default: none\n");
+    printf (" [-x]         synthetic file size. If specified, file(s) will be synthetic data of specified size\n");
     printf (" \n");
+
     printf ("********************** PFTOOL USAGE ************************************************************\n");
     return;
 }
@@ -257,7 +257,7 @@ int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf) {
             }
             //strncpy((char *) my_dm_attrlistP[0].al_name.an_chars,"IBMPMig",7);
             PRINT_DMAPI_DEBUG ("P dm_getall_dmattr attrs %x size %ld\n", my_dm_attrlistP->al_name.an_chars[0], dmattrsizep);
-            dmattrsize = sizeof (dmattrbuf);
+            dmattrsize = sizeof(dmattrbuf);
             strncpy ((char *) my_dm_attrnameP.an_chars, "IBMPMig", 7);
             PRINT_DMAPI_DEBUG ("PA dm_get_dmattr attr 0 %s\n", my_dm_attrnameP.an_chars);
             if (dm_get_dmattr (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, &my_dm_attrnameP, dmattrsize, dmattrbuf, &dmattrsizep) != 0) {
@@ -286,11 +286,29 @@ done:
 #endif
 
 
-char *get_base_path(const char *path, int wildcard) {
-    //wild card is a boolean
-    char base_path[PATHSIZE_PLUS], dir_name[PATHSIZE_PLUS];
+// remove trailing chars w/out repeated calls to strlen();
+static
+inline
+void trim_trailing(int ch, char* path) {
+   if (path) {
+      for (size_t pos=strlen(path) -1; (path[pos] == ch); --pos) {
+         path[pos] = '\0';
+      }
+   }
+}
+
+
+// UNDER CONSTRUCTION:  changed arg to path_item.
+// We assume <base_path> has size at least PATHSIZE_PLUS.
+void get_base_path(char*            base_path,
+                   const path_item* item,
+                   int              wildcard) { // (<wildcard> is boolean)
+
+    char dir_name[PATHSIZE_PLUS];
     struct stat st;
     int rc;
+    char* path = (char*)item->path;
+
 #ifdef PLFS
     rc = plfs_getattr(NULL, path, &st, 0);
     if (rc != 0){
@@ -303,7 +321,12 @@ char *get_base_path(const char *path, int wildcard) {
         fprintf(stderr, "Failed to stat path %s\n", path);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    strncpy(dir_name, dirname(strdup(path)), PATHSIZE_PLUS);
+
+    // dirname() may alter its argument
+    char* path_copy = strdup(path);
+    strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
+    free(path_copy);
+
     if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)) {
         strncpy(base_path, path, PATHSIZE_PLUS);
     }
@@ -313,26 +336,30 @@ char *get_base_path(const char *path, int wildcard) {
     else {
         strncpy(base_path, dir_name, PATHSIZE_PLUS);
     }
-    while(base_path[strlen(base_path) - 1] == '/') {
-        base_path[strlen(base_path) - 1] = '\0';
-    }
-    return strdup(base_path);
+    trim_trailing('/', base_path);
 }
 
-void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o) {
-    int rc;
-    struct stat beg_st, dest_st;
-    char temp_path[PATHSIZE_PLUS], final_dest_path[PATHSIZE_PLUS];
-    char *path_slice;
 
-    strncpy(final_dest_path, dest_path, PATHSIZE_PLUS);
-    strncpy(temp_path, beginning_node.path, PATHSIZE_PLUS);
-    while (temp_path[strlen(temp_path)-1] == '/') {
-        temp_path[strlen(temp_path)-1] = '\0';
-    }
+void get_dest_path(path_item*        dest_node, // fill this in
+                   const char*       dest_path, // from command-line arg
+                   const path_item*  beginning_node,
+                   int               makedir,
+                   int               num_paths,
+                   struct options&   o) {
+    int         rc;
+    struct stat beg_st;
+    struct stat dest_st;
+    char        temp_path[PATHSIZE_PLUS];
+    char*       result = dest_node->path;
+    char*       path_slice;
+
+    strncpy(result, dest_path, PATHSIZE_PLUS);
+    strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
+    trim_trailing('/', temp_path);
+
     //recursion special cases
     if (o.recurse && strncmp(temp_path, "..", PATHSIZE_PLUS) != 0 && o.work_type != COMPAREWORK) {
-        beg_st = beginning_node.st;
+        beg_st = beginning_node->st;
 
 #ifdef PLFS
         rc = plfs_getattr(NULL, dest_path, &dest_st, 0);
@@ -349,53 +376,64 @@ void get_dest_path(path_item beginning_node, const char *dest_path, path_item *d
             else {
                 path_slice = strrchr(temp_path, '/') + 1;
             }
-            if (final_dest_path[strlen(final_dest_path)-1] != '/') {
-                strncat(final_dest_path, "/", PATHSIZE_PLUS);
+            if (result[strlen(result)-1] != '/') {
+                strncat(result, "/", PATHSIZE_PLUS);
             }
-            strncat(final_dest_path, path_slice, PATHSIZE_PLUS - strlen(final_dest_path) - 1);
+            strncat(result, path_slice, PATHSIZE_PLUS - strlen(result) -1);
         }
     }
-    rc = lstat(final_dest_path, &dest_st);
+    rc = lstat(result, &dest_st);
     if (rc >= 0) {
-        (*dest_node).st = dest_st;
+        dest_node->st = dest_st;
     }
     else {
-        (*dest_node).st.st_mode = 0;
+        dest_node->st.st_mode = 0;
     }
-    strncpy((*dest_node).path, final_dest_path, PATHSIZE_PLUS);
 }
 
-char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o) {
-    char output_path[PATHSIZE_PLUS];
-    char *path_slice;
-    //remove a trailing slash
-    strncpy(output_path, dest_node.path, PATHSIZE_PLUS);
+// NOTE: the return value was always leaked, formerly.
+//
+// We assume <output_path> has size at least PATHSIZE_PLUS
+void get_output_path(char*            output_path, // fill this in
+                     const char*      base_path,
+                     path_item*       src_node,
+                     path_item*       dest_node,
+                     struct options&  o) {
 
-    while (output_path[strlen(output_path) - 1] == '/') {
-        output_path[strlen(output_path) - 1] = '\0';
-    }
+    char*  path_slice;
+    int    path_slice_duped = 0;
+
+    //remove trailing slash(es)
+    strncpy(output_path, dest_node->path, PATHSIZE_PLUS);
+    trim_trailing('/', output_path);
+
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
-        if(strstr(src_node.path, "/") != NULL) {
-            path_slice = (char *) strrchr(src_node.path, '/')+1;
+        char* last_slash = strrchr(src_node->path, '/');
+        if (last_slash) {
+            path_slice = last_slash +1;
         }
         else {
-            path_slice = (char *) src_node.path;
+            path_slice = (char *) src_node->path;
         }
     }
     else {
         if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0) {
-            path_slice = (char *) src_node.path;
+            path_slice = (char *) src_node->path;
         }
         else {
-            path_slice = strdup(src_node.path + strlen(base_path) + 1);
+            path_slice = strdup(src_node->path + strlen(base_path) + 1);
+            path_slice_duped = 1;
         }
     }
-    if (S_ISDIR(dest_node.st.st_mode)) {
+
+    if (S_ISDIR(dest_node->st.st_mode)) {
         strncat(output_path, "/", PATHSIZE_PLUS);
         strncat(output_path, path_slice, PATHSIZE_PLUS - strlen(output_path) - 1);
     }
-    return strdup(output_path);
+    if (path_slice_duped) {
+       free(path_slice);
+    }
 }
 
 int one_byte_read(const char *path) {
@@ -424,76 +462,90 @@ int one_byte_read(const char *path) {
     return 0;
 }
 
-#ifdef GEN_SYNDATA
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank)
-#else
-int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank)
-#endif
+int copy_file(path_item*    src_file,
+              path_item*    dest_file,
+              size_t        blocksize,
+              int           rank,
+              SyndataBufPtr synbuf)
 {
     //take a src, dest, offset and length. Copy the file and return 0 on success, -1 on failure
     //MPI_Status status;
-    int rc;
-    size_t completed = 0;
-    char *buf = '\0';
-    char errormsg[MESSAGESIZE];
-    //FILE *src_fd, *dest_fd;
-    int flags;
-    //MPI_File src_fd, dest_fd;
-    int src_fd, dest_fd = -1;
-    off_t offset = src_file.offset;
-    size_t length = src_file.length;
+    int         rc;
+    size_t      completed = 0;
+    char *      buf = '\0';
+    char        errormsg[MESSAGESIZE];
+    //FILE *src_fd;
+    //FILE *dest_fd;
+    int         flags;
+    //MPI_File src_fd;
+    //MPI_File dest_fd;
+    int         src_fd;
+    int         dest_fd = -1;
+    off_t       offset = src_file->offset;
+    size_t      length = src_file->length;
+
 #ifdef PLFS
-    int pid = getpid();
-    Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
+    int         pid = getpid();
+    Plfs_fd *   plfs_src_fd = NULL;
+    Plfs_fd *   plfs_dest_fd = NULL;
 #endif
-    size_t bytes_processed;
+    ssize_t     bytes_processed;
+
     //symlink
-    char link_path[PATHSIZE_PLUS];
-    int numchars;
+    char        link_path[PATHSIZE_PLUS];
+    int         numchars;
 
     //can't be const for MPI_IO
-    if (S_ISLNK(src_file.st.st_mode)) {
-        numchars = readlink(src_file.path, link_path, PATHSIZE_PLUS);
+    if (S_ISLNK(src_file->st.st_mode)) {
+
+        numchars = readlink(src_file->path, link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
-            sprintf(errormsg, "Failed to read link %s", src_file.path);
+            sprintf(errormsg, "Failed to read link %s", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        rc = symlink(link_path,dest_file.path);
+
+        rc = symlink(link_path,dest_file->path);
         if (rc < 0) {
-            sprintf(errormsg, "Failed to create symlink %s -> %s", dest_file.path, link_path);
+            sprintf(errormsg, "Failed to create symlink %s -> %s", dest_file->path, link_path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
+
         if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
         return 0;
     }
-    //a file less then 1 MB
+
+    //a file less than 1 MB
     if (length < blocksize) {
         blocksize = length;
     }
     buf = (char*)malloc(blocksize * sizeof(char));
     memset(buf, '\0', blocksize);
+
+    // OPEN source for reading (binary mode)
+    //
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
-    //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
+
 #ifdef GEN_SYNDATA
-    if(!syndataExists(synbuf)) {
+    if (!syndataExists(synbuf)) {
 #endif
+
 #ifdef PLFS
-        if (src_file.ftype == PLFSFILE){
-            src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
+        if (src_file->ftype == PLFSFILE){
+            src_fd = plfs_open(&plfs_src_fd, src_file->path, O_RDONLY, pid+rank, src_file->st.st_mode, NULL);
         }
         else {
 #endif
-            src_fd = open(src_file.path, O_RDONLY);
+            src_fd = open(src_file->path, O_RDONLY);
 #ifdef PLFS
         }
 #endif
         if (src_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for read", src_file.path);
+            sprintf(errormsg, "Failed to open file %s for read", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -501,74 +553,99 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     }
 #endif
 
-    //first create a file and open it for appending (file doesn't exist)
+    // OPEN destination for writing
+    //
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
-    if ((src_file.st.st_size == length && offset == 0) || strncmp(dest_file.fstype,"panfs",5)) {	// no chunking or not writing to PANFS - cds 6/2014
+
+    // create appropriate flags
+    if ((src_file->st.st_size == length && offset == 0) || (dest_file->fstype == PAN_FS)) {
+       // no chunking or not writing to PANFS - cds 6/2014
        flags = O_WRONLY | O_CREAT;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT", dest_file.fstype);
+       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT", dest_file->fstype_to_str());
     }
-    else {												// Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
+    else {
+       // Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE", dest_file.fstype);
+       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE", dest_file->fstype_to_str());
     }
+
+    // do the open
 #ifdef PLFS
-    if (src_file.desttype == PLFSFILE){
-        dest_fd = plfs_open(&plfs_dest_fd, dest_file.path, flags, pid+rank, src_file.st.st_mode, NULL);
+    if (src_file->dest_ftype == PLFSFILE){
+        dest_fd = plfs_open(&plfs_dest_fd, dest_file->path, flags, pid+rank, src_file->st.st_mode, NULL);
     }
     else{
 #endif
-       	dest_fd = open(dest_file.path, flags, 0600);
+         // dest_fd = open(dest_file->path, flags, 0600);  // 0600 not portable?
+         dest_fd = open(dest_file->path, flags, (S_IRUSR | S_IWUSR));
 #ifdef PLFS
     }
 #endif
     if (dest_fd < 0) {
-        sprintf(errormsg, "Failed to open file %s for write (errno = %d)", dest_file.path, errno);
+        sprintf(errormsg, "Failed to open file %s for write (errno = %d)", dest_file->path, errno);
         errsend(NONFATAL, errormsg);
         return -1;
     }
 
+    // copy contents from source to destination
     while (completed != length) {
+
         //1 MB is too big
         if ((length - completed) < blocksize) {
             blocksize = (length - completed);
         }
-        //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
         memset(buf, '\0', blocksize);
+
+
+        // READ data from source (or generate it synthetically)
+        //
+        //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
+
 #ifdef GEN_SYNDATA
-        if(!syndataExists(synbuf)) {
+        if (syndataExists(synbuf)) {
+           int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
+
+           if(bytes_processed = syndataFill(synbuf,buf,buflen)) {
+              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", bytes_processed);
+              errsend(NONFATAL, errormsg);
+              return -1;
+           }
+           bytes_processed = buflen;				// On a successful call to syndataFill(), bytes_processed equals 0
+        }
+        else {
 #endif
+
 #ifdef PLFS
-           if (src_file.ftype == PLFSFILE) {
-               bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
+           if (src_file->ftype == PLFSFILE) {
+              // ported to PLFS 2.5
+              /// bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
+              plfs_error_t err = plfs_read(plfs_src_fd, buf, blocksize, completed+offset, &bytes_processed);
            }
            else {
 #endif
-               bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+              bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
 #ifdef PLFS
            }
 #endif
 #ifdef GEN_SYNDATA
         }
-        else {
-	    int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
-
-            if(bytes_processed = syndataFill(synbuf,buf,buflen)) {
-               sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", bytes_processed);
-               errsend(NONFATAL, errormsg);
-	       return -1;
-	    }
-	    bytes_processed = buflen;				// On a successful call to syndataFill(), bytes_processed equals 0
-        }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %ld bytes instead of %zd", src_file.path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: Read %ld bytes instead of %zd", src_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
+
+
+        // WRITE data to destination
+        //
         //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
+
 #ifdef PLFS
-        if (src_file.desttype == PLFSFILE) {
-            bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
+        if (src_file->dest_ftype == PLFSFILE) {
+           // ported to PLFS 2.5
+           /// bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
+           plfs_error_t err = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid, &bytes_processed);
         }
         else {
 #endif
@@ -577,50 +654,66 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
 #endif
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: write %ld bytes instead of %zd", dest_file.path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: write %ld bytes instead of %zd", dest_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         completed += blocksize;
     }
+
+
+    // CLOSE source and destination
+
 #ifdef GEN_SYNDATA
     if(!syndataExists(synbuf)) {
 #endif
+
 #ifdef PLFS
-       if (src_file.ftype == PLFSFILE) {
-           rc = plfs_close(plfs_src_fd, pid+rank, src_file.st.st_uid, O_RDONLY, NULL);
+       if (src_file->ftype == PLFSFILE) {
+           // ported to PLFS 2.5
+           /// rc = plfs_close(plfs_src_fd, pid+rank, src_file->st.st_uid, O_RDONLY, NULL);
+           int num_ref;
+           rc = plfs_close(plfs_src_fd, pid+rank, src_file->st.st_uid, O_RDONLY, NULL, &num_ref);
        }
        else {
 #endif
            rc = close(src_fd);
            if (rc != 0) {
-               sprintf(errormsg, "Failed to close file: %s", src_file.path);
+               sprintf(errormsg, "Failed to close file: %s", src_file->path);
                errsend(NONFATAL, errormsg);
                return -1;
            }
 #ifdef PLFS
        }
 #endif
+
 #ifdef GEN_SYNDATA
     }
 #endif
+
+
+
 #ifdef PLFS
-    if (src_file.desttype == PLFSFILE) {
-        rc = plfs_close(plfs_dest_fd, pid+rank, src_file.st.st_uid, flags, NULL);
+    if (src_file->dest_ftype == PLFSFILE) {
+       // ported to PLFS 2.5
+       /// rc = plfs_close(plfs_dest_fd, pid+rank, src_file->st.st_uid, flags, NULL);
+       int num_ref;
+       rc = plfs_close(plfs_dest_fd, pid+rank, src_file->st.st_uid, flags, NULL, &num_ref);
     }
     else {
 #endif
         rc = close(dest_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file.path);
+            sprintf(errormsg, "Failed to close file: %s", dest_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
 #ifdef PLFS
     }
 #endif
+
     free(buf);
-    if (offset == 0 && length == src_file.st.st_size) {
+    if (offset == 0 && length == src_file->st.st_size) {
         if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
@@ -629,40 +722,46 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 }
 
 
-int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only) {
-    struct stat dest_st;
-    size_t completed = 0;
-    char *ibuf;
-    char *obuf;
-    int src_fd, dest_fd;
-    size_t bytes_processed;
-    char errormsg[MESSAGESIZE];
-    int rc;
-    int crc;
-    off_t offset = src_file.offset;
-    size_t length = src_file.length;
+int compare_file(path_item*  src_file,
+                 path_item*  dest_file,
+                 size_t      blocksize,
+                 int         meta_data_only) {
 
-    // dest doesn't exist
+    struct stat  dest_st;
+    size_t       completed = 0;
+    char*        ibuf;
+    char*        obuf;
+    int          src_fd;
+    int          dest_fd;
+    size_t       bytes_processed;
+    char         errormsg[MESSAGESIZE];
+    int          rc;
+    int          crc;
+    off_t        offset = src_file->offset;
+    size_t       length = src_file->length;
+
+    // assure dest exists
 #ifdef FUSE_CHUNKER
-    if (dest_file.ftype == FUSEFILE){
-      if (stat(dest_file.path, &dest_st) == -1){
+    if (dest_file->ftype == FUSEFILE){
+      if (stat(dest_file->path, &dest_st) == -1){
         return 2;
       }
     }
     else{
 #endif
-      if (lstat(dest_file.path, &dest_st) == -1) {
+      // WHY NO PLFS CASE HERE?
+      if (lstat(dest_file->path, &dest_st) == -1) {
           return 2;
       }
 #ifdef FUSE_CHUNKER
     }
 #endif
-    if (src_file.st.st_size == dest_st.st_size &&
-            (src_file.st.st_mtime == dest_st.st_mtime  ||
-             S_ISLNK(src_file.st.st_mode))&&
-            src_file.st.st_mode == dest_st.st_mode &&
-            src_file.st.st_uid == dest_st.st_uid &&
-            src_file.st.st_gid == dest_st.st_gid) {
+    if (src_file->st.st_size == dest_st.st_size &&
+            (src_file->st.st_mtime == dest_st.st_mtime  ||
+             S_ISLNK(src_file->st.st_mode))&&
+            src_file->st.st_mode == dest_st.st_mode &&
+            src_file->st.st_uid == dest_st.st_uid &&
+            src_file->st.st_gid == dest_st.st_gid) {
         //metadata compare
         if (meta_data_only) {
             return 0;
@@ -670,23 +769,23 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
         //byte compare
         ibuf = (char*)malloc(blocksize * sizeof(char));
         obuf = (char*)malloc(blocksize * sizeof(char));
-        src_fd = open(src_file.path, O_RDONLY);
+        src_fd = open(src_file->path, O_RDONLY);
         if (src_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare source", src_file.path);
+            sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        dest_fd = open(dest_file.path, O_RDONLY);
+        dest_fd = open(dest_file->path, O_RDONLY);
         if (dest_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file.path);
+            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
-        //incase someone accidently set and offset+length that exceeds the file bounds
-        if ((src_file.st.st_size - offset) < length) {
-            length = src_file.st.st_size - offset;
+        //incase someone accidently set an offset+length that exceeds the file bounds
+        if ((src_file->st.st_size - offset) < length) {
+            length = src_file->st.st_size - offset;
         }
-        //a file less then blocksize
+        //a file less than blocksize
         if (length < blocksize) {
             blocksize = length;
         }
@@ -700,13 +799,13 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
             }
             bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", src_file.path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", src_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
             bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", dest_file.path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", dest_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
@@ -720,13 +819,13 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
         }
         rc = close(src_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", src_file.path);
+            sprintf(errormsg, "Failed to close file: %s", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         rc = close(dest_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file.path);
+            sprintf(errormsg, "Failed to close file: %s", dest_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -745,64 +844,68 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
     return 0;
 }
 
-int update_stats(path_item src_file, path_item dest_file) {
-    int rc;
-    char errormsg[MESSAGESIZE];
-    int mode;
+// make <dest_file> have the same meta-data as <src_file>
+int update_stats(path_item*  src_file,
+                 path_item*  dest_file) {
+
+    int            rc;
+    char           errormsg[MESSAGESIZE];
+    int            mode;
     struct utimbuf ut;
+
 #ifdef PLFS
-    if (src_file.desttype == PLFSFILE){
-        rc = plfs_chown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+    if (src_file->dest_ftype == PLFSFILE){
+        rc = plfs_chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
     }
     else{
 #endif
-        rc = lchown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+        rc = lchown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
 #ifdef PLFS
     }   
 #endif
     if (rc != 0) {
-        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d", dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
         errsend(NONFATAL, errormsg);
     }
-    if (!S_ISLNK(src_file.st.st_mode)) {
+    if (!S_ISLNK(src_file->st.st_mode)) {
 #ifdef FUSE_CHUNKER
-        if (src_file.desttype == FUSEFILE){
-            rc = chown(dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+        if (src_file->dest_ftype == FUSEFILE){
+            rc = chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
             if (rc != 0) {
-                sprintf(errormsg, "Failed to change ownership of fuse chunked file: %s to %d:%d", dest_file.path, src_file.st.st_uid, src_file.st.st_gid);
+                sprintf(errormsg, "Failed to change ownership of fuse chunked file: %s to %d:%d", dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
                 errsend(NONFATAL, errormsg);
             }
         }
 #endif
-        mode = src_file.st.st_mode & 07777;
+        mode = src_file->st.st_mode & 07777;
 #ifdef PLFS
-        if (src_file.desttype == PLFSFILE){
-            rc = plfs_chmod(dest_file.path, mode);
+        if (src_file->dest_ftype == PLFSFILE){
+            rc = plfs_chmod(dest_file->path, mode);
         }
         else{
 #endif
-            rc = chmod(dest_file.path, mode);
+            rc = chmod(dest_file->path, mode);
 #ifdef PLFS
         }
 #endif
         if (rc != 0) {
-            sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file.path, mode);
+            sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file->path, mode);
             errsend(NONFATAL, errormsg);
         }
-        ut.actime = src_file.st.st_atime;
-        ut.modtime = src_file.st.st_mtime;
+        ut.actime = src_file->st.st_atime;
+        ut.modtime = src_file->st.st_mtime;
 #ifdef PLFS
-        if (src_file.desttype == PLFSFILE){
-            rc = plfs_utime(dest_file.path, &ut);
+        if (src_file->dest_ftype == PLFSFILE){
+            rc = plfs_utime(dest_file->path, &ut);
         }
         else{
 #endif
-            rc = utime(dest_file.path, &ut);
+            rc = utime(dest_file->path, &ut);
 #ifdef PLFS
         }
 #endif
         if (rc != 0) {
-            sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file.path);
+            sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file->path);
             errsend(NONFATAL, errormsg);
         }
     }
@@ -834,6 +937,7 @@ void send_command(int target_rank, int type_cmd) {
 }
 
 
+// This is unused (?)
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count) {
     int path_count = 0, position = 0;
     int worksize, workcount;
@@ -865,16 +969,18 @@ void send_path_list(int target_rank, int command, int num_send, path_list **list
 }
 
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count) {
-    int i;
-    int position = 0;
-    int worksize;
-    char *workbuf;
-    path_item work_node;
+    int         i;
+    int         position = 0;
+    int         worksize;
+    char*       workbuf;
+    path_item   work_node;
+    path_item*  work_node_ptr;  /* avoid unnecessary copying */
+
     worksize = *buffer_count * sizeof(path_item);
     workbuf = (char *) malloc(worksize * sizeof(char));
     for (i = 0; i < *buffer_count; i++) {
-        work_node = buffer[i];
-        MPI_Pack(&work_node, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+        work_node_ptr = &buffer[i];
+        MPI_Pack(work_node_ptr, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
     }
     send_command(target_rank, command);
     if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -992,7 +1098,7 @@ void update_chunk(path_item *buffer, int *buffer_count) {
     send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
 }
 
-void write_output(char *message, int log) {
+void write_output(const char *message, int log) {
     //write a single line using the outputproc
     //set the command type
     if (log == 0) {
@@ -1002,7 +1108,7 @@ void write_output(char *message, int log) {
         send_command(OUTPUT_PROC, LOGCMD);
     }
     //send the message
-    if (MPI_Send(message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+    if (MPI_Send((void*)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
@@ -1059,17 +1165,9 @@ void send_worker_exit(int target_rank) {
 }
 
 
-//functions that use workers
-void errsend(int fatal, const char *error_text) {
-    //send an error message to the outputproc. Die if fatal.
-    char errormsg[MESSAGESIZE];
-    if (fatal) {
-        snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n",error_text);
-    }
-    else {
-        snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n",error_text);
-    }
+static void errsend_internal(int fatal, const char* errormsg) {
     write_output(errormsg, 1);
+
     if (fatal) {
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
@@ -1078,8 +1176,41 @@ void errsend(int fatal, const char *error_text) {
     }
 }
 
+//functions that workers use
+void errsend(int fatal, const char *error_text) {
+    //send an error message to the outputproc. Die if fatal.
+    char errormsg[MESSAGESIZE];
+
+    if (fatal)
+       snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n", error_text);
+    else
+       snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
+
+    errsend_internal(fatal, errormsg);
+}
+
+// This allows caller to use inline formatting, without first snprintf() to
+// a local errmsg-buffer.  Like so:
+//
+//    errsend_fmt(nonfatal, "rank %d hello!", rank);
+//
+void errsend_fmt(int fatal, const char* format, ...) {
+   char     errormsg[MESSAGESIZE];
+   va_list  args;
+
+   snprintf(errormsg, MESSAGESIZE, "ERROR %sFATAL: ", (fatal ? "" : "NON"));
+   size_t offset = strlen(errormsg);
+
+   va_start(args, format);
+   vsnprintf(errormsg+offset, MESSAGESIZE-offset, format, args);
+   va_end(args);
+
+   errsend_internal(fatal, errormsg);
+}
+
+
 #ifdef FUSE_CHUNKER
-int is_fuse_chunk(const char *path, struct options o) {
+int is_fuse_chunk(const char *path, struct options& o) {
   if (path && strstr(path, o.fuse_path)){
     return 1;
   } 
@@ -1111,6 +1242,7 @@ void set_fuse_chunk_data(path_item *work_node) {
         strtok(NULL, delimiters);
     }
     length = atoll(strtok(NULL, delimiters));
+    free(current);
     work_node->offset = 0;
     work_node->length = length;
 }
@@ -1162,7 +1294,10 @@ int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct ut
 #endif
 
 
-void get_stat_fs_info(const char *path, int *fs) {
+// <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, the nitialize
+// <fs> to match the type of <path>.  Otherwise, call it ANYFS.
+void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
+
 #ifdef HAVE_SYS_VFS_H
     struct stat st;
     struct statfs stfs;
@@ -1170,15 +1305,19 @@ void get_stat_fs_info(const char *path, int *fs) {
     int rc;
     char use_path[PATHSIZE_PLUS];
     strncpy(use_path, path, PATHSIZE_PLUS);
+
+    // look at <path>, or, if that fails, look at dirname(<path>)
     rc = lstat(use_path, &st);
     if (rc < 0) {
-        strcpy(use_path, dirname(strdup(path)));
+        strcpy(use_path, dirname(use_path));
         rc = lstat(use_path, &st);
         if (rc < 0) {
-            fprintf(stderr, "Failed to stat path %s\n", path);
+            fprintf(stderr, "Failed to lstat path %s\n", path);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
+
+    //if the thing we're looking at isn't link, run statfs() on it.
     if (!S_ISLNK(st.st_mode)) {
         if (statfs(use_path, &stfs) < 0) {
             snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
@@ -1190,18 +1329,18 @@ void get_stat_fs_info(const char *path, int *fs) {
         else if (stfs.f_type == PANFS_FILE) {
             *fs = PANASASFS;
         }
-#ifdef FUSE_CHUNKER
+# ifdef FUSE_CHUNKER
         else if (stfs.f_type == FUSE_SUPER_MAGIC) {
             //fuse file
             *fs = GPFSFS;
         }
-#endif
+# endif
         else {
             *fs = ANYFS;
         }
     }
     else {
-        //symlink
+        //symlink assumed to be GPFS
         *fs = GPFSFS;
     }
 #else
@@ -1235,7 +1374,7 @@ int processing_complete(int *proc_status, int nproc) {
 //Queue Function Definitions
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     //stick a path on the end of the queue
-   path_list *new_node = (path_list*)malloc(sizeof(path_list));
+    path_list *new_node = (path_list*)malloc(sizeof(path_list));
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
     new_node->next = NULL;
     if (*head == NULL) {
@@ -1254,7 +1393,6 @@ void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     }*/
     *count += 1;
 }
-
 
 void print_queue_path(path_list *head) {
     //print the entire queue
@@ -1275,9 +1413,11 @@ void delete_queue_path(path_list **head, int *count) {
     *count = 0;
 }
 
+
+
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     //enqueue a node using an existing node (does a new allocate, but allows us to pass nodes instead of paths)
-   path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+    path_list *temp_node = (path_list*)malloc(sizeof(path_list));
     temp_node->data = new_node->data;
     temp_node->next = NULL;
     if (*head == NULL) {
@@ -1291,7 +1431,6 @@ void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *
     *count += 1;
 }
 
-
 void dequeue_node(path_list **head, path_list **tail, int *count) {
     //remove a path from the front of the queue
     path_list *temp_node = *head;
@@ -1302,6 +1441,7 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
     free(temp_node);
     *count -= 1;
 }
+
 
 
 void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
@@ -1345,17 +1485,18 @@ void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
 }
 
 void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize) {
-    path_list *iter = head;
-    int position;
-    char *buffer;
-    int buffer_size = 0;
-    int worksize;
-    worksize = sizeof(path_item) * MESSAGEBUFFER;
-    buffer = (char *)malloc(worksize);
+    int         position;
+    char*       buffer;
+    int         buffer_size = 0;
+    int         worksize;
+    path_list*  iter;
+
+    worksize = MESSAGEBUFFER * sizeof(path_item);
+    buffer   = (char *)malloc(worksize);
     position = 0;
-    while (iter != NULL) {
+
+    for (iter=head; iter!=NULL; iter=iter->next) {
         MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
-        iter = iter->next;
         buffer_size++;
         if (buffer_size % MESSAGEBUFFER == 0) {
             enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);

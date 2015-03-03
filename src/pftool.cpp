@@ -1,4 +1,4 @@
-// -*- mode: c; c-basic-offset: 4 -*-
+// -*- mode: c++; c-basic-offset: 4 -*-
 /*
 *This material was prepared by the Los Alamos National Security, LLC (LANS) under
 *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
@@ -20,13 +20,13 @@
 #include <time.h>
 #include <syslog.h>
 
-// include that is associated with pftool itself
 #include "pftool.h"
+#include "Path.h"
 
 #ifdef THREADS_ONLY
-#define MPI_Abort MPY_Abort
-#define MPI_Pack MPY_Pack
-#define MPI_Unpack MPY_Unpack
+#  define MPI_Abort  MPY_Abort
+#  define MPI_Pack   MPY_Pack
+#  define MPI_Unpack MPY_Unpack
 #endif
 
 
@@ -53,6 +53,15 @@ int main(int argc, char *argv[]) {
     char dest_path[PATHSIZE_PLUS];
     struct stat dest_stat;
     int statrc;
+
+#ifdef S3
+    // aws_init() (actually, curl_global_init()) is supposed to be done
+    // before *any* threads are created.  Could MPI_Init() create threads
+    // (or call multi-threaded libraries)?  We'll assume so.
+    AWS4C_CHECK( aws_init() );
+    s3_enable_EMC_extensions(1);
+#endif
+
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
         fprintf(stderr, "Error in MPI_Init\n");
         return -1;
@@ -77,7 +86,7 @@ int main(int argc, char *argv[]) {
         o.recurse = 0;
         o.logging = 0;
         o.meta_data_only = 1;
-        strncpy(o.dest_fstype, "Unknown", 128);
+        o.dest_fstype = UNKNOWN_FS;
         strncpy(o.jid, "TestJob", 128);
         o.parallel_dest = 0;
         o.blocksize = (1024 * 1024);
@@ -121,9 +130,11 @@ int main(int argc, char *argv[]) {
                 strncpy(o.jid, optarg, 128);
                 break;
             case 't':
-                strncpy(o.dest_fstype, optarg, 128);
+                o.dest_fstype = Path::parse_fstype(optarg);
                 break;
             case 'w':
+                // this is <WorkType>, from pfutils.h
+                // 0 = copy, 1 = list, 2 = compare
                 o.work_type = atoi(optarg);
                 break;
             case 'i':
@@ -144,7 +155,7 @@ int main(int argc, char *argv[]) {
 #ifdef GEN_SYNDATA
                 strncpy(o.syn_pattern, optarg, 128);
 #else
-                errsend(NONFATAL,"-X not recognized by this version of PFTOOL");
+                errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
 #endif
                 break;
 
@@ -152,7 +163,7 @@ int main(int argc, char *argv[]) {
 #ifdef GEN_SYNDATA
                 o.syn_size = str2Size(optarg);
 #else
-                errsend(NONFATAL,"-x not recognized by this version of PFTOOL");
+                errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
 #endif
                 break;
 
@@ -184,12 +195,11 @@ int main(int argc, char *argv[]) {
             case 'n':
                 //different
                 o.different = 1;  // falls through ... on purpose?
+
             case 'r':
-                //Recurse
                 o.recurse = 1;
                 break;
             case 'l':
-                //logging
                 o.logging = 1;
                 break;
             case 'P':
@@ -214,15 +224,21 @@ int main(int argc, char *argv[]) {
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
+
     if (o.verbose && (rank == MANAGER_PROC)) {
         printf("ranks = %d\n", nproc);
+    }
+    // assure the minimal number of ranks exist
+    if (nproc <= START_PROC) {
+        fprintf(stderr, "Requires at least %d ranks\n", START_PROC +1);
+        return -1;
     }
 
     //broadcast all the options
     MPI_Bcast(&o.verbose, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.recurse, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.logging, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-    MPI_Bcast(&o.dest_fstype, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.dest_fstype, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
@@ -252,6 +268,12 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.syn_size, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #endif
 
+
+    // Path factory might want to use some of these fields.
+    // TBD: Maybe we also want the src files processed via enqueue_path(), below.
+    // 
+    PathFactory::initialize(&o, rank, src_path, dest_path);
+
     // providing multiple '-v' args on the command line increases the value
     // of o.verbose.  Any non-zero value turns on verbosity.  However, if
     // o.verbose > 1, we also sleep for 5 seconds here.  That allows a user
@@ -278,6 +300,11 @@ int main(int argc, char *argv[]) {
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
         }
+        if ((optind < argc) && (o.use_file_list)) { // only one of them is enqueued, below
+            printf("Provided sources via '-i' and on the command-line\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
 
         //process remaining optind for * and multiple src files
         // stick them on the input_queue
@@ -298,6 +325,9 @@ int main(int argc, char *argv[]) {
         manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
     }
     else {
+        // one of these workers is the OUTPUT_PROC.  Wouldn't it make sense
+        // for him to sit out the worker() task?  Otherwise we deadlock if
+        // we use errsend() when he's e.g. doing a Bcast, as a worker.
         worker(rank, o);
     }
 
@@ -308,45 +338,70 @@ int main(int argc, char *argv[]) {
 }
 
 
-void manager(int rank, struct options o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path) {
-    MPI_Status status;
+void manager(int             rank,
+             struct options& o,
+             int             nproc,
+             path_list*      input_queue_head,
+             path_list*      input_queue_tail,
+             int             input_queue_count,
+             const char*     dest_path) {
+
+    MPI_Status  status;
 
 #ifndef THREADS_ONLY
-    int message_ready = 0, probecount = 0;
-    int prc;
+    int         message_ready = 0;
+    int         probecount = 0;
+    int         prc;
 #endif
 
-    int type_cmd;
-    int work_rank, sending_rank;
-    int i;
-    int *proc_status;
-    struct timeval in, out;
-    int non_fatal = 0, examined_file_count = 0, examined_dir_count = 0;
-    size_t examined_byte_count = 0;
+    int         type_cmd;
+    int         work_rank;
+    int         sending_rank;
+    int         i;
+    int*        proc_status;
 
+    struct timeval in;
+    struct timeval out;
+
+    int         non_fatal = 0;
+
+    int         examined_file_count = 0;
+    int         examined_dir_count = 0;
+    size_t      examined_byte_count = 0;
 #ifdef TAPE
-    int examined_tape_count = 0;
-    size_t examined_tape_byte_count = 0;
+    int         examined_tape_count = 0;
+    size_t      examined_tape_byte_count = 0;
 #endif
 
-    int makedir = 0;
-    char message[MESSAGESIZE], errmsg[MESSAGESIZE];
-    char base_path[PATHSIZE_PLUS], temp_path[PATHSIZE_PLUS];
+    char        message[MESSAGESIZE];
+    char        errmsg[MESSAGESIZE];
+    char        base_path[PATHSIZE_PLUS];
+    char        temp_path[PATHSIZE_PLUS];
+
     struct stat st;
-    path_item beginning_node, dest_node;
-    path_list *iter = NULL;
-    int  num_copied_files = 0;
-    size_t num_copied_bytes = 0;
-    work_buf_list *stat_buf_list = NULL, *process_buf_list = NULL, *dir_buf_list = NULL;
-    int stat_buf_list_size = 0, process_buf_list_size = 0, dir_buf_list_size = 0;
 
+    path_item   beginning_node;
+    path_item   dest_node;
+    path_list*  iter = NULL;
+    int         num_copied_files = 0;
+    size_t      num_copied_bytes = 0;
+
+    work_buf_list* stat_buf_list      = NULL;
+    int            stat_buf_list_size = 0;
+
+    work_buf_list* process_buf_list   = NULL;
+    int            process_buf_list_size = 0;
+
+    work_buf_list* dir_buf_list       = NULL;
+    int            dir_buf_list_size  = 0;
 #ifdef TAPE
-    work_buf_list *tape_buf_list = NULL;
-    int tape_buf_list_size = 0;
+    work_buf_list* tape_buf_list      = NULL;
+    int            tape_buf_list_size = 0;
 #endif
 
-    int mpi_ret_code, rc;
-    int start = 1;
+    int         mpi_ret_code;
+    int         rc;
+    int         start = 1;
 
     //path stuff
     int wildcard = 0;
@@ -355,32 +410,64 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
 
     //make directories if it's a copy job
+    int makedir = 0;
     if (o.work_type == COPYWORK) {
         makedir = 1;
     }
+
     if (!o.use_file_list) { // If not using a file list -> broadcast the destination path
         //setup paths
         strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
-        strncpy(base_path, get_base_path(beginning_node.path, wildcard), PATHSIZE_PLUS);
+        get_base_path(base_path, &beginning_node, wildcard);
         if (o.work_type != LSWORK) {
 
-            //need to stat_item sooner, we're doing a mkdir we shouldn't be here.
+            //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
             rc = stat_item(&beginning_node, o);
-            get_dest_path(beginning_node, dest_path, &dest_node, makedir, input_queue_count, o);
+            get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
             rc = stat_item(&dest_node, o);
 
             if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
-#ifdef PLFS
-                if (dest_node.ftype == PLFSFILE){
-                    plfs_mkdir(dest_node.path, S_IRWXU);
-                }
-                else {
-#endif
-                    mkdir(dest_node.path, S_IRWXU);
-#ifdef PLFS
-                }
-#endif
-                rc = stat_item(&dest_node, o);
+                /// #ifdef PLFS
+                ///                 if (dest_node.ftype == PLFSFILE){
+                ///                     plfs_mkdir(dest_node.path, S_IRWXU);
+                ///                 }
+                ///                 else {
+                /// #endif
+                ///                     mkdir(dest_node.path, S_IRWXU);
+                /// #ifdef PLFS
+                ///                 }
+                /// #endif
+                ///                 rc = stat_item(&dest_node, o);
+
+
+                // Oops.  If we errsend anything here, we'll deadlock on
+                // the other procs that are waiting at the Bcast().  That's
+                // because there's a problem witht he way OUTPUT_PROC is
+                // used.  Either the errsend() functions should send
+                // asynchronously, or OUTPUT_PROC should run a special
+                // process (other than worker()), so that it does nothing
+                // but synchronous recevs of diagnostic messages OUTCMD and
+                // LOGCMD.
+
+                // errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n", dest_node.path, dest_path);
+                fprintf(stderr, "Debugging: dest_node '%s' -> dest_path '%s'\n", dest_node.path, dest_path);
+                PathPtr p(PathFactory::create_shallow(&dest_node));
+                // errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
+                fprintf(stderr, "Debugging: Path subclass is '%s'\n", p->class_name().get());
+
+                p->mkdir(S_IRWXU);
+                // errsend_fmt(NONFATAL, "Debugging: created '%s'\n", p->path());
+                fprintf(stderr, "Debugging: created '%s'\n", p->path());
+
+                // TBD: Remove this.  This is just for now, because most of
+                // pftool still just looks at naked stat structs, inside
+                // Path objects.  Ours hasn't been initialized yet.  If you
+                // ask for any stat-related info from the Path object, it
+                // would do a stat before answering.  But if you just go
+                // look at the raw struct, e.g. with S_ISDIR(st.st_mode),
+                // you'll be looking at all zeros, and you'll think it
+                // isn't a directory.
+                p->probe();
             }
 
             //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
@@ -395,10 +482,15 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             errsend(FATAL, "Failed to Bcast base_path");
         }
     }
-    iter = input_queue_head;				// Make sure there are no multiple roots for a recursive operation
+
+    // Make sure there are no multiple roots for a recursive operation
+    // (because we assume we can use base_path to generate all destination paths?)
+    iter = input_queue_head;
     if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1 && o.work_type != LSWORK) {
+        char iter_base_path[PATHSIZE_PLUS];
         while (iter != NULL) {
-            if (strncmp(get_base_path(iter->data.path, wildcard), base_path, PATHSIZE_PLUS) != 0) {
+            get_base_path(iter_base_path, &(iter->data), wildcard);
+            if (strncmp(iter_base_path, base_path, PATHSIZE_PLUS) != 0) {
                 errsend(FATAL, "All sources for a recursive operation must be contained within the same directory.");
             }
             iter = iter->next;
@@ -406,10 +498,14 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     }
 
     //quick check that source is not nested
-    strncpy(temp_path, dirname(strdup(dest_path)), PATHSIZE_PLUS);
+    char* copy = strdup(dest_path);
+    strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
+    free(copy);
     rc = stat(temp_path, &st);
     if (rc < 0) {
-        snprintf(errmsg, MESSAGESIZE, "%s: No such file or directory", dest_path);
+        char err_cause[MESSAGESIZE];
+        strerror_r(errno, err_cause, MESSAGESIZE);
+        snprintf(errmsg, MESSAGESIZE, "%s: %s", dest_path, err_cause);
         errsend(FATAL, errmsg);
     }
 
@@ -417,7 +513,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_size);
     delete_queue_path(&input_queue_head, &input_queue_count);
 
-    //proc stuff
+    //allocate a vector to hold proc status for every proc
     proc_status = (int*)malloc(nproc * sizeof(int));
 
     //initialize proc_status
@@ -435,6 +531,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     //this is how we start the whole thing
     proc_status[START_PROC] = 1;
     send_worker_readdir(START_PROC, &dir_buf_list, &dir_buf_list_size);
+
+    // process responses from workers
     while (1) {
 
         //poll for message
@@ -461,29 +559,30 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
                     PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status[i]);
                 }
                 PRINT_PROC_DEBUG("=============\n");
-                //work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                if (((start == 1 || o.recurse) && work_rank != -1 && dir_buf_list_size != 0) ||
-                    (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
-                    proc_status[work_rank] = 1;
-                    send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
-                    start = 0;
+                work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                if (work_rank >= 0) {
+                    if (((start == 1 || o.recurse) && dir_buf_list_size != 0) ||
+                        (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
+                        proc_status[work_rank] = 1;
+                        send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
+                        start = 0;
+                    }
+                    else if (!o.recurse) {
+                        delete_buf_list(&dir_buf_list, &dir_buf_list_size);
+                    }
                 }
-                else if (!o.recurse) {
-                    delete_buf_list(&dir_buf_list, &dir_buf_list_size);
-                }
-                //handle tape
 #ifdef TAPE
-                work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                if (work_rank > -1 && tape_buf_list_size > 0) {
+                //handle tape
+                work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                if (work_rank >= 0 && tape_buf_list_size > 0) {
                     proc_status[work_rank] = 1;
                     send_worker_tape_path(work_rank, &tape_buf_list, &tape_buf_list_size);
                 }
 #endif
                 if (o.work_type == COPYWORK) {
                     for (i = 0; i < 3; i ++) {
-                        work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                        if (work_rank > -1 && process_buf_list_size > 0) {
+                        work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                        if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank] = 1;
                             send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_size);
                         }
@@ -491,8 +590,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
                 }
                 else if (o.work_type == COMPAREWORK) {
                     for (i = 0; i < 3; i ++) {
-                        work_rank = get_free_rank(proc_status, 3, nproc - 1);
-                        if (work_rank > -1 && process_buf_list_size > 0) {
+                        work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                        if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank] = 1;
                             send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_size);
                         }
@@ -507,38 +606,53 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
                 }
 #ifndef THREADS_ONLY
             }
+
             //are we finished?
-            if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0) {
+            if (process_buf_list_size == 0 &&
+                stat_buf_list_size == 0 &&
+                dir_buf_list_size == 0 &&
+                processing_complete(proc_status, nproc) == 0) {
                 break;
             }
             usleep(1);
         }
 #endif
-        if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, nproc) == 0) {
+
+        // got a message, or nothing left to do
+        if (process_buf_list_size == 0 &&
+            stat_buf_list_size == 0 &&
+            dir_buf_list_size == 0 &&
+            processing_complete(proc_status, nproc) == 0) {
             break;
         }
-        //grab message type
+
+        // got a message, get message type
         if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
         PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type %d from rank %d\n", rank, type_cmd, sending_rank);
+
         //do operations based on the message
         switch(type_cmd) {
         case WORKDONECMD:
             //worker finished their tasks
             manager_workdone(rank, sending_rank, proc_status);
             break;
+
         case NONFATALINCCMD:
             //non fatal errsend encountered
             non_fatal++;
             break;
+
         case CHUNKBUSYCMD:
             proc_status[ACCUM_PROC] = 1;
             break;
+
         case COPYSTATSCMD:
             manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
             break;
+
         case EXAMINEDSTATSCMD:
             manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count);
             break;
@@ -550,6 +664,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         case PROCESSCMD:
             manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
             break;
+
         case DIRCMD:
             manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
             break;
@@ -564,9 +679,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         case INPUTCMD:
             manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_size);
             break;
+
         case QUEUESIZECMD:
             send_worker_queue_count(sending_rank, stat_buf_list_size);
             break;
+
         default:
             break;
         }
@@ -574,8 +691,11 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
         message_ready = 0;
 #endif
     }
+
+
     gettimeofday(&out, NULL);
     int elapsed_time = out.tv_sec - in.tv_sec;
+
     //Manager is done, cleaning have the other ranks exit
     //make sure there's no pending output
     sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
@@ -596,6 +716,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
 #endif
     sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
     write_output(message, 1);
+
+
     if (o.work_type == COPYWORK) {
         sprintf(message, "INFO  FOOTER   Total Files Copied: %d\n", num_copied_files);
         write_output(message, 1);
@@ -618,6 +740,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             write_output(message, 1);
         }
     }
+
+
     if (elapsed_time == 1) {
         sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
     }
@@ -632,14 +756,16 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     free(proc_status);
 }
 
+// recv <path_count>, then a block of packed data.  Unpack to individual path_items, pushing onto tail of queue
 int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count) {
-    MPI_Status status;
-    int path_count;
-    path_list *work_node = (path_list*)malloc(sizeof(path_list));
-    char path[PATHSIZE_PLUS];
-    char *workbuf;
-    int worksize, position;
-    int i;
+    MPI_Status  status;
+    int         path_count;
+    path_list*  work_node = (path_list*)malloc(sizeof(path_list));
+    char        path[PATHSIZE_PLUS];
+    char *      workbuf;
+    int         worksize;
+    int         position;
+    int         i;
 
     //gather the # of files
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
@@ -647,7 +773,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
         errsend(FATAL, "Failed to receive path_count\n");
     }
     worksize =  path_count * sizeof(path_list);
-    workbuf = (char *) malloc(worksize * sizeof(char));
+    workbuf  = (char *) malloc(worksize * sizeof(char));
 
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
@@ -658,7 +784,8 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     for (i = 0; i < path_count; i++) {
         PRINT_MPI_DEBUG("rank %d: manager_add_paths() Unpacking the work_node from rank %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node->data, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        strncpy(path, work_node->data.path, PATHSIZE_PLUS);
+        // // The following appears to be useless ...
+        // strncpy(path, work_node->data.path, PATHSIZE_PLUS);
         enqueue_node(queue_head, queue_tail, work_node, queue_count);
     }
     free(work_node);
@@ -666,20 +793,23 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     return path_count;
 }
 
+// recv <path_count>, then a block of packed data.  Push block onto a work_buf_list
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize) {
-    MPI_Status status;
-    int path_count;
-    char *workbuf;
-    int worksize;
+    MPI_Status  status;
+    int         path_count;
+    char*       workbuf;
+    int         worksize;
+
     //gather the # of files
-    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
+    PRINT_MPI_DEBUG("rank %d: manager_add_buffs() Receiving path_count from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive path_count\n");
     }
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+
     //gather the path to stat
-    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
+    PRINT_MPI_DEBUG("rank %d: manager_add_buffs() Receiving buff from rank %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
     }
@@ -708,9 +838,10 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, s
 
 void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs) {
     MPI_Status status;
-    int num_files = 0;
-    size_t num_bytes = 0;
-    int num_dirs = 0;
+    int        num_files = 0;
+    size_t     num_bytes = 0;
+    int        num_dirs = 0;
+
     //gather the # of examined files
     PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&num_files, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -751,7 +882,7 @@ void manager_workdone(int rank, int sending_rank, int *proc_status) {
     proc_status[sending_rank] = 0;
 }
 
-void worker(int rank, struct options o) {
+void worker(int rank, struct options& o) {
     MPI_Status status;
     int sending_rank;
     int all_done = 0;
@@ -763,18 +894,21 @@ void worker(int rank, struct options o) {
 #endif
 
     char *output_buffer = (char*)NULL;
-    int type_cmd;
-    int mpi_ret_code;
-    char base_path[PATHSIZE_PLUS];
+    int   type_cmd;
+    int   mpi_ret_code;
+    char  base_path[PATHSIZE_PLUS];
     path_item dest_node;
 
     //variables stored by the 'accumulator' proc
     HASHTBL *chunk_hash;
-    int base_count = 100, hash_count = 0;
+    int base_count = 100;
+    int hash_count = 0;
     int output_count = 0;
+
+
     if (rank == OUTPUT_PROC) {
-        output_buffer = (char *) malloc(MESSAGESIZE*MESSAGEBUFFER*sizeof(char));
-        memset(output_buffer,'\0', sizeof(MESSAGESIZE*MESSAGEBUFFER));
+        output_buffer = (char *) malloc(MESSAGEBUFFER * MESSAGESIZE * sizeof(char));
+        memset(output_buffer, '\0', sizeof(MESSAGEBUFFER * MESSAGESIZE));
     }
     if (rank == ACCUM_PROC) {
         if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
@@ -813,7 +947,7 @@ void worker(int rank, struct options o) {
         }
         sending_rank = status.MPI_SOURCE;
         PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
-        worker_readdir(rank, sending_rank, base_path, dest_node, 1, makedir, o);
+        worker_readdir(rank, sending_rank, base_path, &dest_node, 1, makedir, o);
     }
 
     //change this to get request first, process, then get work
@@ -841,6 +975,7 @@ void worker(int rank, struct options o) {
         }
         sending_rank = status.MPI_SOURCE;
         PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
+
         //do operations based on the message
         switch(type_cmd) {
         case OUTCMD:
@@ -853,32 +988,35 @@ void worker(int rank, struct options o) {
             worker_output(rank, sending_rank, 1, output_buffer, &output_count, o);
             break;
         case UPDCHUNKCMD:
-            worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, dest_node, o);
+            worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, &dest_node, o);
             break;
         case DIRCMD:
-            worker_readdir(rank, sending_rank, base_path, dest_node, 0, makedir, o);
+            worker_readdir(rank, sending_rank, base_path, &dest_node, 0, makedir, o);
             break;
 #ifdef TAPE
         case TAPECMD:
-            worker_taperecall(rank, sending_rank, dest_node, o);
+            worker_taperecall(rank, sending_rank, &dest_node, o);
             break;
 #endif
         case COPYCMD:
-            worker_copylist(rank, sending_rank, base_path, dest_node, o);
+            worker_copylist(rank, sending_rank, base_path, &dest_node, o);
             break;
         case COMPARECMD:
-            worker_comparelist(rank, sending_rank, base_path, dest_node, o);
+            worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
             break;
         case EXITCMD:
             all_done = 1;
             break;
         default:
+            errsend(FATAL, "worker received unrecognized command\n");
             break;
         }
 #ifndef THREADS_ONLY
         message_ready = 0;
 #endif
     }
+
+    // cleanup
     if (rank == ACCUM_PROC) {
         hashtbl_destroy(chunk_hash);
     }
@@ -888,14 +1026,24 @@ void worker(int rank, struct options o) {
     }
 }
 
-void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
-    MPI_Status status;
-    int path_count;
-    path_item work_node, out_node;
-    char *workbuf;
-    int worksize, position;
-    size_t hash_value, chunk_size, new_size;
-    int i;
+void worker_update_chunk(int            rank,
+                         int            sending_rank,
+                         HASHTBL**      chunk_hash,
+                         int*           hash_count,
+                         const char*    base_path,
+                         path_item*     dest_node,
+                         struct options& o) {
+    MPI_Status  status;
+    int         path_count;
+    path_item   work_node;
+    path_item   out_node;
+    char*       workbuf;
+    int         worksize;
+    int         position;
+    size_t      hash_value;
+    size_t      chunk_size;
+    size_t      new_size;
+    int         i;
 
     //gather the # of files
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
@@ -932,8 +1080,8 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
         //we've completed a file
         if (new_size == work_node.st.st_size) {
             hashtbl_remove(*chunk_hash, work_node.path);
-            strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));
-            update_stats(work_node, out_node);
+            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+            update_stats(&work_node, &out_node);
         }
         else {
             hashtbl_insert(*chunk_hash, work_node.path, new_size);
@@ -943,7 +1091,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
     send_manager_work_done(rank);
 }
 
-void worker_output(int rank, int sending_rank, int log, char *output_buffer, int *output_count, struct options o) {
+void worker_output(int rank, int sending_rank, int log, char *output_buffer, int *output_count, struct options& o) {
     //have a worker receive and print a single message
     MPI_Status status;
     char msg[MESSAGESIZE];
@@ -969,7 +1117,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     fflush(stdout);
 }
 
-void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options o) {
+void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options& o) {
 
     //have a worker receive and print a single message
     MPI_Status status;
@@ -1014,45 +1162,66 @@ void worker_flush_output(char *output_buffer, int *output_count) {
     }
 }
 
-void worker_readdir(int rank, int sending_rank, const char *base_path, path_item dest_node, int start, int makedir, struct options o) {
-    //When a worker is told to readdir, it comes here
-    MPI_Status status;
-    char *workbuf;
-    int worksize;
-    int position;
-    int read_count;
-    char path[PATHSIZE_PLUS], full_path[PATHSIZE_PLUS];
-    char errmsg[MESSAGESIZE];
-    char mkdir_path[PATHSIZE_PLUS];
-    path_item work_node;
-    path_item workbuffer[STATBUFFER];
-    int buffer_count = 0;
-    DIR *dip;
-    struct dirent *dit;
+
+//When a worker is told to readdir, it comes here
+void worker_readdir(int         rank,
+                    int         sending_rank,
+                    const char* base_path,
+                    path_item*  dest_node,
+                    int         start,
+                    int         makedir,
+                    struct options& o) {
+
+    MPI_Status  status;
+    char *      workbuf;
+    int         worksize;
+    int         position;
+    int         read_count;
+    char        path[PATHSIZE_PLUS];
+    char        full_path[PATHSIZE_PLUS];
+    char        errmsg[MESSAGESIZE];
+    char        mkdir_path[PATHSIZE_PLUS];
+    path_item   work_node;
+    path_item   workbuffer[STATBUFFER];
+    int         buffer_count = 0;
+
+    DIR*           dip;
+    struct dirent* dit;
+
 #ifdef PLFS
-    char dname[PATHSIZE_PLUS];
-    Plfs_dirp *pdirp;
+    char        dname[PATHSIZE_PLUS];
+    Plfs_dirp * pdirp;
 #endif
+
     //filelist
     FILE *fp;
     int i, rc;
+
+    // recv number of path_items being sent
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the read_count %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive read_count\n");
     }
     worksize = read_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
-    //gather the path to stat
+
+    //recv packed path_items
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the workbuf %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive workbuf\n");
     }
+
+    // unpack and process successive paths
     position = 0;
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        //first time through, not using a filelist
+
+        PRINT_MPI_DEBUG("rank %d: worker_readdir() PathFactory::cast(%d)\n", rank, (unsigned)work_node.ftype);
+        PathPtr work_path = PathFactory::create(&work_node);
+
         if (start == 1 && o.use_file_list == 0) {
+            //first time through, not using a filelist
             rc = stat_item(&work_node, o);
             if (rc != 0) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
@@ -1088,10 +1257,13 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
             }
 #endif
             if (makedir == 1) {
-                strncpy(mkdir_path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+                get_output_path(mkdir_path, base_path, &work_node, dest_node, o);
 #ifdef PLFS
                 struct stat st_temp;
-                if (plfs_getattr(NULL, dirname(strdup(mkdir_path)), &st_temp, 0) == 0){
+                char* copy = strdup(mkdir_path); // possibly-altered by dirname()
+                rc = plfs_getattr(NULL, dirname(copy), &st_temp, 0);
+                free(copy);
+                if (rc == 0){
                     plfs_mkdir(mkdir_path, S_IRWXU);
                 }
                 else{
@@ -1192,8 +1364,9 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
         else {
             fp = fopen(work_node.path, "r");
             while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL) {
-                if (work_node.path[strlen(work_node.path) - 1] == '\n') {
-                    work_node.path[strlen(work_node.path) - 1] = '\0';
+                size_t path_len = strlen(work_node.path);
+                if (work_node.path[path_len -1] == '\n') {
+                    work_node.path[path_len -1] = '\0';
                 }
                 workbuffer[buffer_count] = work_node;
                 buffer_count++;
@@ -1204,43 +1377,74 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
             fclose(fp);
         }
     }
-  while(buffer_count != 0) {
+    while(buffer_count != 0) {
         process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
     }
     free(workbuf);
     send_manager_work_done(rank);
 }
 
-int stat_item(path_item *work_node, struct options o) {
-    //takes a work node, stats it and figures out some of its characteristics
+
+// takes a work node (with a path installed), stats it, and figures out
+// some of its characteristics.  Updates the following fields:
+//
+//   work_node.dest_ftype
+//   work_node.ftype
+//   work_node.st
+//
+// TBD: Why not just use the stat struct in <work_node>?
+int stat_item(path_item *work_node, struct options& o) {
+
+    char        errmsg[MESSAGESIZE];
     struct stat st;
-    char errmsg[MESSAGESIZE];
+    int         rc;
 
     //dmapi
 #ifdef TAPE
     uid_t uid;
-    int dmarray[3];
-    char hexbuf[128];
+    int   dmarray[3];
+    char  hexbuf[128];
 #endif
 
-    int numchars;
+    int  numchars;
     char linkname[PATHSIZE_PLUS];
-    work_node->desttype = REGULARFILE;
-    work_node->ftype = REGULARFILE;
+
+    // defaults
+    work_node->ftype      = REGULARFILE;
+    work_node->dest_ftype = REGULARFILE;
+
+      
+#ifdef S3
+    // --- is it an S3 path?
+    if ( (! strcmp(work_node->path, "http://")) ||
+         (! strcmp(work_node->path, "https://"))) {
+
+        rc = S3_Path::fake_stat(work_node->path, &st);
+        if (rc == 0)
+            work_node->ftype = S3FILE;
+        else
+            return -1;
+    }
+#endif
 
 
 #ifdef PLFS
     //plfs_get attr on the base file
-    int rc = plfs_getattr(NULL, work_node->path, &st, 0);
+    rc = plfs_getattr(NULL, work_node->path, &st, 0);
     if (rc == 0){
         work_node->ftype = PLFSFILE;
     }
     else{
-        rc = plfs_getattr(NULL, dirname(strdup(work_node->path)), &st, 0);
+        char* copy = strdup(work_node->path);
+        rc = plfs_getattr(NULL, dirname(copy), &st, 0);
+        free(copy);
         if (rc == 0) {
             work_node->ftype = PLFSFILE;
         }
         else {
+            ///            if (lstat(work_node->path, &st) == -1) {
+            ///                return -1;
+            ///            }
             rc = lstat(work_node->path, &st);
             if (rc == 0){
                 work_node->ftype = REGULARFILE;
@@ -1269,11 +1473,11 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef TAPE
     if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS) {
         uid = getuid();
-#ifndef THREADS_ONLY
+# ifndef THREADS_ONLY
         if (uid == 0 && st.st_size > 0 && st.st_blocks == 0)
-#else
+# else
         if (0)
-#endif
+# endif
         {
             dmarray[0] = 0;
             dmarray[1] = 0;
@@ -1318,6 +1522,7 @@ int stat_item(path_item *work_node, struct options o) {
 
         if (
 #ifdef PLFS
+            // this will *always* be true, right?  We just set ftype = LINKFILE, above.
             (work_node->ftype != PLFSFILE) &&
 #endif
 
@@ -1338,7 +1543,7 @@ int stat_item(path_item *work_node, struct options o) {
 #ifdef FUSE_CHUNKER
     //if it qualifies for fuse and is on the "archive" path
     if (work_node->st.st_size > o.fuse_chunk_at ) {
-        work_node->desttype = FUSEFILE;
+        work_node->dest_ftype = FUSEFILE;
     }
 #endif
 
@@ -1348,58 +1553,72 @@ int stat_item(path_item *work_node, struct options o) {
 
 
 
-void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o) {
+void process_stat_buffer(path_item*      path_buffer,
+                         int*            stat_count,
+                         const char*     base_path,
+                         path_item*      dest_node,
+                         struct options& o) {
 
     //When a worker is told to stat, it comes here
-    int out_position;
-    char *writebuf;
-    int writesize;
-    int write_count = 0;
-    int num_examined_files = 0;
-    size_t num_examined_bytes = 0;
-    int num_examined_dirs = 0;
-    char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
-    path_item work_node, out_node;
-    int process = 0;
-    int parallel_dest = 0;
+    int         out_position;
+    char*       writebuf;
+    int         writesize;
+    int         write_count = 0;
+    int         num_examined_files = 0;
+    size_t      num_examined_bytes = 0;
+    int         num_examined_dirs = 0;
+    char        errmsg[MESSAGESIZE];
+    char        statrecord[MESSAGESIZE];
+    path_item   work_node;
+    path_item   out_node;
+    int         process = 0;
+    int         parallel_dest = 0;
 
     //stat
     struct stat st;
-    struct tm sttm;
-    char modebuf[15], timebuf[30];
-    int rc;
-    int i;
+    struct tm   sttm;
+    char        modebuf[15];
+
+    char        timebuf[30];
+    int         rc;
+    int         i;
 
     //chunks
     //place_holder fo current chunk_size
-    size_t chunk_size = 0;
-    size_t chunk_at = 0;
-    size_t num_bytes_seen = 0;
+    size_t      chunk_size = 0;
+    size_t      chunk_at = 0;
+    size_t      num_bytes_seen = 0;
+
     //500 MB
-    size_t ship_off = 524288000;
+    size_t      ship_off = 524288000;
+
     //int chunk_size = 1024;
-    off_t chunk_curr_offset = 0;
+    off_t       chunk_curr_offset = 0;
 
     //classification
-    path_item dirbuffer[DIRBUFFER], regbuffer[COPYBUFFER];
-    int dir_buffer_count = 0, reg_buffer_count = 0;
+    path_item   dirbuffer[DIRBUFFER];
+    int         dir_buffer_count = 0;
+
+    path_item   regbuffer[COPYBUFFER];
+    int         reg_buffer_count = 0;
+
+#ifdef TAPE
+    path_item   tapebuffer[TAPEBUFFER];
+    int         tape_buffer_count = 0;
+    int         num_examined_tapes = 0;
+    size_t      num_examined_tape_bytes = 0;
+#endif
 
 #ifdef FUSE_CHUNKER
     struct timeval tv;
-    char myhost[512];
-    char fusepath[PATHSIZE_PLUS];
-    int fuse_num;
-    int fuse_fd;
-    char linkname[PATHSIZE_PLUS];
-    int numchars;
+    char        myhost[512];
+    char        fusepath[PATHSIZE_PLUS];
+    int         fuse_num;
+    int         fuse_fd;
+    char        linkname[PATHSIZE_PLUS];
+    int         numchars;
 #endif
 
-#ifdef TAPE
-    path_item tapebuffer[TAPEBUFFER];
-    int tape_buffer_count = 0;
-    int num_examined_tapes = 0;
-    size_t num_examined_tape_bytes = 0;
-#endif
 
     //write_count = stat_count;
     writesize = MESSAGESIZE * MESSAGEBUFFER;
@@ -1410,11 +1629,28 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         st = work_node.st;
         process = 0;
 
+#if 1
+        // NOTE: This is no longer a good way to check whether two files
+        //       are the same.  The small problem is that this just assumes
+        //       that two POSIX files on different filesystems would never
+        //       have the same inode-number.  It's pretty unlikely that
+        //       they ever would, but not impossible.  The bigger problem
+        //       is that if these are both on object storage systems, it's
+        //       *guaranteed* that they will have the same inode-number,
+        //       because object filesystems dont have inodes, so st.st_ino
+        //       is always zero.
+
         //if the source is the initial destination
-        if (st.st_ino == dest_node.st.st_ino) {
+        if (st.st_ino == dest_node->st.st_ino) {
             write_count--;
             continue;
         }
+#else
+        if (p_work == p_dest) {
+            write_count--;
+            continue;
+        }
+#endif
 
         //check if the work is a directory
         else if (S_ISDIR(st.st_mode)) {
@@ -1428,9 +1664,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
         //it's not a directory
         else {
+
             //do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
-            strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
             rc = stat_item(&out_node, o);
             if (o.work_type == COPYWORK) {
                 process = 1;
@@ -1438,7 +1675,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #ifdef PLFS
                 if(out_node.ftype == PLFSFILE) {
                     parallel_dest = 1;
-                    work_node.desttype = PLFSFILE;
+                    work_node.dest_ftype = PLFSFILE;
                 }
                 else {
                     parallel_dest = o.parallel_dest;
@@ -1447,6 +1684,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
                 //if the out path exists
                 if (rc == 0) {
+
                     //Check if it's a valid match
                     if (o.different == 1) {
                         //check size, mtime, mode, and owners
@@ -1459,6 +1697,8 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                             process = 0;
                         }
                     }
+
+
                     if (process == 1) {
 
 #ifdef FUSE_CHUNKER
@@ -1474,7 +1714,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                                 //first unlink the actual fuse file
                                 rc = unlink(linkname);
                                 if (rc < 0) {
-                                    snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", linkname);
+                                    snprintf(errmsg, MESSAGESIZE, "Failed to unlink (1) %s -- ftype==%d", linkname, out_node.ftype);
                                     errsend(FATAL, errmsg);
                                 }
                                 //now unlink the symlink
@@ -1489,7 +1729,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 #endif
 
 
-                        //it's not fuse, unlink
+                        //it's not fuse, ulink
 #ifdef FUSE_CHUNKER
                         else {
 #endif
@@ -1512,7 +1752,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 
                             if (rc < 0) {
-                                snprintf(errmsg, MESSAGESIZE, "Failed to unlink %s", out_node.path);
+                                snprintf(errmsg, MESSAGESIZE, "Failed to unlink (2) %s -- ftype==%d", out_node.path, out_node.ftype);
                                 errsend(FATAL, errmsg);
                             }
                             out_node.ftype = NONE;
@@ -1531,8 +1771,11 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             }
             else if (o.work_type == COMPAREWORK) {
                 process = 1;
-                work_node.desttype = out_node.ftype;
+                work_node.dest_ftype = out_node.ftype;
             }
+
+
+
             if (process == 1) {
 
                 //parallel filesystem can do n-to-1
@@ -1541,9 +1784,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 #ifdef FUSE_CHUNKER
                    if(strncmp((o.archive_path, out_node.path, strlen(o.archive_path)) != 0)
-                      && (work_node.desttype == FUSEFILE)) {
+                      && (work_node.dest_ftype == FUSEFILE)) {
 
-                        work_node.desttype = REGULARFILE;
+                        work_node.dest_ftype = REGULARFILE;
                     }
 #endif
 
@@ -1553,7 +1796,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 
 #ifdef FUSE_CHUNKER
-                    if(work_node.desttype == FUSEFILE) {
+                    if(work_node.dest_ftype == FUSEFILE) {
                         chunk_size = o.fuse_chunksize;
                         chunk_at = o.fuse_chunk_at;
                       
@@ -1562,14 +1805,20 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                         set_fuse_chunk_data(&work_node);
                         chunk_size = work_node.length;
                     }
-                    if (work_node.desttype == FUSEFILE) {
+                    if (work_node.dest_ftype == FUSEFILE) {
                         if (o.work_type == COPYWORK) {
                             if (out_node.ftype == NONE) {
                                 gettimeofday(&tv, NULL);
                                 srand(tv.tv_sec);
                                 gethostname(myhost, sizeof(myhost));
                                 fuse_num = (int) rand() % o.fuse_chunkdirs;
-                                sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG", o.fuse_path, fuse_num, myhost, (int) tv.tv_sec, (int) tv.tv_usec, chunk_size);
+                                sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG",
+                                        o.fuse_path,
+                                        fuse_num,
+                                        myhost,
+                                        (int) tv.tv_sec,
+                                        (int) tv.tv_usec,
+                                        chunk_size);
                                 fuse_fd = open(fusepath, O_CREAT | O_RDWR);
                                 close(fuse_fd);
                                 symlink(fusepath, out_node.path);
@@ -1581,7 +1830,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
 
 #ifdef PLFS
-                    if(work_node.desttype == PLFSFILE) {
+                    if(work_node.dest_ftype == PLFSFILE) {
                         chunk_size = o.plfs_chunksize;
                         chunk_at = 0;
                     }
@@ -1732,7 +1981,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 }
 
 #ifdef TAPE
-void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct options o) {
+void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct options& o) {
     MPI_Status status;
     char *workbuf, *writebuf;
     char recallrecord[MESSAGESIZE];
@@ -1796,31 +2045,46 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
 }
 #endif
 
-void worker_copylist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o) {
-    //When a worker is told to copy, it comes here
-    MPI_Status status;
-    char *workbuf, *writebuf;
-#ifdef GEN_SYNDATA
-    syndata_buffer *synbuf = NULL;
-#endif
-    int worksize, writesize;
-    int position, out_position;
-    int read_count;
-    path_item work_node, out_node;
-    char copymsg[MESSAGESIZE];
-    off_t offset;
-    size_t length;
-    int num_copied_files = 0;
-    size_t num_copied_bytes = 0;
-    path_item chunks_copied[CHUNKBUFFER];
-    int buffer_count = 0;
-    int i, rc;
+//When a worker is told to copy, it comes here
+void worker_copylist(int             rank,
+                     int             sending_rank,
+                     const char*     base_path,
+                     path_item*      dest_node,
+                     struct options& o) {
+
+    MPI_Status     status;
+    char*          workbuf;
+    char*          writebuf;
+    SyndataBufPtr  synbuf = NULL;
+    int            worksize;
+    int            writesize;
+    int            position;
+    int            out_position;
+    int            read_count;
+    path_item      work_node;
+    path_item      out_node;
+    char           copymsg[MESSAGESIZE];
+    off_t          offset;
+    size_t         length;
+    int            num_copied_files = 0;
+    size_t         num_copied_bytes = 0;
+    path_item      chunks_copied[CHUNKBUFFER];
+    int            buffer_count = 0;
+    int            i;
+    int            rc;
+
 #ifdef FUSE_CHUNKER
     //partial file restart
-    struct utimbuf ut, chunk_ut;
-    uid_t userid, chunk_userid;
-    gid_t groupid, chunk_groupid;
+    struct utimbuf ut;
+    struct utimbuf chunk_ut;
+
+    uid_t          userid;
+    uid_t          chunk_userid;
+
+    gid_t          groupid;
+    gid_t          chunk_groupid;
 #endif
+
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive read_count\n");
@@ -1829,6 +2093,7 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     workbuf = (char *) malloc(worksize * sizeof(char));
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
+
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -1836,8 +2101,13 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     }
 
 #ifdef GEN_SYNDATA
-    if(o.syn_size) 
-       synbuf = syndataCreateBuffer(o.syn_pattern[0]?o.syn_pattern:(char*)&rank);		// If no pattern id is given -> use rank as a seed for random data
+    if(o.syn_size) {
+        // If no pattern id is given -> use rank as a seed for random data
+        synbuf = syndataCreateBufferWithSize((o.syn_pattern[0] ? o.syn_pattern : NULL),
+                                             (o.syn_size >= 0) ? o.syn_size : -rank));
+        if (! synbuf)
+            errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
+    }
 #endif
     position = 0;
     out_position = 0;
@@ -1846,16 +2116,14 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         offset = work_node.offset;
         length = work_node.length;
-        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-        strncpy(out_node.fstype,o.dest_fstype,128);						// make sure destination filesystem type is assigned for copy - cds 6/2014
+        get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+
+        out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
 #ifdef FUSE_CHUNKER
-        if (work_node.desttype != FUSEFILE) {
+        if (work_node.dest_ftype != FUSEFILE) {
 #endif
-#ifdef GEN_SYNDATA
-            rc = copy_file(work_node, out_node, o.blocksize, synbuf, rank);
-#else
-            rc = copy_file(work_node, out_node, o.blocksize, rank);
-#endif
+            rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
+
 #ifdef FUSE_CHUNKER
         }
         else {
@@ -1869,11 +2137,8 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
                     chunk_groupid != groupid ||
                     chunk_ut.actime != ut.actime||
                     chunk_ut.modtime != ut.modtime) { //not a match
-#  ifdef GEN_SYNDATA
-            	rc = copy_file(work_node, out_node, o.blocksize, synbuf, rank);
-#  else
-                rc = copy_file(work_node, out_node, o.blocksize, rank);
-#  endif
+
+            	 rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else {
@@ -1924,22 +2189,33 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     free(writebuf);
 }
 
-void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item dest_node, struct options o) {
-    //When a worker is told to copy, it comes here
-    MPI_Status status;
-    char *workbuf, *writebuf;
-    int worksize, writesize;
-    int position, out_position;
-    int read_count;
-    path_item work_node, out_node;
-    char copymsg[MESSAGESIZE];
-    off_t offset;
-    size_t length;
-    int num_compared_files = 0;
-    size_t num_compared_bytes = 0;
-    path_item chunks_copied[CHUNKBUFFER];
-    int buffer_count = 0;
-    int i, rc;
+//When a worker is told to compare, it comes here
+void worker_comparelist(int             rank,
+                        int             sending_rank,
+                        const char*     base_path,
+                        path_item*      dest_node,
+                        struct options& o) {
+
+    MPI_Status   status;
+    char *       workbuf;
+    char *       writebuf;
+    int          worksize;
+    int          writesize;
+    int          position;
+    int          out_position;
+    int          read_count;
+    path_item    work_node;
+    path_item    out_node;
+    char         copymsg[MESSAGESIZE];
+    off_t        offset;
+    size_t       length;
+    int          num_compared_files = 0;
+    size_t       num_compared_bytes = 0;
+    path_item    chunks_copied[CHUNKBUFFER];
+    int          buffer_count = 0;
+    int          i;
+    int          rc;
+
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive read_count\n");
@@ -1958,12 +2234,12 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
+        get_output_path(out_node.path, base_path, &work_node, dest_node, o);
         stat_item(&out_node, o);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.offset;
         length = work_node.length;
-        rc = compare_file(work_node, out_node, o.blocksize, o.meta_data_only);
+        rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only);
         if (o.meta_data_only || work_node.ftype == LINKFILE) {
             sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
         }

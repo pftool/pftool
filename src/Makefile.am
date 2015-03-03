@@ -7,7 +7,8 @@ hashtbl.c hashtbl.h \
 str.c str.h \
 syndata.c syndata.h \
 pfutils.c pfutils.h \
-pftool.cpp pftool.h 
+pftool.cpp pftool.h \
+Path.cpp Path.h
 
 syndata_cflags=-DGEN_SYNDATA
 
@@ -17,7 +18,9 @@ debug.h \
 hashtbl.c hashtbl.h \
 str.c str.h \
 pfutils.c pfutils.h \
-pftool.cpp pftool.h 
+pftool.cpp pftool.h \
+Path.cpp Path.h
+
 endif
 
 
@@ -27,7 +30,7 @@ threads_ldflags=-L$(top_srcdir)/libs/tompi/ -lmpi -lpthread
 endif
 
 if TAPE
-tape_flags = -DTAPE -O -DGPFS_LINUX
+tape_cflags = -DTAPE -O -DGPFS_LINUX
 tape_ldflags=-lgpfs -ldmapi
 endif
 
@@ -36,8 +39,13 @@ fusechunker_cflags=-DFUSE_CHUNKER
 endif
 
 if PLFS
-plfs_cflags=${PLFS_CFLAGS} -DPLFS
-plfs_ldflags=${PLFS_LDFLAGS} -lplfs
+plfs_cflags=$(_plfs_cflags) -DPLFS
+plfs_ldflags=$(_plfs_ldflags) -lplfs
+endif
+
+if S3
+s3_cflags=$(_s3_cflags) -DS3
+s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 
 if ALLSTATIC
@@ -46,8 +54,14 @@ endif
 
 
 
-__top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags)
-__top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
 
-__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags)
-### __top_builddir__bin_pftool_CXXLDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_LDFLAGS  = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(s3_ldflags) $(allstatic_ldflags)
+
+
+
+# AM_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
+# AM_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
+
+# AM_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(s3_ldflags) $(allstatic_ldflags)

@@ -67,8 +67,8 @@ size_t str2Size(char* ss)
    char    tmpStr[TMP_STR_MAX];
 
    struct unitsTblStruct {
-		char*	name;               // units name
-		size_t	mult;            // multiplier associated with units
+		const char*	name;               // units name
+		size_t    	mult;            // multiplier associated with units
 	};
 	static struct unitsTblStruct unitsTbl[] = {
       {"p",    1000L*1000L*1000L*1000L*1000L},

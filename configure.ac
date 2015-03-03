@@ -29,10 +29,15 @@ AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
 AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
 AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
+AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
+AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
+
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 
 AC_CONFIG_HEADER([config.h])
+
+
 
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC
@@ -40,6 +45,16 @@ AC_CONFIG_HEADER([config.h])
 AC_PROG_CC([mpic++ mpicxx mpig++ c++ g++])
 AC_LANG(C++)
 AC_PROG_CXX([mpic++ mpicxx mpig++ c++ g++])
+
+
+# jti experiments
+AC_SUBST([_s3_cflags],  ${S3_CFLAGS})
+AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
+
+AC_SUBST([_plfs_cflags],  ${PLFS_CFLAGS})
+AC_SUBST([_plfs_ldflags], ${PLFS_LDFLAGS})
+
+
 
 # check for adequate mpi support
 AS_IF([test x$enable_threads != xyes],
@@ -73,9 +88,13 @@ AC_CONFIG_MACRO_DIR([m4])
 # none at this point
 
 # checks for header files.
-AC_CHECK_HEADERS([\
-sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h\
-])
+AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
+AS_IF([test x$enable_plfs == xyes],
+  [AC_CHECK_HEADERS([plfs.h])]
+)
+AS_IF([test x$enable_s3 == xyes],
+  [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
+)
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
