@@ -72,6 +72,42 @@ void usage () {
     return;
 }
 
+/**
+* Returns the PFTOOL internal command in string format.
+* See pfutils.h for the list of commands.
+*
+* @param cmdidx		the command (or command type)
+*
+* @return a string representation of the command
+*/
+char *cmd2str(enum cmd_opcode cmdidx) {
+	static char *CMDSTR[] = {
+			 "EXITCMD"
+			,"UPDCHUNKCMD"
+			,"OUTCMD"
+			,"BUFFEROUTCMD"
+			,"LOGCMD"
+			,"QUEUESIZECMD"
+			,"STATCMD"
+			,"COMPARECMD"
+			,"COPYCMD"
+			,"PROCESSCMD"
+			,"INPUTCMD"
+			,"DIRCMD"
+#ifdef TAPE
+			,"TAPECMD"
+			,"TAPESTATCMD"
+#endif
+			,"WORKDONECMD"
+			,"NONFATALINCCMD"
+			,"CHUNKBUSYCMD"
+			,"COPYSTATSCMD"
+			,"EXAMINEDSTATSCMD"
+				};
+
+	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+}
+
 char *printmode (mode_t aflag, char *buf) {
     // print the mode in a regular 'pretty' format
     static int m0[] = { 1, S_IREAD >> 0, 'r', '-' };
@@ -430,8 +466,8 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     int flags;
     //MPI_File src_fd, dest_fd;
     int src_fd, dest_fd = -1;
-    off_t offset = src_file.offset;
-    size_t length = src_file.length;
+    off_t offset = (src_file.chkidx * src_file.chksz);	
+    off_t length = ((offset+src_file.chksz)>src_file.st.st_size)?(src_file.st.st_size-offset):src_file.chksz;
 #ifdef PLFS
     int pid = getpid();
     Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
@@ -476,7 +512,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         if (src_file.ftype == PLFSFILE){
             src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
         }
-        else {
+        else {
 #endif
             src_fd = open(src_file.path, O_RDONLY);
 #ifdef PLFS
@@ -490,16 +526,17 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 #ifdef GEN_SYNDATA
     }
 #endif
+PRINT_MPI_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld\n", rank, src_file.chkidx, offset, length);
 
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
     if ((src_file.st.st_size == length && offset == 0) || strncmp(dest_file.fstype,"panfs",5)) {	// no chunking or not writing to PANFS - cds 6/2014
        flags = O_WRONLY | O_CREAT;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT", dest_file.fstype);
+       PRINT_MPI_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT\n", rank, dest_file.fstype);
     }
     else {												// Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE", dest_file.fstype);
+       PRINT_MPI_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE\n", rank, dest_file.fstype);
     }
 #ifdef PLFS
     if (src_file.desttype == PLFSFILE){
@@ -629,8 +666,8 @@ int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int 
     char errormsg[MESSAGESIZE];
     int rc;
     int crc;
-    off_t offset = src_file.offset;
-    size_t length = src_file.length;
+    off_t offset = src_file.chkidx*src_file.chksz;
+    size_t length = src_file.st.st_size;
 
     // dest doesn't exist
 #ifdef FUSE_CHUNKER
@@ -816,7 +853,7 @@ int request_input_queuesize() {
 
 void send_command(int target_rank, int type_cmd) {
     //Tell a rank it's time to begin processing
-    PRINT_MPI_DEBUG("target rank %d: Sending command %d to target rank %d\n", target_rank, type_cmd, target_rank);
+    PRINT_MPI_DEBUG("target rank %d: Sending command %s to target rank %d\n", target_rank, cmd2str(type_cmd), target_rank);
     if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1101,8 +1138,8 @@ void set_fuse_chunk_data(path_item *work_node) {
         strtok(NULL, delimiters);
     }
     length = atoll(strtok(NULL, delimiters));
-    work_node->offset = 0;
-    work_node->length = length;
+    work_node->chkidx = 0;
+    work_node->chksz = length;
 }
 
 int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid) {

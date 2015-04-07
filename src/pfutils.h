@@ -201,13 +201,13 @@ struct options {
 
 // A queue to store all of our input nodes
 struct path_link {
-    char path[PATHSIZE_PLUS];
-    struct stat st;
-    off_t offset;
-    size_t length;
-    enum filetype ftype;
-    enum filetype desttype;
-    char fstype[128];
+    char path[PATHSIZE_PLUS];				// full path of file (or directory) to process
+    struct stat st;					// stat info of file/directory
+    int chkidx;						// the chunk index or number of the chunk being processed
+    off_t chksz;					// the tranfer chunk size of the file. For non-chunked file, this is the tranfer length or file length
+    enum filetype ftype;				// the "type" of the source file. Type is influenced by where/what the source is stored
+    enum filetype desttype;				// the "type" of the destination file
+    char fstype[128];					// the file system type of the source file
 };
 typedef struct path_link path_item;
 
@@ -250,6 +250,7 @@ int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
 //local functions
 int request_response(int type_cmd);
 int request_input_queuesize();
+char *cmd2str(enum cmd_opcode cmdidx);
 void send_command(int target_rank, int type_cmd);
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);

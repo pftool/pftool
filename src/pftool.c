@@ -412,8 +412,8 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
                 else if (!o.recurse) {
                     delete_buf_list(&dir_buf_list, &dir_buf_list_size);
                 }
-                //handle tape
 #ifdef TAPE
+                //handle tape
                 work_rank = get_free_rank(proc_status, 3, nproc - 1);
                 if (work_rank > -1 && tape_buf_list_size > 0) {
                     proc_status[work_rank] = 1;
@@ -462,7 +462,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: manager() Receiving the message type %d from rank %d\n", rank, type_cmd, sending_rank);
+        PRINT_MPI_DEBUG("rank %d: manager() Receiving the command %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
         //do operations based on the message
         switch(type_cmd) {
         case WORKDONECMD:
@@ -746,7 +746,7 @@ void worker(int rank, struct options o) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
+        PRINT_MPI_DEBUG("rank %d: worker() Receiving the command %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
         worker_readdir(rank, sending_rank, base_path, dest_node, 1, makedir, o);
     }
     //change this to get request first, process, then get work
@@ -772,7 +772,7 @@ void worker(int rank, struct options o) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: worker() receiving the type_cmd %d from rank %d\n", rank, type_cmd, sending_rank);
+        PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
         //do operations based on the message
         switch(type_cmd) {
         case OUTCMD:
@@ -845,7 +845,7 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
         PRINT_MPI_DEBUG("rank %d: manager_add_paths() Unpacking the work_node from rank %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         hash_value = hashtbl_get(*chunk_hash, work_node.path);
-        chunk_size = work_node.length;
+        chunk_size = work_node.chksz;
         if (hash_value == -1) {
             //resize the hashtable if needed
             if (*hash_count == (*chunk_hash)->size) {
@@ -1061,7 +1061,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
                         workbuffer[buffer_count] = work_node;
                         buffer_count++;
                         if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                         }
                     }
                 }
@@ -1090,7 +1090,7 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
                         workbuffer[buffer_count] = work_node;
                         buffer_count++;
                         if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                         }
                     }
                 }
@@ -1123,14 +1123,14 @@ void worker_readdir(int rank, int sending_rank, const char *base_path, path_item
                 workbuffer[buffer_count] = work_node;
                 buffer_count++;
                 if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                    process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                    process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                 }
             }
             fclose(fp);
         }
     }
   while(buffer_count != 0) {
-        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
     }
     free(workbuf);
     send_manager_work_done(rank);
@@ -1249,7 +1249,7 @@ int stat_item(path_item *work_node, struct options o) {
     return 0;
 }
 
-void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o) {
+void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o, int rank) {
     //When a worker is told to stat, it comes here
     int out_position;
     char *writebuf;
@@ -1300,7 +1300,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     writebuf = (char *) malloc(writesize * sizeof(char));
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
-        work_node = path_buffer[i];
+        work_node = path_buffer[i];				// Note that work_node is NOT a pointer. It is a contiguous structure. This assignment copies contigous memory from one structure to another! - cds 2/2015
         st = work_node.st;
         process = 0;
         //if the source is the initial destination
@@ -1426,7 +1426,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
                     else if (work_node.ftype == FUSEFILE) {
                         set_fuse_chunk_data(&work_node);
-                        chunk_size = work_node.length;
+                        chunk_size = work_node.chksz;
                     }
                     if (work_node.desttype == FUSEFILE) {
                         if (o.work_type == COPYWORK) {
@@ -1450,28 +1450,32 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
 #endif
                     if (work_node.st.st_size == 0) {
-                        work_node.offset = 0;
-                        work_node.length = 0;
+                        work_node.chkidx = 0;
+                        work_node.chksz = 0;
                         regbuffer[reg_buffer_count] = work_node;
                         reg_buffer_count++;
                     }
                     chunk_curr_offset = 0;
+		    i = 0;						// keeps track of the chunk index
                     while (chunk_curr_offset < work_node.st.st_size) {
-                        work_node.offset = chunk_curr_offset;
+                        work_node.chkidx = i;				// assign the chunk index
                         //if we're not doing chunks OR we're done chunking
-                        if (work_node.st.st_size < chunk_at ||
-                                (chunk_curr_offset + chunk_size) >  work_node.st.st_size) {
-                            work_node.length = work_node.st.st_size - chunk_curr_offset;
+//                        if (work_node.st.st_size < chunk_at ||
+//                               (chunk_curr_offset + chunk_size) >  work_node.st.st_size) {
+			//if we're not doing chunks
+			 if (work_node.st.st_size < chunk_at) {
+                            work_node.chksz = work_node.st.st_size - chunk_curr_offset;
                             chunk_curr_offset = work_node.st.st_size;
                         }
                         else {
-                            work_node.length = chunk_size;
-                            chunk_curr_offset += chunk_size;
+                            work_node.chksz = chunk_size;
+                            chunk_curr_offset += (((chunk_curr_offset + chunk_size) >  work_node.st.st_size)?(work_node.st.st_size-chunk_curr_offset):chunk_size);
+			    i++;
                         }
                         if (work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
                             //for links or metadata compare work just send the whole file
-                            work_node.offset = 0;
-                            work_node.length = work_node.st.st_size;
+                            work_node.chkidx = 0;
+                            work_node.chksz = work_node.st.st_size;
                             chunk_curr_offset = work_node.st.st_size;
                         }
 #ifdef TAPE
@@ -1488,10 +1492,12 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                         }
                         else {
 #endif
-                            num_bytes_seen += work_node.length;
+                            num_bytes_seen += work_node.chksz;
                             regbuffer[reg_buffer_count] = work_node;
                             reg_buffer_count++;
+PRINT_MPI_DEBUG("rank %d: process_stat_buffer() adding chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
                             if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg buffers to manager.\n", rank, reg_buffer_count);
                                 send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                                 num_bytes_seen = 0;
                             }
@@ -1502,10 +1508,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 }
                 //regular filesystem
                 else {
-                    work_node.offset = 0;
+                    work_node.chkidx = 0;				// for non-chunked files, index is always 0
                     chunk_size = work_node.st.st_size;
-                    work_node.length = chunk_size;
-                    num_bytes_seen += work_node.length;
+                    work_node.chksz = chunk_size;
+                    num_bytes_seen += work_node.chksz;
                     regbuffer[reg_buffer_count] = work_node;
                     reg_buffer_count++;
                     if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
@@ -1602,7 +1608,7 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
         errsend(FATAL, "Failed to receive workbuf\n");
     }
     for (i = 0; i < read_count; i++) {
-        PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
+        PRINT_MPI_DEBUG("rank %d: worker_taperecall() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         rc = work_node.one_byte_read(work_node.path);
         if (rc == 0) {
@@ -1612,7 +1618,7 @@ void worker_taperecall(int rank, int sending_rank, path_item dest_node, struct o
                 send_manager_regs_buffer(workbuffer, &buffer_count);
             }
             if (o.verbose) {
-                sprintf(recallrecord, "INFO  DATARECALL Recalled file %s offs %ld len %ld\n", work_node.path, work_node.offset, work_node.length);
+                sprintf(recallrecord, "INFO  DATARECALL Recalled file %s offs %ld len %ld\n", work_node.path, work_node.chkidx, work_node.chksz);
                 MPI_Pack(recallrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
                 write_count++;
                 if (write_count % MESSAGEBUFFER == 0) {
@@ -1685,8 +1691,9 @@ void worker_copylist(int rank, int sending_rank, const char *base_path, path_ite
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        offset = work_node.offset;
-        length = work_node.length;
+        offset = work_node.chkidx*work_node.chksz;
+        length = ((offset+work_node.chksz)>work_node.st.st_size)?(work_node.st.st_size-offset):work_node.chksz;
+PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. offset = %ld   length = %ld\n", rank, work_node.chkidx, offset, length);
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
         strncpy(out_node.fstype,o.dest_fstype,128);						// make sure destination filesystem type is assigned for copy - cds 6/2014
 #ifdef FUSE_CHUNKER
@@ -1802,8 +1809,8 @@ void worker_comparelist(int rank, int sending_rank, const char *base_path, path_
         strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
         stat_item(&out_node, o);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
-        offset = work_node.offset;
-        length = work_node.length;
+        offset = work_node.chkidx*work_node.chksz;
+        length = work_node.chksz;
         rc = compare_file(work_node, out_node, o.blocksize, o.meta_data_only);
         if (o.meta_data_only || work_node.ftype == LINKFILE) {
             sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
