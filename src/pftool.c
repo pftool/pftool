@@ -12,6 +12,7 @@
 */
 
 //Standard includes
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -21,6 +22,7 @@
 
 // include that is associated with pftool itself
 #include "pftool.h"
+#include "ctf.h"
 
 #ifdef THREADS_ONLY
 #define MPI_Abort MPY_Abort
@@ -537,7 +539,7 @@ void manager(int rank, struct options o, int nproc, path_list *input_queue_head,
     sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
     write_output(message, 1);
     if (o.work_type == COPYWORK) {
-        sprintf(message, "INFO  FOOTER   Total Files Copied: %d\n", num_copied_files);
+        sprintf(message, "INFO  FOOTER   Total Buffers Written: %d\n", num_copied_files);
         write_output(message, 1);
         sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
         write_output(message, 1);
@@ -820,51 +822,82 @@ void worker(int rank, struct options o) {
     }
 }
 
+/**
+* A worker task that updates a "database" of files that have been chunked during
+* a transfer. 
+*
+* This routine reads a hashtable containing stuctures that describe
+* the chunked file, and updates the appropriate structure when a chunk of a 
+* file has been transferred.
+*
+* @param rank		the MPI rank of the current process (usually 2 for
+* 			this task)
+* @param sending_rank	the rank of the MPI process that sent the request to
+* 			update the chunk.
+* @param chunk_hash	a pointer to the hash table that contains the structures
+* 			that describe the chunked files
+* @param hash_count	the length of the hash table
+* @param base_path	??
+* @param dest_node	??
+* @param o		PFTOOL global/command options
+*/
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
     MPI_Status status;
     int path_count;
     path_item work_node, out_node;
     char *workbuf;
     int worksize, position;
-    size_t hash_value, chunk_size, new_size;
+    HASHDATA *hash_value;
     int i;
+
+//    PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking data from rank %d\n", rank, sending_rank);
     //gather the # of files
-    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive path_count\n");
     }
+    PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Receiving path_count from rank %d (path_count = %d)\n", rank, sending_rank,path_count);
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
-    //gather the path to stat
-    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
+    //get the work nodes
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
     }
     position = 0;
     for (i = 0; i < path_count; i++) {
-        PRINT_MPI_DEBUG("rank %d: manager_add_paths() Unpacking the work_node from rank %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        hash_value = hashtbl_get(*chunk_hash, work_node.path);
-        chunk_size = work_node.chksz;
-        if (hash_value == -1) {
-            //resize the hashtable if needed
-            if (*hash_count == (*chunk_hash)->size) {
+        PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
+
+        hash_value = hashtbl_get(*chunk_hash, work_node.path);					// get the value
+        if (hash_value == (HASHDATA *)NULL) {							// --- File is new to the hash table
+            if (*hash_count == (*chunk_hash)->size) {						//resize the hashtable if needed
                 hashtbl_resize(*chunk_hash, *hash_count+100);
             }
             *hash_count += 1;
-            new_size = chunk_size;
+
+	    if(hash_value = hashdata_create(work_node)) {
+              hashtbl_insert(*chunk_hash, work_node.path, hash_value);
+	      hashdata_update(hash_value,work_node);						// make sure the new structure has recorded this chunk!
+	    }
         }
-        else {
-            new_size = hash_value + chunk_size;
-        }
-        //we've completed a file
-        if (new_size == work_node.st.st_size) {
-            hashtbl_remove(*chunk_hash, work_node.path);
+	else {											// --- Structure for File needs to be updated
+	    hashdata_update(hash_value,work_node);						// this will update the data in the table
+	    if(IO_DEBUG_ON) {
+	      char ctf_flags[2048];
+	      char *ctfstr = ctf_flags;
+	      int ctflen = 2048;
+
+	      PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTF (chunk %d of file %s)\n%s\n", rank, work_node.chkidx, work_node.path,tostringCTF(hash_value->ctf,&ctfstr,&ctflen));
+	   }
+	}
+
+        if (hash_value == (HASHDATA *)NULL) 							// if no hash_value at this point, we have a problem!
+	    errsend(NONFATAL, "Do not have a hashed data structure for a chunked file!\n");
+        else if (hashdata_filedone(hash_value)) {						// --- File is done transferring
+	    PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTF should be removed. (chunk %d of file %s)\n", rank, work_node.chkidx, work_node.path);
+            hash_value = hashtbl_remove(*chunk_hash, work_node.path);				// remove structure for File from hash table
+	    hashdata_destroy(&hash_value);							// we are done with the data
             strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));
             update_stats(work_node, out_node);
-        }
-        else {
-            hashtbl_insert(*chunk_hash, work_node.path, new_size);
         }
     }
     free(workbuf);
@@ -1249,6 +1282,55 @@ int stat_item(path_item *work_node, struct options o) {
     return 0;
 }
 
+/**
+* This function tests the metadata of the two nodes
+* to see if they are the same. For files that are chunkable,
+* it looks to see if a CTF files exists for the source. If it 
+* does, then it assumes that there was an aborted transfer,
+* and the files are NOT the same!
+*
+* @param src		a path_item structure containing
+* 			the metadata for the souce file
+* @param dst		a path_item structure containing
+* 			the metadata for the destination
+* 			file
+* @param o		the PFTOOL global options structure
+*
+* @return 1 (TRUE) if the metadata matches and no CTF file
+* 	exists for a chunkable file. 0 (FALSE) otherwise.
+*/
+int samefile(path_item src, path_item dst, struct options o) {
+    int rc = 0;							// return code of function
+
+    rc = (src.st.st_size == dst.st.st_size &&			// compare metadata - check size, mtime, mode, and owners
+          (src.st.st_mtime == dst.st.st_mtime  || S_ISLNK(src.st.st_mode)) &&
+          src.st.st_mode == dst.st.st_mode &&
+          src.st.st_uid == dst.st.st_uid &&
+          src.st.st_gid == dst.st.st_gid);
+    if (rc && src.st.st_size >= o.chunk_at) {			// a chunkable file that looks the same - does it have a CTF?
+      struct stat *fexists = foundCTF(src.path);
+
+      rc = (fexists)?0:1;					// if CTF exists -> two file are NOT the same
+      if(fexists) free(fexists);				// clean up memory ....
+    }
+    return(rc);
+}
+
+/**
+* This routine processes a buffer of path_items that represent files
+* that have been stated, and are ready to put on the work list.
+*
+* @param *path_buffer	the buffer to process
+* @param *stat_count	the number of path_items (files) in
+* 			the given path_buffer
+* @param base_path	the base or parent directory of the
+* 			files being processed
+* @param dest_node	a path_item structure that is a template
+* 			for the destination of the transfer
+* @param o		the PFTOOL global options structure
+* @param rank		the process MPI rank of the process
+* 			doing the buffer processing
+*/
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item dest_node, struct options o, int rank) {
     //When a worker is told to stat, it comes here
     int out_position;
@@ -1260,8 +1342,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     int num_examined_dirs = 0;
     char errmsg[MESSAGESIZE], statrecord[MESSAGESIZE];
     path_item work_node, out_node;
-    int process = 0;
-    int parallel_dest = 0;
+    int process = FALSE;					// flag to indicate that a file should (or should not) be processed
+    int parallel_dest = 0;					// flag to indicated if destination is a parallel file system
+    int dest_exists = FALSE;					// flag to indicate that the destination for file already exists.
     //stat
     struct stat st;
     struct tm sttm;
@@ -1269,14 +1352,13 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     int rc;
     int i;
     //chunks
-    //place_holder fo current chunk_size
-    size_t chunk_size = 0;
-    size_t chunk_at = 0;
+    size_t chunk_size = 0;					// place_holder fo current chunk_size
+    size_t chunk_at = 0;					// current limit at which files are chunked
+    int idx = 0;					 	// keeps track of the chunk index
     size_t num_bytes_seen = 0;
     //500 MB
     size_t ship_off = 524288000;
-    //int chunk_size = 1024;
-    off_t chunk_curr_offset = 0;
+    off_t chunk_curr_offset = 0;				// offset into file while chunking
     //classification
     path_item dirbuffer[DIRBUFFER], regbuffer[COPYBUFFER];
     int dir_buffer_count = 0, reg_buffer_count = 0;
@@ -1298,18 +1380,18 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
     //write_count = stat_count;
     writesize = MESSAGESIZE * MESSAGEBUFFER;
     writebuf = (char *) malloc(writesize * sizeof(char));
+
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
         work_node = path_buffer[i];				// Note that work_node is NOT a pointer. It is a contiguous structure. This assignment copies contigous memory from one structure to another! - cds 2/2015
+        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n", rank, i, work_node.path);
         st = work_node.st;
-        process = 0;
-        //if the source is the initial destination
-        if (st.st_ino == dest_node.st.st_ino) {
+        process = FALSE;
+        if (st.st_ino == dest_node.st.st_ino) {			// check that we are not transferring/comparing the source into itself. If so, ignore.
             write_count--;
             continue;
         }
-        //check if the work is a directory
-        else if (S_ISDIR(st.st_mode)) {
+        else if (S_ISDIR(st.st_mode)) {				// it's a directory
             dirbuffer[dir_buffer_count] = work_node;
             dir_buffer_count++;
             if (dir_buffer_count % DIRBUFFER == 0) {
@@ -1317,38 +1399,26 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
             }
             num_examined_dirs++;
         }
-        //it's not a directory
-        else {
-            //do this for all regular files AND fuse+symylinks
+        else {							// it's a file, not a directory - do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
             strncpy(out_node.path, get_output_path(base_path, work_node, dest_node, o), PATHSIZE_PLUS);
-            rc = stat_item(&out_node, o);
-            if (o.work_type == COPYWORK) {
-                process = 1;
+            dest_exists = !(rc = stat_item(&out_node, o));	// get the struct stat of the destination and set the dest_exists flag
+            if (o.work_type == COPYWORK) {			// prep for COPYWORK
+                process = TRUE;					// set flag to process file
 #ifdef PLFS
                 if(out_node.ftype == PLFSFILE) {
-                    parallel_dest = 1;
+                    parallel_dest = TRUE;
                     work_node.desttype = PLFSFILE;
                 }
                 else {
                     parallel_dest = o.parallel_dest;
                 }
 #endif
-                //if the out path exists
-                if (rc == 0) {
-                    //Check if it's a valid match
-                    if (o.different == 1) {
-                        //check size, mtime, mode, and owners
-                        if (work_node.st.st_size == out_node.st.st_size &&
-                                (work_node.st.st_mtime == out_node.st.st_mtime  ||
-                                 S_ISLNK(work_node.st.st_mode))&&
-                                work_node.st.st_mode == out_node.st.st_mode &&
-                                work_node.st.st_uid == out_node.st.st_uid &&
-                                work_node.st.st_gid == out_node.st.st_gid) {
-                            process = 0;
-                        }
-                    }
-                    if (process == 1) {
+                if (rc == 0) {					// if the destination (out path) exists (rc assigned on previous stat_item() call)
+                    						// Check if it's a valid match when the PFTOOL conditional option is set (i.e. -n)
+                    if (o.different && samefile(work_node,out_node,o)) 
+                      process = 0;				// metadata for source and destination is the same -> don't process this file
+                    if (process == 1) {				// we are going to process this file for COPYWORK
 #ifdef FUSE_CHUNKER
                         if (out_node.ftype == FUSEFILE) {
                             //it's a fuse file unlink link dest and link
@@ -1383,9 +1453,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                             if (out_node.ftype == PLFSFILE){
                                 rc = plfs_unlink(out_node.path);
                             }
-                            else{
+                            else {
 #endif
-                                rc = unlink(out_node.path);
+				if (!o.different || work_node.st.st_size < o.chunk_at)
+                                    rc = unlink(out_node.path);	// remove the destination file only of not doing a conditional transfer, or source file size <= chunk_at size
 #ifdef PLFS
                             }
 #endif
@@ -1402,119 +1473,132 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 else {
                     out_node.ftype = NONE;
                 }
-            }
-            else if (o.work_type == COMPAREWORK) {
+            } // end COPYWORK
+            else if (o.work_type == COMPAREWORK) {		// preping for COMPAREWORK, which means we simply assign the destination type to the source file info
                 process = 1;
                 work_node.desttype = out_node.ftype;
-            }
-            if (process == 1) {
-                //parallel filesystem can do n-to-1
-                if (parallel_dest) {
+            } // end COMPAREWORK
+
+            if (process == 1) {					// Now we process the source file - which may mean chunk it, and stick on the work list
+              if (parallel_dest) {				// parallel filesystem can do n-to-1 (as well as n-to-n)
+		CTF *ctf = (CTF *)NULL;				// CTF structure used with chunked files   
                     //non_archive files need to not be fuse
 #ifdef FUSE_CHUNKER
-                    if(strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEFILE) {
-                        work_node.desttype = REGULARFILE;
-                    }
+                if (strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEFILE) {
+                  work_node.desttype = REGULARFILE;
+                }
 #endif
-                    chunk_size = o.chunksize;
-                    chunk_at = o.chunk_at;
+                chunk_size = o.chunksize;			// set defaults. if file size > chunk_at -> we will chunk the file
+                chunk_at = o.chunk_at;
 #ifdef FUSE_CHUNKER
-                    if(work_node.desttype == FUSEFILE) {
-                        chunk_size = o.fuse_chunksize;
-                        chunk_at = o.fuse_chunk_at;
-                      
+                if (work_node.desttype == FUSEFILE) {
+                  chunk_size = o.fuse_chunksize;
+                  chunk_at = o.fuse_chunk_at;
+                }
+                else if (work_node.ftype == FUSEFILE) {
+                  set_fuse_chunk_data(&work_node);
+                  chunk_size = work_node.chksz;
+                }
+                if (work_node.desttype == FUSEFILE) {
+                  if (o.work_type == COPYWORK) {
+                    if (out_node.ftype == NONE) {
+                      gettimeofday(&tv, NULL);
+                      srand(tv.tv_sec);
+                      gethostname(myhost, sizeof(myhost));
+                      fuse_num = (int) rand() % o.fuse_chunkdirs;
+                      sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG", o.fuse_path, fuse_num, myhost, (int) tv.tv_sec, (int) tv.tv_usec, chunk_size);
+                      fuse_fd = open(fusepath, O_CREAT | O_RDWR);
+                      close(fuse_fd);
+                      symlink(fusepath, out_node.path);
                     }
-                    else if (work_node.ftype == FUSEFILE) {
-                        set_fuse_chunk_data(&work_node);
-                        chunk_size = work_node.chksz;
-                    }
-                    if (work_node.desttype == FUSEFILE) {
-                        if (o.work_type == COPYWORK) {
-                            if (out_node.ftype == NONE) {
-                                gettimeofday(&tv, NULL);
-                                srand(tv.tv_sec);
-                                gethostname(myhost, sizeof(myhost));
-                                fuse_num = (int) rand() % o.fuse_chunkdirs;
-                                sprintf(fusepath, "%s/%08d.DIR/%s.%d.%d.%zd.REG", o.fuse_path, fuse_num, myhost, (int) tv.tv_sec, (int) tv.tv_usec, chunk_size);
-                                fuse_fd = open(fusepath, O_CREAT | O_RDWR);
-                                close(fuse_fd);
-                                symlink(fusepath, out_node.path);
-                            }
-                        }
-                    }
+                  }
+                }
 #endif
 #ifdef PLFS
-                    if(work_node.desttype == PLFSFILE) {
-                        chunk_size = o.plfs_chunksize;
-                        chunk_at = 0;
-                    }
-#endif
-                    if (work_node.st.st_size == 0) {
-                        work_node.chkidx = 0;
-                        work_node.chksz = 0;
-                        regbuffer[reg_buffer_count] = work_node;
-                        reg_buffer_count++;
-                    }
-                    chunk_curr_offset = 0;
-		    i = 0;						// keeps track of the chunk index
-                    while (chunk_curr_offset < work_node.st.st_size) {
-                        work_node.chkidx = i;				// assign the chunk index
-                        //if we're not doing chunks OR we're done chunking
-//                        if (work_node.st.st_size < chunk_at ||
-//                               (chunk_curr_offset + chunk_size) >  work_node.st.st_size) {
-			//if we're not doing chunks
-			 if (work_node.st.st_size < chunk_at) {
-                            work_node.chksz = work_node.st.st_size - chunk_curr_offset;
-                            chunk_curr_offset = work_node.st.st_size;
-                        }
-                        else {
-                            work_node.chksz = chunk_size;
-                            chunk_curr_offset += (((chunk_curr_offset + chunk_size) >  work_node.st.st_size)?(work_node.st.st_size-chunk_curr_offset):chunk_size);
-			    i++;
-                        }
-                        if (work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
-                            //for links or metadata compare work just send the whole file
-                            work_node.chkidx = 0;
-                            work_node.chksz = work_node.st.st_size;
-                            chunk_curr_offset = work_node.st.st_size;
-                        }
-#ifdef TAPE
-                        if (work_node.ftype == MIGRATEFILE
-#ifdef FUSE_CHUNKER
-                                || (work_node.st.st_size > 0 && work_node.st.st_blocks == 0 && work_node.ftype == FUSEFILE)
-#endif
-                           ) {
-                            tapebuffer[tape_buffer_count] = work_node;
-                            tape_buffer_count++;
-                            if (tape_buffer_count % TAPEBUFFER == 0) {
-                                send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
-                            }
-                        }
-                        else {
-#endif
-                            num_bytes_seen += work_node.chksz;
-                            regbuffer[reg_buffer_count] = work_node;
-                            reg_buffer_count++;
-PRINT_MPI_DEBUG("rank %d: process_stat_buffer() adding chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
-                            if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
-PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg buffers to manager.\n", rank, reg_buffer_count);
-                                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                                num_bytes_seen = 0;
-                            }
-#ifdef TAPE
-                        }
-#endif
-                    }
+                if (work_node.desttype == PLFSFILE) {
+                  chunk_size = o.plfs_chunksize;
+                  chunk_at = 0;
                 }
-                //regular filesystem
-                else {
-                    work_node.chkidx = 0;				// for non-chunked files, index is always 0
-                    chunk_size = work_node.st.st_size;
-                    work_node.chksz = chunk_size;
-                    num_bytes_seen += work_node.chksz;
+#endif
+                if (work_node.st.st_size == 0) {		// handle zero-length source file
+                  work_node.chkidx = 0;
+                  work_node.chksz = 0;
+                  regbuffer[reg_buffer_count] = work_node;
+                  reg_buffer_count++;
+                }
+									
+		if (work_node.st.st_size >= chunk_at) {		// working with a chunkable file
+		  struct stat *ctfExists = foundCTF(work_node.path);
+
+		  if (o.different && ctfExists && dest_exists) {// we are doing a conditional transfer & CTF file exists -> populate CTF structure
+		    ctf = getCTF(work_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
+		    if(IO_DEBUG_ON) {
+	    	      char ctf_flags[2048];
+	   	      char *ctfstr = ctf_flags;
+	    	      int ctflen = 2048;
+
+		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading CTF file: %s\n", rank, tostringCTF(ctf,&ctfstr,&ctflen));
+		    }
+		  }
+		  else if (ctfExists)				// get rid of the file if we are NOT doing a conditional transfer
+		    unlinkCTF(work_node.path);	
+		  if (ctfExists) free(ctfExists);
+		}
+                chunk_curr_offset = 0;				// keeps track of current offset in file for chunk.
+		idx = 0;				 	// keeps track of the chunk index
+                while (chunk_curr_offset < work_node.st.st_size) {
+                    work_node.chkidx = idx;			// assign the chunk index
+								// non-chunked file or file is a link or metadata compare work - just send the whole file
+		    if (work_node.st.st_size < chunk_at || work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+                      work_node.chksz = work_node.st.st_size;	// set chunk size to size of file
+                      chunk_curr_offset = work_node.st.st_size;	// set chunk offset to end of file
+		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() non-chunkable file   chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
+                    }
+                    else {					// having to chunk the file
+                      work_node.chksz = (ctf)?ctf->chnksz:chunk_size;
+                      chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)?(work_node.st.st_size-chunk_curr_offset):work_node.chksz);
+		      idx++;
+                    }
+#ifdef TAPE
+                    if (work_node.ftype == MIGRATEFILE
+#ifdef FUSE_CHUNKER
+                            || (work_node.st.st_size > 0 && work_node.st.st_blocks == 0 && work_node.ftype == FUSEFILE)
+#endif
+                       ) {
+                      tapebuffer[tape_buffer_count] = work_node;
+                      tape_buffer_count++;
+                      if (tape_buffer_count % TAPEBUFFER == 0) {
+                        send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+                      }
+                    }
+                    else {
+#endif
+		      if (!o.different || !chunktransferredCTF(ctf,work_node.chkidx)) {	// if a non-conditional transfer or if the chunk did not make on the first one ...
+                        num_bytes_seen += work_node.chksz;	// keep track of number of bytes processed
+                        regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
+                        reg_buffer_count++;
+			PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
+                        if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+			  PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination - sending %d reg buffers to manager.\n", rank, reg_buffer_count);
+                          send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                          num_bytes_seen = 0;
+                        }
+		      } // end send test
+#ifdef TAPE
+                    }
+#endif
+                  } // end file/chunking loop
+		  if (ctf) freeCTF(&ctf);			// if CTF structure allocated it -> free the memory now
+                } // end Parallel destination
+                else {						// non-parallel destination
+                    work_node.chkidx = 0;			// for non-chunked files, index is always 0
+                    work_node.chksz = work_node.st.st_size;		// set chunk size to size of file
+
+                    num_bytes_seen += work_node.chksz;			// send this off to the manager work list, if ready to
                     regbuffer[reg_buffer_count] = work_node;
                     reg_buffer_count++;
                     if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+			PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination - sending %d reg buffers to manager.\n", rank, reg_buffer_count);
                         send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                         num_bytes_seen = 0;
                     }

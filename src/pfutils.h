@@ -34,7 +34,7 @@
 #include <dirent.h>
 #include <libgen.h>
 #include <unistd.h>
-#include "hashtbl.h"
+//#include "hashtbl.h"
 #include <errno.h>
 #include <utime.h>
 
@@ -232,6 +232,8 @@ char *get_base_path(const char *path, int wildcard);
 void get_dest_path(path_item beginning_node, const char *dest_path, path_item *dest_node, int makedir, int num_paths, struct options o);
 char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 int one_byte_read(const char *path);
+ssize_t write_field(int fd, void *start, size_t len);
+int mkpath(char *thePath, mode_t perms);
 #ifdef GEN_SYNDATA
 int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
 #else

@@ -16,8 +16,9 @@
 
 #include<stdlib.h>
 
-typedef size_t hash_size;
+#include "hashdataCTF.h"						// defines the HASHDATA type
 
+typedef size_t hash_size;						// type that holds the size of the hash table
 typedef struct hashtbl {
     hash_size size;
     struct hashnode_s **nodes;
@@ -26,16 +27,16 @@ typedef struct hashtbl {
 
 struct hashnode_s {
     char *key;
-    size_t data;
-    struct hashnode_s *next;
+    HASHDATA *data;							// use a pointer to data to avoid copying data. As pftool is currently designed,
+    struct hashnode_s *next;						// this table should be internal to only one process...
 };
 
 HASHTBL *hashtbl_create(hash_size size, hash_size (*hashfunc)(const char *));
 void hashtbl_destroy(HASHTBL *hashtbl);
-int hashtbl_insert(HASHTBL *hashtbl, const char *key, size_t data);
-int hashtbl_remove(HASHTBL *hashtbl, const char *key);
-int hashtbl_update(HASHTBL *hashtbl, const char *key, size_t data);
-size_t hashtbl_get(HASHTBL *hashtbl, const char *key);
+int hashtbl_insert(HASHTBL *hashtbl, const char *key, HASHDATA *data);
+HASHDATA *hashtbl_remove(HASHTBL *hashtbl, const char *key);
+int hashtbl_update(HASHTBL *hashtbl, const char *key, HASHDATA *data);	// update function is spmewhat useless when using pointers to the data - cds 4/2015
+HASHDATA *hashtbl_get(HASHTBL *hashtbl, const char *key);
 int hashtbl_resize(HASHTBL *hashtbl, hash_size size);
 
 #endif

@@ -134,7 +134,7 @@ void _allocateCTFFlags(CTF *ctfptr,long numchnks) {
 	if(ctfptr) {
 	  ctfptr->chnkflags = (unsigned long *)malloc(sizeof(unsigned long)*ba_size);
 	  ctfptr->chnknum = numchnks;
-	  memset(ctfptr->chnkflags,0,(sizeof(unsigned char)*ba_size));
+	  memset(ctfptr->chnkflags,0,(sizeof(unsigned long)*ba_size));
 	}
 
 	return;
@@ -246,7 +246,7 @@ ssize_t _readCTF(int fd, CTF **pctfptr) {
 	if((n=read(fd,&cksz,sizeof(size_t))) <= 0)	// if error on read ...
 	  return((ssize_t)(-errno));
 	tot += n;
-	if(!cknum) return((ssize_t)(-EINVAL));		// read zero chunks for file -> invalid 
+	if(!cksz) return((ssize_t)(-EINVAL));		// read zero chunksize for file -> invalid 
 
 	if(*pctfptr) {					// structure already exists
 	  (*pctfptr)->chnksz = cksz;			// assign chunk size from value in file
@@ -257,8 +257,8 @@ ssize_t _readCTF(int fd, CTF **pctfptr) {
 	}
 	else
 	  *pctfptr = _createCTF((char *)NULL,cknum,cksz);	// Now we can allocate the CTF structure
-	ba_size = ComputeBitArraySize(cknum);			// cknum holds actual number of chunks -> compute actual array length
 
+	ba_size = ComputeBitArraySize(cknum);		// cknum holds actual number of chunks -> compute actual array length
 	if((n=read(fd,(*pctfptr)->chnkflags,(ba_size*sizeof(unsigned long)))) <= 0)	// if error on read ...
 	  return((ssize_t)(-errno));
 	tot += n;
@@ -279,7 +279,7 @@ ssize_t _readCTF(int fd, CTF **pctfptr) {
 * 	if not. Note that this function's return code
 * 	is directly opposite of the system's stat().
 */
-struct stat *foundCTFFile(const char *transfilename) {
+struct stat *foundCTF(const char *transfilename) {
 	struct stat *sbuf = (struct stat*)NULL;		// the returned stat buffer
 	char *ctffname;					// the CTF file path
 
@@ -292,6 +292,18 @@ struct stat *foundCTFFile(const char *transfilename) {
 	  sbuf = (struct stat*)NULL;			// clear the pointer
 	}
 	return(sbuf);
+}
+
+/**
+* Wrapper routine that frees memory used by a CTF
+* pointer. It also sets the pointer to NULL;
+*
+* @param pctfptr	pointer to a CTF structure pointer 
+* 			to destroy. It is an OUT parameter.
+*/
+void freeCTF(CTF **pctfptr) {
+	_destroyCTF(pctfptr);
+	return;
 }
 
 /**
@@ -431,6 +443,26 @@ void setCTF(CTF *ctfptr, long chnkidx) {
 }
 
 /**
+* This function tests a single chunk index to
+* see if the chunk has been transferred - this is.
+* that the specified chunk flag is set. If the 
+* ctfptr is not set (i.e. NULL), then this function
+* returns FALSE.
+*
+* @param cftptr		pointer to a CTF structure
+* 			to test
+* @param idx		the index of the desired 
+* 			chunk flag to test
+*
+* @return TRUE (i.e. non-zero) if the specified 
+* 	chunk flag is set. Otherwise FALSE (i.e. zero)
+*/
+int chunktransferredCTF(CTF *ctfptr,int idx) {
+	if(!ctfptr) return(FALSE);			// no structure -> nothing to check
+	return((TestBit(ctfptr->chnkflags,idx))?TRUE:FALSE);
+}
+
+/**
 * This function tests the chuck flags of
 * a CTF structure. If they are all set
 * (i.e. set to 1), then TRUE is returned.
@@ -450,5 +482,60 @@ int transferredCTF(CTF *ctfptr) {
 	  rc = (int)(i >= ctfptr->chnknum);
 	}
 	return(rc);
+}
+
+/**
+* This function unlinks the CTF file, based on
+* the transfer filename.
+*
+* @param transfilename	the name of the file to transfer
+*/
+void unlinkCTF(const char *transfilename) {
+	char *ctffname;					// the CTF file path
+
+	if(ctffname=_genCTFFilename(transfilename))	// Build CTF file name. If no name generated -> no file
+	  unlink(ctffname);				// we ignore the return code
+	return;
+}
+
+/**
+* Returns a string representation of s CTF
+* structure. The return string may be allocated
+* in this function. So any calling routine
+* needs to manage it (i.e. free it).
+*
+* @param cftptr		pointer to a CTF structure
+* 			to convert
+* @param rbuf		a buffer to hold the string.
+* 			If the buffer is not allocated,
+* 			then it is allocated.
+* @param rlen		the length of rbuf - if allocated
+*
+* @return a string representation of the given CTF
+* 	structure, If the ctfptr is NULL, then NULL
+* 	is returned. If rbuf is allocated when this
+* 	function is called, then what rbuf is pointing
+* 	to is returned.
+*/
+char *tostringCTF(CTF *ctfptr, char **rbuf, int *rlen) {
+	char *flags = (char *)NULL;			// buffer to hold flag values
+	int i = 0;
+
+	if(!ctfptr) return((char *)NULL);
+
+	flags = (char *)malloc((2*ctfptr->chnknum)+1);
+	for(i=0; i<ctfptr->chnknum; i++)
+	  snprintf(flags+(2*i),3,"%d,",(TestBit(ctfptr->chnkflags,i))?1:0);
+	i = strlen(flags);
+	flags[i-1] = '\0';
+
+	if(!(*rbuf)) {					// rbuf NOT allocated
+	  *rlen = strlen(ctfptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
+	  *rbuf = (char *)malloc(*rlen);
+	}
+	snprintf(*rbuf,*rlen,"%s, %ld, (%ld)\n\t[%s]", ctfptr->chnkfname, ctfptr->chnknum, ctfptr->chnksz,flags);
+	free(flags);
+
+	return(*rbuf);
 }
 

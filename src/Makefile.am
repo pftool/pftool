@@ -3,7 +3,8 @@ bin_PROGRAMS = $(top_builddir)/bin/pftool
 if SYNDATA
 __top_builddir__bin_pftool_SOURCES = \
 debug.h \
-hashtbl.c hashtbl.h \
+ctf.c ctf.h \
+hashtbl.c hashtbl.h hashdataCTF.c hashdataCTF.h\
 str.c str.h \
 syndata.c syndata.h \
 pfutils.c pfutils.h \
@@ -13,7 +14,8 @@ syndata_cflags=-DGEN_SYNDATA
 else
 __top_builddir__bin_pftool_SOURCES = \
 debug.h \
-hashtbl.c hashtbl.h \
+ctf.c ctf.h \
+hashtbl.c hashtbl.h hashdataCTF.c hashdataCTF.h\
 str.c str.h \
 pfutils.c pfutils.h \
 pftool.c pftool.h 
@@ -42,5 +44,7 @@ if ALLSTATIC
 allstatic_ldflags=-all-static
 endif
 
+supportlib_ldflags=-lssl
+
 __top_builddir__bin_pftool_CFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags)
-__top_builddir__bin_pftool_LDFLAGS = $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_LDFLAGS = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(allstatic_ldflags)

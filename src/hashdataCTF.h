@@ -14,7 +14,8 @@
 #ifndef HASHDATA_H_INCLUDE_GUARD
 #define HASHDATA_H_INCLUDE_GUARD
 
-# include "ctf.h"
+#include "ctf.h"
+#include "pfutils.h"
 
 // structures
 typedef struct hash_data {				// type/structure of the data of the hash table.
@@ -26,5 +27,7 @@ typedef struct hash_data {				// type/structure of the data of the hash table.
 // procedures and functions
 void hashdata_destroy(HASHDATA **theData);
 HASHDATA *hashdata_create(path_item newData);
+void hashdata_update(HASHDATA *theData,path_item fileinfo);
+int hashdata_filedone(HASHDATA *theData);
 
 #endif // HASHDATA_H_INCLUDE_GUARD

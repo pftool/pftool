@@ -11,28 +11,36 @@
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "hashdata.h"
+#include "hashdataCTF.h"
 
+#define UPDATE_STORE_LIMIT 3
 /**
 * Create a HASHDATA structure.
 *
-* @param newData	the data to add 
+* @param newData	the path_item that describes the
+* 			chunked file.
 *
 * @return a pointer to new HASHDATA structure,
 * 	suitable to be assigned to a HASHTBL
 * 	node. NULL is returned if there are problems
 * 	allocating/creating the node.
 */
-HASHDATA *hashdata_create(size_t newData) {
-	HASHDATA *new;						// the new structure
+HASHDATA *hashdata_create(path_item newData) {
+	HASHDATA *new;							// the new structure
+	long numofchnks = (long)ceil(newData.st.st_size/((double)newData.chksz));		// number of chunks this file will have
+	CTF *newCTF = getCTF(newData.path,numofchnks,newData.chksz);	// the new CTF for the file. This also initializes the DB record/chunk file
 
 	new = (HASHDATA *)malloc(sizeof(HASHDATA));
 	memset(new,0,sizeof(HASHDATA));
 	
-	new->cursize = newData;
+	// Now initialize the new CTF structure...
+	new->updatecnt = 0;
+	new->ctf = newCTF;
+	
 	return(new);
 }
 
@@ -43,9 +51,48 @@ HASHDATA *hashdata_create(size_t newData) {
 */
 void hashdata_destroy(HASHDATA **theData) {
 	if(*theData) {
+	  removeCTF((*theData)->ctf);					// this removes the chunk file, as well as deallocated the structure
 	  free(*theData);
 	  *theData = (HASHDATA *)NULL;
 	}
 	return;
 }
+
+/**
+* Updates the HASHDATA structure. This reads given
+* path_item and uses the chkidx to update the CTF
+* structure apropriately.
+* 
+* @param theData	the HASHDATA structure to
+* 			update
+* @param fileinfo	the path_item to use in
+* 			updating the CTF
+*/
+void hashdata_update(HASHDATA *theData,path_item fileinfo) {
+	setCTF(theData->ctf,fileinfo.chkidx);				// marks the chunk transferred
+	theData->updatecnt++;
+
+	if(theData->updatecnt >= UPDATE_STORE_LIMIT) {			// if count > limit -> write out the CTF to the database
+	  putCTF(fileinfo.path,theData->ctf);
+	  theData->updatecnt = 0;					// reset the count
+	}
+
+	return;
+}
+
+/**
+* Tests to see if a chunked file has all of its chunks
+* transferred.
+*
+* @param theData	the HASHDATA structure to
+* 			testcnt
+*
+* @return non-zero (i.e. TRUE) if all of the chunks have
+* 	been transferred. Otherwise zero (FALSE) is 
+* 	returned.
+*/
+int hashdata_filedone(HASHDATA *theData) {
+	return(transferredCTF(theData->ctf));
+}
+
 

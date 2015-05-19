@@ -21,16 +21,20 @@ typedef struct ctf_struct CTF;
 // Bit Array macros
 #define ComputeBitArraySize(N)	( (((N)/BITS_PER_LONG)+1L) )
 #define GetBitArraySize(F)	( (ComputeBitArraySize((F)->chnknum)) )
-#define SetBit(A,k)     ( A[(k/BITS_PER_LONG)] |= (1 << (k%BITS_PER_LONG)) )
-#define ClearBit(A,k)   ( A[(k/BITS_PER_LONG)] &= ~(1 << (k%BITS_PER_LONG)) )            
-#define TestBit(A,k)    ( A[(k/BITS_PER_LONG)] & (1 << (k%BITS_PER_LONG)) )
+#define SetBit(A,k)     ( A[(k/BITS_PER_LONG)] |= (1L << (k%BITS_PER_LONG)) )
+#define ClearBit(A,k)   ( A[(k/BITS_PER_LONG)] &= ~(1L << (k%BITS_PER_LONG)) )            
+#define TestBit(A,k)    ( A[(k/BITS_PER_LONG)] & (1L << (k%BITS_PER_LONG)) )
 
 // Function Declarations
-struct stat *foundCTFFile(const char *transfilename);
+int chunktransferredCTF(CTF *ctfptr,int idx);
+struct stat *foundCTF(const char *transfilename);
+void freeCTF(CTF **pctfptr);
 CTF *getCTF(const char *transfilename, long numchunks, size_t chunksize);
 int putCTF(const char *transfilename, CTF *ctfptr);
 int removeCTF(CTF *ctfptr);
 void setCTF(CTF *ctfptr, long chnkidx);
+char *tostringCTF(CTF *ctfptr, char **rbuf, int *rlen);
 int transferredCTF(CTF *ctfptr);
+void unlinkCTF(const char *transfilename);
 
 #endif //__CTF_H

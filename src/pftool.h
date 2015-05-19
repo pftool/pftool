@@ -16,6 +16,8 @@
 
 #include <signal.h>
 #include <getopt.h>
+
+#include "hashtbl.h"
 #include "pfutils.h"
 
 /* Function Prototypes */

@@ -30,6 +30,9 @@
 #endif
 
 
+/**
+* Prints the usage for pftool.
+*/
 void usage () {
     // print usage statement
     printf ("********************** PFTOOL USAGE ************************************************************\n");
@@ -153,6 +156,84 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
         strncat (smsg, tmsg, 2);
     }
     sprintf (outhexbuf, "%s", smsg);
+}
+
+/**
+* This function walks the path, and creates all elements in 
+* the path as a directory - if they do not exist. It
+* basically does a "mkdir -p" programatically.
+*
+* @param thePath	the path to test and create
+* @param perms		the permission mode to use when
+* 			creating directories in this path
+*
+* @return 0 if all directories are succesfully created.
+* 	errno (i.e. non-zero) if there is an error. 
+* 	See "man -s 2 mkdir" for error description.
+*/
+int mkpath(char *thePath, mode_t perms) {
+	char *slash = thePath;				// point at the current "/" in the path
+	struct stat sbuf;				// a buffer to hold stat information
+	int save_errno;					// errno from mkdir()
+
+	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
+							// then thePath will be created relative to CWD of process.
+	while(slash = strchr(slash,'/')) {		// start parsing thePath
+	  *slash = '\0';
+	  
+	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
+	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
+	      save_errno = errno;			// save off errno - in case of error...
+	      *slash = '/';
+	      return(save_errno);
+	    }
+	  }
+	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
+	    *slash = '/';
+	    return(ENOTDIR);
+	  }
+	  *slash = '/';slash++;				// increment slash ...
+	  while( *slash == '/') slash++;		// burn through any blank path elements
+	} // end mkdir loop
+
+	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
+	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
+	    return(save_errno = errno);			// save off errno - just to be sure ...
+	}
+	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
+	  return(ENOTDIR);
+
+	return(0);
+}
+
+/**
+* Low Level utility function to write a field of a data
+* structure - any data structure.
+*
+* @param fd		the open file descriptor
+* @param start		the starting memory address
+* 			(pointer) of the field
+* @param len		the length of the filed in bytes
+*
+* @return number of bytes written, If return
+* 	is < 0, then there were problems writing,
+* 	and the number can be taken as the errno.
+*/
+ssize_t write_field(int fd, void *start, size_t len) {
+	size_t n;					// number of bytes written for a given call to write()
+	ssize_t tot = 0;				// total number of bytes written
+	void *wstart = start;				// the starting point in the buffer
+	size_t wcnt = len;				// the running count of bytes to write
+
+	while(wcnt > 0) {
+	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
+	    return((ssize_t)-errno);
+	  tot += n;
+	  wstart += n;					// incremant the start address by n
+	  wcnt -= n;					// decreamnt byte count by n
+	}
+
+	return(tot);
 }
 
 #ifdef TAPE
@@ -512,7 +593,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         if (src_file.ftype == PLFSFILE){
             src_fd = plfs_open(&plfs_src_fd, src_file.path, O_RDONLY, pid+rank, src_file.st.st_mode, NULL);
         }
-        else {
+        else {
 #endif
             src_fd = open(src_file.path, O_RDONLY);
 #ifdef PLFS
@@ -526,17 +607,17 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 #ifdef GEN_SYNDATA
     }
 #endif
-PRINT_MPI_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld\n", rank, src_file.chkidx, offset, length);
+    PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld\n", rank, src_file.chkidx, offset, length);
 
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
     if ((src_file.st.st_size == length && offset == 0) || strncmp(dest_file.fstype,"panfs",5)) {	// no chunking or not writing to PANFS - cds 6/2014
        flags = O_WRONLY | O_CREAT;
-       PRINT_MPI_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT\n", rank, dest_file.fstype);
+       PRINT_IO_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT\n", rank, dest_file.fstype);
     }
     else {												// Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
-       PRINT_MPI_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE\n", rank, dest_file.fstype);
+       PRINT_IO_DEBUG("rank %d: copy_file() fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE\n", rank, dest_file.fstype);
     }
 #ifdef PLFS
     if (src_file.desttype == PLFSFILE){
@@ -637,9 +718,8 @@ PRINT_MPI_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   len
     }
     else {
 #endif
-        rc = close(dest_fd);
-        if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file.path);
+        if (close(dest_fd) < 0) {				// Report error if problems closing
+            sprintf(errormsg, "Failed to close file: %s (errno = %d)", dest_file.path, errno);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -853,7 +933,7 @@ int request_input_queuesize() {
 
 void send_command(int target_rank, int type_cmd) {
     //Tell a rank it's time to begin processing
-    PRINT_MPI_DEBUG("target rank %d: Sending command %s to target rank %d\n", target_rank, cmd2str(type_cmd), target_rank);
+//    PRINT_MPI_DEBUG("target rank %d: Sending command %s to target rank %d\n", target_rank, cmd2str(type_cmd), target_rank);
     if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);

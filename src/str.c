@@ -7,12 +7,60 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__APPLE__)
+#  define COMMON_DIGEST_FOR_OPENSSL
+#  include <CommonCrypto/CommonDigest.h>
+#  define SHA1 CC_SHA1
+#else
+#  include <openssl/md5.h>
+#endif
 
 #include "str.h"
 
 //
 // Conversion functions
 //
+
+/**
+* Takes a string and returns a MD5 hash string.
+*
+* @param str	the string to hash
+*
+* @return an MD5 hash in string format. This 
+* 	string will have 32 digits. If there are 
+* 	problems computing the hash, NULL should
+* 	be returned. Note that if str is NULL,
+* 	the the returned hash will be:
+* 	d41d8cd98f00b204e9800998ecf8427e 
+*/
+char *str2md5(const char *str) {
+    int n, rc;
+    MD5_CTX c;
+    unsigned char digest[16];
+    char *out = (char*)malloc(33);
+    int length = 0;
+
+    if(str)  length = (strlen(str));
+    rc = MD5_Init(&c);
+
+    while (rc && length > 0) {
+        if (length > 512) {
+            rc = MD5_Update(&c, str, 512);
+        } else {
+            rc = MD5_Update(&c, str, length);
+        }
+        length -= 512;
+        str += 512;
+    }
+
+    MD5_Final(digest, &c);
+
+    for (n = 0; n < 16; ++n) {
+        snprintf(&(out[n*2]), 16*2, "%02x", (unsigned int)digest[n]);
+    }
+
+    return out;
+}
 
 
 //
@@ -103,7 +151,7 @@ size_t str2Size(char* ss)
 * @return FALSE is returned if S has any character between '!' - '~'.
 *	Otherwise TRUE is returned
 */
-int strIsBlank(char *s)
+int strIsBlank(const char *s)
 {
         for ( ; s && !isgraph(*s) && *s!='\0'; s++);
         return (!s || *s=='\0') ? TRUE : FALSE;
