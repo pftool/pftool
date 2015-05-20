@@ -3,8 +3,8 @@ bin_PROGRAMS = $(top_builddir)/bin/pftool
 if SYNDATA
 __top_builddir__bin_pftool_SOURCES = \
 debug.h \
-ctf.c ctf.h \
-hashtbl.c hashtbl.h hashdataCTF.c hashdataCTF.h\
+cta.c ctf.c ctm.c ctm.h \
+hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
 str.c str.h \
 syndata.c syndata.h \
 pfutils.c pfutils.h \
@@ -14,8 +14,8 @@ syndata_cflags=-DGEN_SYNDATA
 else
 __top_builddir__bin_pftool_SOURCES = \
 debug.h \
-ctf.c ctf.h \
-hashtbl.c hashtbl.h hashdataCTF.c hashdataCTF.h\
+cta.c ctf.c ctm.c ctm.h \
+hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
 str.c str.h \
 pfutils.c pfutils.h \
 pftool.c pftool.h 

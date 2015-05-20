@@ -1,4 +1,18 @@
 /*
+*This material was prepared by the Los Alamos National Security, LLC (LANS) under
+*Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
+*in the material are reserved by DOE on behalf of the Government and LANS
+*pursuant to the contract. You are authorized to use the material for Government
+*purposes but it is not to be released or distributed to the public. NEITHER THE
+*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
+*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
+*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
+*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
+*DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
+*/
+
+
+/*
 * Function that implement and support Chunk Transfer Files. 
 * These files are used when transferring large files, and
 * contain meta data regarding the transfer and its progress.
@@ -18,7 +32,12 @@
 
 #include "pfutils.h"
 #include "str.h"
-#include "ctf.h"
+#include "ctm.h"
+#include "ctm_impl.h"					// holds implementation specific declarations
+
+
+#define CTF_DEFAULT_DIRECTORY ".pftool/chunkfiles"	// the default directory where Chunk Transfer Files are created
+#define CTF_UPDATE_STORE_LIMIT 3			// throttle for how often the CTF file is actually written when stored. 
 
 char *CTFDir = (char *)NULL;				// private global that holds the name of the user's Chunk Transfer File (CTF) directory
 
@@ -40,7 +59,7 @@ char *CTFDir = (char *)NULL;				// private global that holds the name of the use
 * @return the directory to create CTF files in. NULL will
 * 	be returned if CTFDir is NOT set properly
 */
-char *getCTFDir() {
+char *_getCTFDir() {
 	if(!CTFDir) {					// if the CTFDir has not been initialized - do it now
 	  struct stat sbuf;				// buffer to hold stat information
 
@@ -64,6 +83,91 @@ char *getCTFDir() {
 }
 
 /**
+* Low-level function to write a CTM structure using
+* a file descriptor.
+*
+* @param fd	the file descriptor to write to
+* @param ctmptr	the structure to write
+*
+* @return number of bytes written, If return
+* 	is < 0, then there were problems writing,
+* 	and the number can be taken as the errno.
+*/
+ssize_t _writeCTF(int fd, CTM *ctmptr) {
+	size_t n;					// number of bytes written
+	ssize_t tot = 0;				// total number of bytes written
+
+		// Write out the chunk count
+	if((n = write_field(fd,&ctmptr->chnknum,sizeof(ctmptr->chnknum))) < 0)
+	  return(n);
+	tot += n;
+		// Write out the chunk size
+	if((n = write_field(fd,&ctmptr->chnksz,sizeof(ctmptr->chnksz))) < 0)
+	  return(n);
+	tot += n;
+
+		// Write out the flags
+	if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
+	  return(n);
+	tot += n;
+
+	return(tot);
+}
+
+/**
+* Low level function to read from the file descriptor into
+* a CTM structure. Note that this function may allocate and
+* return a populated CTF structure.
+*
+* @param fd		the file descriptor to read from
+* @param pctmptr	pointer to a CTM structure pointer. 
+* 			This can be an OUT parameter
+*
+* @return number of bytes read, If return
+* 	is < 0, then there were problems writing,
+* 	and the number can be taken as the errno.
+*/
+ssize_t _readCTF(int fd, CTM **pctmptr) {
+	long cknum;						// holds the number of chunks from file
+	size_t cksz;						// holds the chunk size of the transfer
+	size_t bufsz = (size_t)0;				// size of the flag buffer
+	ssize_t n;						// current bytes read
+	ssize_t tot = (ssize_t)0;				// total bytes read
+
+	if((n=read(fd,&cknum,sizeof(long))) <= 0)		// if error on read ...
+	  return((ssize_t)(-errno));
+	tot += n;
+	if(!cknum) return((ssize_t)(-EINVAL));			// read zero chunks for file -> invalid 
+
+	if((n=read(fd,&cksz,sizeof(size_t))) <= 0)		// if error on read ...
+	  return((ssize_t)(-errno));
+	tot += n;
+	if(!cknum) return((ssize_t)(-EINVAL));			// read zero chunks for file -> invalid 
+
+	if(!(*pctmptr)) return((ssize_t)(-EINVAL));		// NULL structure passed in -> invalid
+
+	(*pctmptr)->chnksz = cksz;				// assign chunk size from value in file
+	if(cknum != (*pctmptr)->chnknum) {			// ... and number of chunks differ -> reallocate flag array
+          (*pctmptr)->chnknum = cknum;				// assign chunk number from file
+	  if((*pctmptr)->chnkflags) free((*pctmptr)->chnkflags);
+	  bufsz = allocateCTMFlags((*pctmptr));			// resize CTM flag array
+	}
+	else if(!(*pctmptr)->chnkflags)				// flag array needs to be allocated
+	  bufsz = allocateCTMFlags((*pctmptr));			// create CTM flag array
+
+	if(bufsz < (ssize_t)0)					// problems allocating flags
+	  return((ssize_t)bufsz);				// ... return error, which is negative
+	else if(!bufsz)						// bufsz needs to be computed ...
+	  bufsz = (size_t)(sizeof(unsigned long)*GetBitArraySize(*pctmptr));
+
+	if((n=read(fd,(*pctmptr)->chnkflags,bufsz)) <= 0)	// if error on read ...
+	  return((ssize_t)(-errno));
+	tot += n;
+
+	return(tot);
+}
+
+/**
 * This function generates the CTF file name, based on the 
 * transfer file name. The transfer file name should be an
 * absolute path.
@@ -74,468 +178,164 @@ char *getCTFDir() {
 * 	returned if there are problems generating the 
 * 	name.
 */
-char *_genCTFFilename(const char *transfilename) {
-	char *name = (char *)NULL;			// the generated name
-	char *ctfdir = getCTFDir();			// holds the CTF directory (where CTF files are gnerated)
+char *genCTFFilename(const char *transfilename) {
+	char *ctfdir = _getCTFDir();			// holds the CTF directory (where CTF files are generated)
 	char tmpname[PATH_MAX+1];			// temporary name buffer
 	char *md5fname;					// MD5 version of transfer file
 
-	if(!transfilename || !ctfdir)  return(name);	// if no filename -> nothing to do. (should be strIsBlank()) or problems retrieving directory
+	if(strIsBlank(transfilename) || !ctfdir)	// if no filename -> nothing to do ... or problems retrieving directory  
+	  return((char *)NULL);	
 
-	name = (char *)malloc(PATH_MAX+1);
 	md5fname = str2md5(transfilename);
 	sprintf(tmpname, "%s/%s", ctfdir, md5fname);
 	if(md5fname) free(md5fname);			// we are done with this name ... clean up memory
 
-	return(name=strdup(tmpname));
-}
-
-/**
-* Function to indicate if a CTF structure has an
-* allocated file name.
-* 
-* @param ctfptr		pointer to a CTF structure to destroy
-*
-* @return non-zero (TRUE) id structure has a filename
-* 	pointer allocated.
-*/
-int _hasCTFFile(CTF *ctfptr) {
-	return((int)(ctfptr && ctfptr->chnkfname != (char*)NULL));
-//	return(ctfptr && !strIsBlank(ctfptr->chnkfname));// essentally a wrapper for strIsBlank()
-}
-
-/**
-* Routine to set the file name for a CTF structure.
-*
-* @param ctfptr		pointer to a CTF structure to destroy
-* @param fname		the MD5 file name for the CTF structure.
-* 			See _genCTFFilename().
-*/
-void _setCTFFile(CTF *ctfptr, const char *fname) {
-//	if(ctfptr && !strIsBlank(fname)) {		// the is an allocated structure and a name to assign
-	if(ctfptr && fname) {
-	  if(_hasCTFFile(ctfptr)) free(ctfptr->chnkfname);
-	  ctfptr->chnkfname = strdup(fname);
-	}
-}
-
-/**
-* Allocates a new flag array for s CTF 
-* structure.
-*
-* @param ctfptr		pointer to a CTF structure to modify
-* @param numchnks	the number of chunks to transfer.
-* 			This is the length of the chnkflags
-* 			array.
-*/
-void _allocateCTFFlags(CTF *ctfptr,long numchnks) {
-	long ba_size = ComputeBitArraySize(numchnks);	// this is the size of the bit array to allocate
-
-	if(ctfptr) {
-	  ctfptr->chnkflags = (unsigned long *)malloc(sizeof(unsigned long)*ba_size);
-	  ctfptr->chnknum = numchnks;
-	  memset(ctfptr->chnkflags,0,(sizeof(unsigned long)*ba_size));
-	}
-
-	return;
-	
-}
-
-/**
-* This function returns a newly allocated CTF structure
-*
-* @param transfilename	the name of the file to transfer
-* @param numchnks	the number of chunks to transfer.
-* 			This is the length of the chnkflags
-* 			array.
-* @param sizechnks	the size of the chunks for this 
-* 			file. Should NOT be zero!
-*
-* @return an empty CTF structure. A NULL pointer is returned
-* 	if there are problems allocating the structure.
-*/
-CTF *_createCTF(const char *transfilename, long numchnks, size_t sizechnks) {
-	CTF *new = (CTF *)NULL;				// pointer to the new structure
-
-	if(numchnks > 0L) {				// if there are chunks to transfer ....
-	  new = (CTF *)malloc(sizeof(CTF));
-
-	  new->chnkfname = _genCTFFilename(transfilename);
-	  new->chnksz = sizechnks;
-	  _allocateCTFFlags(new,numchnks);
-	}
-	return(new);
-}
-
-/**
-* This function frees the memory used by a CTF structure. It also
-* sets the pointer to NULL;
-*
-* @param pctfptr	pointer to a CTF structure pointer 
-* 			to destroy. It is an OUT parameter.
-*/
-void _destroyCTF(CTF **pctfptr) {
-	CTF *ctfptr = (*pctfptr);
-
-	if(ctfptr) {
-	  if(ctfptr->chnkflags) free(ctfptr->chnkflags);
-	  if(_hasCTFFile(ctfptr)) free(ctfptr->chnkfname);
-	  free(ctfptr);
-	  ctfptr = (CTF*)NULL;
-	}
-	return;
-}
-
-/**
-* Low-level function to write a CTF structure using
-* a file descriptor.
-*
-* @param ctfptr	the structure to write
-*
-* @return number of bytes written, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
-*/
-ssize_t _writeCTF(int fd, CTF *ctfptr) {
-	size_t n;					// number of bytes written
-	ssize_t tot = 0;				// total number of bytes written
-	size_t ckflags_size = ((ctfptr->chnknum)*sizeof(unsigned char));
-
-		// Write out the chunk count
-	if((n = write_field(fd,&ctfptr->chnknum,sizeof(ctfptr->chnknum))) < 0)
-	  return(n);
-	tot += n;
-		// Write out the chunk size
-	if((n = write_field(fd,&ctfptr->chnksz,sizeof(ctfptr->chnksz))) < 0)
-	  return(n);
-	tot += n;
-
-		// Write out the flags
-	if((n = write_field(fd,(void *)ctfptr->chnkflags,(GetBitArraySize(ctfptr)*sizeof(unsigned long)))) < 0)
-	  return(n);
-	tot += n;
-
-	return(tot);
-}
-
-/**
-* Low level function to read from the file descriptor into
-* a CTF structure. Note that this function may allocate and
-* return a populated CTF structure.
-*
-* @param fd		the file descriptor to read from
-* @param pcftptr	pointer to a CTF structure pointer. 
-* 			This can be an OUT parameter
-*
-* @return number of bytes read, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
-*/
-ssize_t _readCTF(int fd, CTF **pctfptr) {
-	long cknum;					// holds the number of chunks from file
-	long ba_size;					// size of the bit array for the chunk flags
-	size_t cksz;					// holds the chunk size of the transfer
-	ssize_t n;					// current bytes read
-	ssize_t tot = (ssize_t)0;			// total bytes read
-
-	if((n=read(fd,&cknum,sizeof(long))) <= 0)	// if error on read ...
-	  return((ssize_t)(-errno));
-	tot += n;
-	if(!cknum) return((ssize_t)(-EINVAL));		// read zero chunks for file -> invalid 
-
-	if((n=read(fd,&cksz,sizeof(size_t))) <= 0)	// if error on read ...
-	  return((ssize_t)(-errno));
-	tot += n;
-	if(!cksz) return((ssize_t)(-EINVAL));		// read zero chunksize for file -> invalid 
-
-	if(*pctfptr) {					// structure already exists
-	  (*pctfptr)->chnksz = cksz;			// assign chunk size from value in file
-	  if(cknum != (*pctfptr)->chnknum) {		// ... and number of chunks differ -> reallocated flags
-	    if((*pctfptr)->chnkflags) free((*pctfptr)->chnkflags);
-	    _allocateCTFFlags((*pctfptr),cknum);	// resize CTF flag array
-	  }
-	}
-	else
-	  *pctfptr = _createCTF((char *)NULL,cknum,cksz);	// Now we can allocate the CTF structure
-
-	ba_size = ComputeBitArraySize(cknum);		// cknum holds actual number of chunks -> compute actual array length
-	if((n=read(fd,(*pctfptr)->chnkflags,(ba_size*sizeof(unsigned long)))) <= 0)	// if error on read ...
-	  return((ssize_t)(-errno));
-	tot += n;
-
-	return(tot);
+	return(strdup(tmpname));
 }
 
 /**
 * Function to indicate if the CTF file associated with
-* a CTF structure actually exists in the filesystem. As
-* this function returns an allocated pointer, if the file
-* exists, then the returned pointer needs to be dealt with!
+* a file actually exists in the filesystem.
 *
 * @param transfilename	the name of the file to transfer
 *
-* @return a populated stat structure is returned if the
-* 	file exists. Otherwise a NULL pointer is returned
-* 	if not. Note that this function's return code
-* 	is directly opposite of the system's stat().
+* @return TRUE if the CTF file exists. Otherwise FALSE.
 */
-struct stat *foundCTF(const char *transfilename) {
-	struct stat *sbuf = (struct stat*)NULL;		// the returned stat buffer
+int foundCTF(const char *transfilename) {
+	struct stat sbuf;				// the returned stat buffer
 	char *ctffname;					// the CTF file path
 
-	if(!(ctffname=_genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> no file
-	  return(sbuf);
+	if(!(ctffname=genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> no file
+	  return(FALSE);
 
-	sbuf = (struct stat *)malloc(sizeof(struct stat));
-	if(stat(ctffname,sbuf)) {			// file does NOT exist.
-	  free(sbuf);					// free the stat buffer
-	  sbuf = (struct stat*)NULL;			// clear the pointer
-	}
-	return(sbuf);
+	if(stat(ctffname,&sbuf)) 			// file does NOT exist.
+	  return(FALSE);
+	return(TRUE);
 }
 
 /**
-* Wrapper routine that frees memory used by a CTF
-* pointer. It also sets the pointer to NULL;
-*
-* @param pctfptr	pointer to a CTF structure pointer 
-* 			to destroy. It is an OUT parameter.
-*/
-void freeCTF(CTF **pctfptr) {
-	_destroyCTF(pctfptr);
-	return;
-}
-
-/**
-* This function returns a pointer to a CTF
-* (Chunk Transfer File) structure. This file/structure 
-* holds infromation as to what chunks of a file have 
+* This function populates a CTM (Chunk Transfer Metadata) structure. 
+* This structure holds infromation as to what chunks of a file have 
 * been transferred.
 *
-* Note that this function manages an actual file, so
-* that the information about what chunks need to be
-* transferred. can be maintained through transfer
-* failures.
+* Note that this function manages an actual file, so that the 
+* information about what chunks need to be * transferred. can be 
+* maintained through transfer failures.
 *
-* If the underlying 
-*
-* @param transfilename	the name of the file to transfer
+* @param ctmptr		pointer to a CTM structure to
+* 			populate. It is an OUT parameter.
 * @param numchunks	a parameter that is looked at
 * 			in the case of a new transfer.
 * @param chunksize	a parameter that is used in
 * 			the case of a new transfer
 *
-* @return a point to a CTF structure. If there are errors,
-* 	a NULL pointer is returned.
+* @return a positive number if the population of the structure is
+* 	completed. Otherwise a negative result is returned.
 */
-CTF *getCTF(const char *transfilename, long numchunks, size_t chunksize) {
-	char *ctffname;					// the CTF file path
-	struct stat sbuf;				// holds stat info
-	CTF *ctfptr = (CTF *)NULL;			// the CTF pointer to return
-	int ctffd;					// file descriptor of CTF file
+int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
+	int syserr;							// holds any system errrno
+	struct stat sbuf;						// holds stat info of md5 file
+	int ctffd;							// file descriptor of CTF file
 	
-	if(!(ctffname=_genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> exit
-	  return(ctfptr);
+	if(!ctmptr || strIsBlank(ctmptr->chnkfname))			// make sure we have a valid structure
+	  return(-1);
 
 		// Manage CTF file
-	if(stat(ctffname,&sbuf)) {			// file does NOT exist.
-	  if((ctffd = creat(ctffname,S_IRWXU)) < 0) {	// if error on create ...
-	    free(ctffname);				// ... clean up memory
-	    return(ctfptr);
-	  }
-	  ctfptr = _createCTF(transfilename,numchunks,chunksize);	// initialize a new structure with given # of chunks
-	  if(_writeCTF(ctffd,ctfptr) < (ssize_t)0) 	// if error on write ...
-	    _destroyCTF(&ctfptr);			// ... clean up memory
+	if(stat(ctmptr->chnkfname,&sbuf)) {				// file does NOT exist. We are testing the md5 filename (generated when allocating the CTM structure)
+	  ctmptr->chnknum = numchunks;					// now assign number of chunks to CTM structure
+	  ctmptr->chnksz = chunksize;					// assign chunk size to CTM structure
+	  if((syserr=(int)allocateCTMFlags(ctmptr)) <= 0)		// allocate the chunk flag bit array
+	    return(syserr);						//    problems? -> return an error. allocateCTMFlags() returns a negative error
 	}
-	else {						// file exists -> read it to populate CTF structure
-	  if((ctffd = open(ctffname,O_RDONLY)) < 0) {	// if error on open ...
-	    free(ctffname);				// ... clean up memory
-	    return(ctfptr);
+	else {								// file exists -> read it to populate CTF structure
+	  if((ctffd = open(ctmptr->chnkfname,O_RDONLY)) < 0) 		// if error on open ...
+	    return(syserr = -errno);					//	return a negative errno
+	  if((syserr=(int)_readCTF(ctffd,&ctmptr)) < 0) { 		// if error on read ...
+	    return(syserr);						// 	syserr should be negative at this point -> we are out a here!
 	  }
-	  if(_readCTF(ctffd,&ctfptr) < 0) { 		// if error on read ...
-	    if(ctfptr) _destroyCTF(&ctfptr);		// ... clean up memory, if allocated
-	  }
-	  _setCTFFile(ctfptr,ctffname);			// make sure file name is set
+	  close(ctffd);							// close file if open
 	}
 
-	close(ctffd);					// close file if open
-	free(ctffname);					// done with CTF file name
-	return(ctfptr);
+	return(1);
 }
 
 /**
-* This function stores a CTF structure into a CTF file.
+* This function stores a CTM structure into a CTF file.
 *
-* @param transfilename	the name of the file to transfer
-* @param cftptr		pointer to a CTF structure to 
+* @param ctmptr		pointer to a CTM structure to 
 * 			store. 
 *
 * @return 0 if there are no problems store the structure
 * 	information into a CTF file. Otherwise a number corresponding
-* 	to errno is returned. -1 is returned if ctffname
-* 	cannot be generated.
+* 	to errno is returned. It may be a negative value.
 */
-int putCTF(const char *transfilename, CTF *ctfptr) {
-	char *ctffname;					// the CTF file path
-	struct stat sbuf;				// holds stat info
-	int ctffd;					// file descriptor of CTF file
-	int rc = 0;					// return code for function
-	int n;						// number of bytes written to CTF file
+int storeCTF(CTM *ctmptr) {
+	struct stat sbuf;						// holds stat info
+	int ctffd;							// file descriptor of CTF file
+	int rc = 0;							// return code for function
+	int n;								// number of bytes written to CTF file
 
-	if(!ctfptr) return(EINVAL);			// Nothing to write, because there is no structure!
+	if(!ctmptr || strIsBlank(ctmptr->chnkfname)) 
+	  return(EINVAL);						// Nothing to write, because there is no structure, or it is invalid!
 
-	if(_hasCTFFile(ctfptr)) 			// If we already know the name -> use it
-	  ctffname = strdup(ctfptr->chnkfname);		// ... a copy of the name allows for the uniform handling of the pointer
-	else if(!(ctffname=_genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> exit
-	  return(-1);
- 
+	if(ctmptr->chnkstore < CTF_UPDATE_STORE_LIMIT) {		// this function has not been called enough times to cause a file to be written
+	  ctmptr->chnkstore++;						// increment counter of calls
+	  return(rc);
+	}
 		// Manage CTF file
-	if(stat(ctffname,&sbuf)) {			// file does NOT exist.
-	  if((ctffd = creat(ctffname,S_IRWXU)) < 0) 	// if error on create ...
-	    rc = errno;					// ... save off errno 
+	if(stat(ctmptr->chnkfname,&sbuf)) {				// file does NOT exist. We are testing the md5 filename (generated when allocating the CTM structure)
+	  if((ctffd = creat(ctmptr->chnkfname,S_IRWXU)) < 0)		// if error on create ...
+	    rc = errno;							// ... save off errno 
 	}
-	else {						// file exists -> read it to populate CTF structure
-	  if((ctffd = open(ctffname,O_WRONLY)) < 0) 	// if error on open ...
-	    rc = errno;					// ... save off errno
-	}
-
-	if(!rc) {					// opened or created without errors ...
-	  if((n = (int)_writeCTF(ctffd,ctfptr)) < 0)	// write the structure to the file failed
-	    rc = errno;					// ... save off errno
+	else {								// file exists -> open it to write CTM structure
+	  if((ctffd = open(ctmptr->chnkfname,O_WRONLY)) < 0) 		// if error on open ...
+	    rc = errno;							// ... save off errno
 	}
 
-	if(ctffd >= 0) close(ctffd);			// close file if open
-	free(ctffname);					// done with CTF file name
+	if(!rc) {							// opened or created without errors ...
+	  if((n = (int)_writeCTF(ctffd,ctmptr)) < 0)			// write the structure to the file failed
+	    rc = n;							// ... save off error from _writeCTF()
+	}
+
+	if(ctffd >= 0) close(ctffd);					// close file if open
+	if(!rc) ctmptr->chnkstore = 0;					// re-initialize countier if there are no problems storing
 	return(rc);
 }
  
 /**
-* This removes a CTF file and destroys or frees a CTF
-* structure.
+* This removes a CTM file if one exists.
 *
-* @param cftptr		pointer to a CTF structure to 
-* 			remove. 
+* @param chnkfname	name of chunk file to
+* 			unlink. (the md5 name) 
 *
 * @return 0 if file was removed. otherwise a number
 * 	 corresponding to errno is returned.
 */
-int removeCTF(CTF *ctfptr) {
-	int rc = 0;					// return code for function
+int unlinkCTF(const char *chnkfname) {
+	struct stat sbuf;						// holds stat info
+	int rc = 0;							// return code for function
 
-	if(_hasCTFFile(ctfptr)) 			// if a file name has been allocated, assume file exists,
-	  rc = unlink(ctfptr->chnkfname);		// and unlink it
-	_destroyCTF(&ctfptr);
-	return(rc);
-}
+	if(strIsBlank(chnkfname)) 
+	  return(EINVAL);						// Nothing to delete, because nofile name was given
 
-/**
-* This routine sets the flag for a given
-* chunk index to true.
-*
-* @param cftptr		pointer to a CTF structure to 
-* 			set.
-* @param chnkidx	index of the chunk flag
-*/
-void setCTF(CTF *ctfptr, long chnkidx) {
-	if(ctfptr)
-	  SetBit(ctfptr->chnkflags,chnkidx);
-	return;
-}
-
-/**
-* This function tests a single chunk index to
-* see if the chunk has been transferred - this is.
-* that the specified chunk flag is set. If the 
-* ctfptr is not set (i.e. NULL), then this function
-* returns FALSE.
-*
-* @param cftptr		pointer to a CTF structure
-* 			to test
-* @param idx		the index of the desired 
-* 			chunk flag to test
-*
-* @return TRUE (i.e. non-zero) if the specified 
-* 	chunk flag is set. Otherwise FALSE (i.e. zero)
-*/
-int chunktransferredCTF(CTF *ctfptr,int idx) {
-	if(!ctfptr) return(FALSE);			// no structure -> nothing to check
-	return((TestBit(ctfptr->chnkflags,idx))?TRUE:FALSE);
-}
-
-/**
-* This function tests the chuck flags of
-* a CTF structure. If they are all set
-* (i.e. set to 1), then TRUE is returned.
-*
-* @param cftptr		pointer to a CTF structure
-* 			to test
-*
-* @return TRUE (i.e. non-zero) if all chunk flags
-* 	are set.Otherwise FALSE (i.e. zero) is returned.
-*/
-int transferredCTF(CTF *ctfptr) {
-	int rc = 0;					// return code
-	int i = 0;					// index into 
-
-	if(ctfptr) {
-	  while(i < ctfptr->chnknum && TestBit(ctfptr->chnkflags,i)) i++;
-	  rc = (int)(i >= ctfptr->chnknum);
+	if(!stat(chnkfname,&sbuf)) {					// only unlink if the file exists
+	  if(unlink(chnkfname) < 0)					//  ... check if there are errors
+	    rc = errno;
 	}
 	return(rc);
 }
 
 /**
-* This function unlinks the CTF file, based on
-* the transfer filename.
+* This function assigns CTF functions to the given CTM_IMPL
+* structure.
 *
-* @param transfilename	the name of the file to transfer
+* @param ctmimplptr	pointer to a CTM_IMPL structure
+* 			to update. This is an OUT parameter.
 */
-void unlinkCTF(const char *transfilename) {
-	char *ctffname;					// the CTF file path
-
-	if(ctffname=_genCTFFilename(transfilename))	// Build CTF file name. If no name generated -> no file
-	  unlink(ctffname);				// we ignore the return code
+void registerCTF(CTM_IMPL *ctmimplptr) {
+	ctmimplptr->read = populateCTF;
+	ctmimplptr->write = storeCTF;
+	ctmimplptr->delete = unlinkCTF;
 	return;
-}
-
-/**
-* Returns a string representation of s CTF
-* structure. The return string may be allocated
-* in this function. So any calling routine
-* needs to manage it (i.e. free it).
-*
-* @param cftptr		pointer to a CTF structure
-* 			to convert
-* @param rbuf		a buffer to hold the string.
-* 			If the buffer is not allocated,
-* 			then it is allocated.
-* @param rlen		the length of rbuf - if allocated
-*
-* @return a string representation of the given CTF
-* 	structure, If the ctfptr is NULL, then NULL
-* 	is returned. If rbuf is allocated when this
-* 	function is called, then what rbuf is pointing
-* 	to is returned.
-*/
-char *tostringCTF(CTF *ctfptr, char **rbuf, int *rlen) {
-	char *flags = (char *)NULL;			// buffer to hold flag values
-	int i = 0;
-
-	if(!ctfptr) return((char *)NULL);
-
-	flags = (char *)malloc((2*ctfptr->chnknum)+1);
-	for(i=0; i<ctfptr->chnknum; i++)
-	  snprintf(flags+(2*i),3,"%d,",(TestBit(ctfptr->chnkflags,i))?1:0);
-	i = strlen(flags);
-	flags[i-1] = '\0';
-
-	if(!(*rbuf)) {					// rbuf NOT allocated
-	  *rlen = strlen(ctfptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
-	  *rbuf = (char *)malloc(*rlen);
-	}
-	snprintf(*rbuf,*rlen,"%s, %ld, (%ld)\n\t[%s]", ctfptr->chnkfname, ctfptr->chnknum, ctfptr->chnksz,flags);
-	free(flags);
-
-	return(*rbuf);
 }
 

@@ -16,7 +16,7 @@
 
 #include<stdlib.h>
 
-#include "hashdataCTF.h"						// defines the HASHDATA type
+#include "hashdataCTM.h"						// defines the HASHDATA type
 
 typedef size_t hash_size;						// type that holds the size of the hash table
 typedef struct hashtbl {

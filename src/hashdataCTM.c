@@ -15,9 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "hashdataCTF.h"
+#include "hashdataCTM.h"
 
-#define UPDATE_STORE_LIMIT 3
 /**
 * Create a HASHDATA structure.
 *
@@ -30,18 +29,10 @@
 * 	allocating/creating the node.
 */
 HASHDATA *hashdata_create(path_item newData) {
-	HASHDATA *new;							// the new structure
 	long numofchnks = (long)ceil(newData.st.st_size/((double)newData.chksz));		// number of chunks this file will have
-	CTF *newCTF = getCTF(newData.path,numofchnks,newData.chksz);	// the new CTF for the file. This also initializes the DB record/chunk file
+	CTM *new = getCTM(newData.path,numofchnks,newData.chksz);	// the new CTM for the file. This also initializes the persistent store
 
-	new = (HASHDATA *)malloc(sizeof(HASHDATA));
-	memset(new,0,sizeof(HASHDATA));
-	
-	// Now initialize the new CTF structure...
-	new->updatecnt = 0;
-	new->ctf = newCTF;
-	
-	return(new);
+	return((HASHDATA *)new);
 }
 
 /**
@@ -50,33 +41,23 @@ HASHDATA *hashdata_create(path_item newData) {
 * @param theData	the HASHDATA to deallocate
 */
 void hashdata_destroy(HASHDATA **theData) {
-	if(*theData) {
-	  removeCTF((*theData)->ctf);					// this removes the chunk file, as well as deallocated the structure
-	  free(*theData);
-	  *theData = (HASHDATA *)NULL;
-	}
+	if(*theData)
+	  removeCTM((CTM **)theData);					// this removes the chunk file, as well as deallocated the structure
 	return;
 }
 
 /**
 * Updates the HASHDATA structure. This reads given
-* path_item and uses the chkidx to update the CTF
+* path_item and uses the chkidx to update the CTM
 * structure apropriately.
 * 
 * @param theData	the HASHDATA structure to
 * 			update
 * @param fileinfo	the path_item to use in
-* 			updating the CTF
+* 			updating the CTM
 */
 void hashdata_update(HASHDATA *theData,path_item fileinfo) {
-	setCTF(theData->ctf,fileinfo.chkidx);				// marks the chunk transferred
-	theData->updatecnt++;
-
-	if(theData->updatecnt >= UPDATE_STORE_LIMIT) {			// if count > limit -> write out the CTF to the database
-	  putCTF(fileinfo.path,theData->ctf);
-	  theData->updatecnt = 0;					// reset the count
-	}
-
+	updateCTM((CTM *)theData,fileinfo.chkidx);			// marks the chunk transferred
 	return;
 }
 
@@ -92,7 +73,7 @@ void hashdata_update(HASHDATA *theData,path_item fileinfo) {
 * 	returned.
 */
 int hashdata_filedone(HASHDATA *theData) {
-	return(transferredCTF(theData->ctf));
+	return(transferredCTM((CTM *)theData));
 }
 
 

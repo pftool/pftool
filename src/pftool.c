@@ -22,7 +22,7 @@
 
 // include that is associated with pftool itself
 #include "pftool.h"
-#include "ctf.h"
+#include "ctm.h"
 
 #ifdef THREADS_ONLY
 #define MPI_Abort MPY_Abort
@@ -882,18 +882,18 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
 	else {											// --- Structure for File needs to be updated
 	    hashdata_update(hash_value,work_node);						// this will update the data in the table
 	    if(IO_DEBUG_ON) {
-	      char ctf_flags[2048];
-	      char *ctfstr = ctf_flags;
-	      int ctflen = 2048;
+	      char ctm_flags[2048];
+	      char *ctmstr = ctm_flags;
+	      int ctmlen = 2048;
 
-	      PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTF (chunk %d of file %s)\n%s\n", rank, work_node.chkidx, work_node.path,tostringCTF(hash_value->ctf,&ctfstr,&ctflen));
+	      PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n", rank, work_node.chkidx, work_node.path,tostringCTM((CTM *)hash_value,&ctmstr,&ctmlen));
 	   }
 	}
 
         if (hash_value == (HASHDATA *)NULL) 							// if no hash_value at this point, we have a problem!
 	    errsend(NONFATAL, "Do not have a hashed data structure for a chunked file!\n");
         else if (hashdata_filedone(hash_value)) {						// --- File is done transferring
-	    PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTF should be removed. (chunk %d of file %s)\n", rank, work_node.chkidx, work_node.path);
+	    PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTM should be removed. (chunk %d of file %s)\n", rank, work_node.chkidx, work_node.path);
             hash_value = hashtbl_remove(*chunk_hash, work_node.path);				// remove structure for File from hash table
 	    hashdata_destroy(&hash_value);							// we are done with the data
             strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));
@@ -1285,9 +1285,9 @@ int stat_item(path_item *work_node, struct options o) {
 /**
 * This function tests the metadata of the two nodes
 * to see if they are the same. For files that are chunkable,
-* it looks to see if a CTF files exists for the source. If it 
-* does, then it assumes that there was an aborted transfer,
-* and the files are NOT the same!
+* it looks to see if CTM (chunk transfer metadata) exists for 
+* the source file. If it does, then it assumes that there was 
+* an aborted transfer, and the files are NOT the same!
 *
 * @param src		a path_item structure containing
 * 			the metadata for the souce file
@@ -1296,7 +1296,7 @@ int stat_item(path_item *work_node, struct options o) {
 * 			file
 * @param o		the PFTOOL global options structure
 *
-* @return 1 (TRUE) if the metadata matches and no CTF file
+* @return 1 (TRUE) if the metadata matches and no CTM
 * 	exists for a chunkable file. 0 (FALSE) otherwise.
 */
 int samefile(path_item src, path_item dst, struct options o) {
@@ -1307,12 +1307,8 @@ int samefile(path_item src, path_item dst, struct options o) {
           src.st.st_mode == dst.st.st_mode &&
           src.st.st_uid == dst.st.st_uid &&
           src.st.st_gid == dst.st.st_gid);
-    if (rc && src.st.st_size >= o.chunk_at) {			// a chunkable file that looks the same - does it have a CTF?
-      struct stat *fexists = foundCTF(src.path);
-
-      rc = (fexists)?0:1;					// if CTF exists -> two file are NOT the same
-      if(fexists) free(fexists);				// clean up memory ....
-    }
+    if (rc && src.st.st_size >= o.chunk_at) 			// a chunkable file that looks the same - does it have a CTM?
+      rc = !(hasCTM(src.path));					// if CTM exists -> two file are NOT the same
     return(rc);
 }
 
@@ -1481,7 +1477,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 
             if (process == 1) {					// Now we process the source file - which may mean chunk it, and stick on the work list
               if (parallel_dest) {				// parallel filesystem can do n-to-1 (as well as n-to-n)
-		CTF *ctf = (CTF *)NULL;				// CTF structure used with chunked files   
+		CTM *ctm = (CTM *)NULL;				// CTM structure used with chunked files   
                     //non_archive files need to not be fuse
 #ifdef FUSE_CHUNKER
                 if (strncmp(o.archive_path, out_node.path, strlen(o.archive_path)) != 0 && work_node.desttype == FUSEFILE) {
@@ -1528,21 +1524,20 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 }
 									
 		if (work_node.st.st_size >= chunk_at) {		// working with a chunkable file
-		  struct stat *ctfExists = foundCTF(work_node.path);
+		  int ctmExists = hasCTM(work_node.path);
 
-		  if (o.different && ctfExists && dest_exists) {// we are doing a conditional transfer & CTF file exists -> populate CTF structure
-		    ctf = getCTF(work_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
+		  if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure
+		    ctm = getCTM(work_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
 		    if(IO_DEBUG_ON) {
-	    	      char ctf_flags[2048];
-	   	      char *ctfstr = ctf_flags;
-	    	      int ctflen = 2048;
+	    	      char ctm_flags[2048];
+	   	      char *ctmstr = ctm_flags;
+	    	      int ctmlen = 2048;
 
-		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading CTF file: %s\n", rank, tostringCTF(ctf,&ctfstr,&ctflen));
+		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistenr stor of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
 		    }
 		  }
-		  else if (ctfExists)				// get rid of the file if we are NOT doing a conditional transfer
-		    unlinkCTF(work_node.path);	
-		  if (ctfExists) free(ctfExists);
+		  else if (ctmExists)				// get rid of the CTM on the file if we are NOT doing a conditional transfer
+		    purgeCTM(work_node.path);	
 		}
                 chunk_curr_offset = 0;				// keeps track of current offset in file for chunk.
 		idx = 0;				 	// keeps track of the chunk index
@@ -1555,7 +1550,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() non-chunkable file   chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
                     }
                     else {					// having to chunk the file
-                      work_node.chksz = (ctf)?ctf->chnksz:chunk_size;
+                      work_node.chksz = (ctm)?ctm->chnksz:chunk_size;
                       chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)?(work_node.st.st_size-chunk_curr_offset):work_node.chksz);
 		      idx++;
                     }
@@ -1573,7 +1568,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
                     else {
 #endif
-		      if (!o.different || !chunktransferredCTF(ctf,work_node.chkidx)) {	// if a non-conditional transfer or if the chunk did not make on the first one ...
+		      if (!o.different || !chunktransferredCTM(ctm,work_node.chkidx)) {	// if a non-conditional transfer or if the chunk did not make on the first one ...
                         num_bytes_seen += work_node.chksz;	// keep track of number of bytes processed
                         regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
                         reg_buffer_count++;
@@ -1588,7 +1583,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                     }
 #endif
                   } // end file/chunking loop
-		  if (ctf) freeCTF(&ctf);			// if CTF structure allocated it -> free the memory now
+		  if (ctm) freeCTM(&ctm);			// if CTM structure allocated it -> free the memory now
                 } // end Parallel destination
                 else {						// non-parallel destination
                     work_node.chkidx = 0;			// for non-chunked files, index is always 0

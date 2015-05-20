@@ -14,14 +14,11 @@
 #ifndef HASHDATA_H_INCLUDE_GUARD
 #define HASHDATA_H_INCLUDE_GUARD
 
-#include "ctf.h"
+#include "ctm.h"
 #include "pfutils.h"
 
-// structures
-typedef struct hash_data {				// type/structure of the data of the hash table.
-    int updatecnt;					// number of times this structure has been updated, since the last time it was written out
-    CTF *ctf;						// pointer to a CTF structure
-} HASHDATA;
+// structures and types
+typedef CTM  HASHDATA;					// type/structure of the data of the hash table.
 
 
 // procedures and functions
