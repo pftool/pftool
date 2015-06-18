@@ -71,6 +71,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdarg.h>             // va_list, va_start(), va_arg(), va_end()
+#include <string.h>             // strerror()
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -161,20 +162,27 @@ public:
    // put an object of type T back into the pool.
    // This is the "deleter" method used by the share_ptrs returned from get().
    static void put(T* t) {
-      std::cout << "Pool<T>::put(" << t << ")" << std::endl;
+      //      std::cout << "Pool<T>::put(" << t << ")" << std::endl;
       _pool.push_back(t);
    }
 
    // if the pool is not empty, extract an item, otherwise create one
-   static SharedPtr<T> get() {
-      std::cout << "Pool<T>::get() -- pool size = " << _pool.size() << std::endl;
+   static SharedPtr<T> get(bool init_w_default=false) {
+      // std::cout << "Pool<T>::get() -- pool size = " << _pool.size() << std::endl;
       if (_pool.size()) {
          T* t = _pool.back();
          _pool.pop_back();
+         /// if (init_w_default)
+         *t = T();                     // initialize to defaults (always)
+         //         std::cout << "Pool<T>::get() -- old = " << t
+         //                   << (init_w_default ? "  init" : "") << std::endl;
          return SharedPtr<T>(t, put);     // use put(), as shared_ptr deleter-fn
       }
-      else
-         return SharedPtr<T>(new T, put); // use put(), as shared_ptr deleter-fn
+      else {
+         T* t2 = new T();
+         //         std::cout << "Pool<T>::get() -- new = " << t2 << std::endl;
+         return SharedPtr<T>(t2, put); // use put(), as shared_ptr deleter-fn
+      }
    }
 
 protected:
@@ -257,9 +265,10 @@ protected:
    static const FlagType   STAT_OK         = 0x0004; // stat-data is usable
    static const FlagType   FOLLOW          = 0x0008; // e.g. use stat() instead of lstat()
    static const FlagType   IS_OPEN         = 0x0010; // open() succeeded, not closed
+   static const FlagType   IS_OPEN_DIR     = 0x0020; // opendir() succeeded, not closed
 
 
-   int              _rc;        // TBD: user can query failures, after the fact
+   int              _rc;        // TBD: let user query failures, after the fact
    int              _errno;
 
 
@@ -314,7 +323,7 @@ protected:
    // maybe someone calls stat to figure sub-class type, then gives it to us.
    // If you do give us a stat struct, we'll assume the stat call succeeded.
    Path()
-      : _item(Pool<path_item>::get()), // get recycled path_item from the pool
+      : _item(Pool<path_item>::get(true)), // get recycled path_item from the pool
         _flags(FACTORY_DEFAULT),       // i.e. path might be null
         _rc(0),
         _errno(0)
@@ -351,7 +360,7 @@ protected:
    }
 
 
-   // This is how PathFactory initializes objects.
+   // This is how PathFactory initializes Path objects.
    //
    // If <item>.st has non-null fields, we infer that it is valid.  This
    // allows us to make a no-copy Path object corresponding to a path_item
@@ -359,9 +368,16 @@ protected:
    // what it is.
    virtual Path& operator=(const PathItemPtr& item) {
 
+      if ((_item->ftype > TBD) &&
+          (_item->ftype != item->ftype)) {
+         errsend_fmt(FATAL, "Attempt to change ftype during assignment '%s' = '%s'\n",
+                     _item->path, item->path);
+         return *this;
+      }
+
       path_change_pre();        // subclasses may want to be informed
 
-      _item = item;             // return old _item to Pool<path_item>
+      _item  = item;            // returns old _item to Pool<path_item>
       _flags = 0;               // not a FACTORY_DEFAULT, if we were before
       _rc    = 0;
       _errno = 0;
@@ -375,13 +391,32 @@ protected:
       return *this;
    }
 
+
+   // *** IMPORTANT: because we use Pools, objects are re-used without
+   //     being destructed.  That means they must override this method, to
+   //     perform any state-clearing operations, when an old object gotten
+   //     from the Pool is about to be reused.
+   //
+   //     NOTE: don't forget to pass the call along to parent classes.
+   //
+   ///   virtual reset_all() {
+   ///      _item = PathItemPtr();
+   ///   }
+
+
+   virtual void close_all() {
+      if (_flags & IS_OPEN)
+         close();
+      else if (_flags & IS_OPEN_DIR)
+         closedir();
+   }
+
    // Whenever the path changes, various local state may become invalid.
    // (e.g when someone turns on FOLLOW, the old lstat() results are
    // no-longer correct.)  Subclasses can intercept this to do local work,
    // in those cases.  Saves them having to override op=()
    virtual void path_change_pre() {
-      if (is_open())
-         close();
+      close_all();
       _flags &= ~(DID_STAT | STAT_OK);
    }
 
@@ -399,14 +434,11 @@ protected:
          did_stat(success);
 
          // maybe flag success
-         if (_rc != 0) {
-            _errno = errno;
+         if (! success) {
             if (err_on_failure) {
-               errsend_fmt(FATAL, "Failed to stat path %s", _item->path);
+               errsend_fmt(NONFATAL, "Failed to stat path %s", _item->path);
             }
          }
-         else 
-            _flags |= STAT_OK;
       }
 
       return (_flags & STAT_OK);
@@ -415,12 +447,11 @@ protected:
    // return true for success, false for failure.
    virtual bool do_stat_internal() = 0;
 
-
    void did_stat(bool stat_succeeded = true) {
+      _flags &= ~(FACTORY_DEFAULT);
       _flags |= (DID_STAT);
       if (stat_succeeded) {
          _flags |= STAT_OK;
-         _flags &= ~(FACTORY_DEFAULT);
 
          _item->offset = 0;
          _item->length = _item->st.st_size;
@@ -441,12 +472,22 @@ protected:
    // signiture, accessible by the factory, without having to explicitly
    // make the factory a friend of every subclass.  NO_IMPL() informs us at
    // compile time, if the factory thinks a subclass wants initialization,
-   // but subclass forgot to implement it.
+   // but subclass forgot to implement it.  If you get such a message, your
+   // subclass needed to implement this method, and pull out the
+   // subclass-specific arguments provided by the factory.
    virtual void factory_install_list(int count, va_list list) {
       NO_IMPL(factory_install_list);
    }
 
+   virtual void    set  (FlagType flag)  { _flags |= flag; }
+   virtual void    unset(FlagType flag)  { _flags &= ~(flag); }
+
+
 public:
+
+   virtual ~Path() {
+      // close_all();   // Wrong.  close() is abstract in Path.
+   }
 
    // demangled name of any subclass
    // NOTE: abi::__cxa_demangle() returns a dynamically-allocated string,
@@ -457,6 +498,23 @@ public:
       return CharPtr(name);
    }
 
+   // This replaces the obsolete approach of comparing inode-numbers.  That
+   // doesn't work with object-storage, where there are no inodes, and all
+   // objects have st.st_ino==0.  So instead, we'll assume that two objects
+   // of different subclasses are by default never the same object.
+   // Subclasses should override this, to compare specifically against
+   // another member of the same subclass (or other subclasses they know
+   // how to compare against).
+   //
+   // NOTE: Objects cant be const; they might have to call stat(), etc.
+   //
+   //   virtual bool operator==(Path& p) { return identical(p); }
+   virtual bool identical(Path& p)     { return false; } // same item, same FS
+   virtual bool identical(PathPtr& p)  { return identical(*p); } // same item, same FS
+   //   virtual bool equivalent(Path& p) { return false; } // same size, perms, etc
+
+
+
    // Create a new Path with our path-name plus <suffix>.  Local object is
    // unchanged.  Result (via the factory) might be a different subclass
    // (e.g. descending into PLFS directory).  Let PathFactory sort it out,
@@ -464,25 +522,49 @@ public:
    virtual PathPtr append(char* suffix) const;
 
 
-   const char* const path() const { return (char*)_item->path; }
 
+   // don't let outsider change path without calling path_change()
+   const char* const  path() const { return (char*)_item->path; }
+
+   // don't let outsider change stat without unsetting DID_STAT
+   const struct stat& st() { do_stat(); return _item->st; }
+
+   // don't let outsider change path_item
+   // const path_item&   item() const { return *_item; }
+   const path_item&   node() const { return *_item; }
+
+   // As near as I can tell, dest_ftype is used as a local copy of the
+   // ftype of the destination, in order to make this knowledge available
+   // in places where the top-level dest-node is not available, such as
+   // update_stats(), and copy_file().  It's assigned in stat_item(), and
+   // then defaults are overridden in process_stat_buffer(), it seems.
+   // This value has no influence on the which Path subclass should own a
+   // given path_item (unlike ftype), so we allow it to be set and changed
+   // as needed.
+   FileType     dest_ftype() const { return _item->dest_ftype; }
+   void         dest_ftype(FileType t) { _item->dest_ftype = t; }
+
+   // ON SECOND THOUGHT:
+   // virtual FileType ftype_for_destination() { REGULARFILE; } // subclasses do what they want
+
+
+   // if you just want to know whether stat succeeded call this
+   virtual bool    stat()     { return do_stat(false); }
+   virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
 
    // These are all stat-related, chosen to allow interpretation in the
    // context of non-POSIX sub-classes.  We assume all subclasses can
    // "fake" a struct stat.
-   virtual bool    exists()   { do_stat(false); return (_flags & STAT_OK); } // just !ENOENT?
+   ///
+   // CAREFUL: These also return false if the file doesn't exist!
    virtual bool    is_link()  { do_stat(); return S_ISLNK(_item->st.st_mode); }
    virtual bool    is_dir()   { do_stat(); return S_ISDIR(_item->st.st_mode); }
+
    virtual time_t  ctime()    { do_stat(); return _item->st.st_ctime; }
    virtual time_t  mtime()    { do_stat(); return _item->st.st_mtime; }
    virtual size_t  size()     { do_stat(); return _item->st.st_size; }
 
-   virtual void    probe()    { do_stat(); }
-
-   virtual bool    is_open()             { return  (_flags & IS_OPEN); }
-   virtual void    set_open(bool value)  { _flags = (value
-                                                     ? (_flags |  IS_OPEN)
-                                                     : (_flags & ~(IS_OPEN))); }
+   virtual bool    is_open()  {            return  (_flags & (IS_OPEN | IS_OPEN_DIR)); }
 
    // where applicable, stat() calls should see through symlinks.
    virtual void    follow()  {
@@ -490,23 +572,35 @@ public:
       _flags |= FOLLOW;
    }
 
+   // try to adapt these POSIX calls
+   virtual bool    chown(uid_t owner, gid_t group)  = 0;
+   virtual bool    chmod(mode_t mode)               = 0;
+   virtual bool    utime(const struct utimbuf* ut)  = 0;
+
 
    // These are per-class qualities, that pftool may want to know
-   virtual bool    support_n_to_1() const   = 0; // can support N:1, via chunks?
+   virtual bool    supports_n_to_1() const   = 0; // can support N:1, via chunks?
+
+
+   // when subclass operations fail (e.g. mkdir(), they save errno (or
+   // whatever), and return false.  Caller can then come back and get the
+   // corresponding error-string from here.
+   virtual const char* const strerror()     { NO_IMPL(strerror); }
 
 
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
-   // close it.  The boolean tells you whether you succeeded.  Later, we'll
-   // give access to the error-status which we are keeping track of.
+   // close it.  The boolean tells you whether you succeeded.  (Consider
+   // that, for some Path sub-classes, there is never a "file descriptor"
+   // they could return.)  Later, we'll give access to the error-status
+   // which we are keeping track of.
+   // 
    virtual bool    open(int flags, mode_t mode)   = 0; // non-POSIX will have to interpret
    virtual bool    close()                        = 0;
-
 
    // read/write to/from caller's buffer
    virtual ssize_t read( char* buf, size_t count, off_t offset)   = 0; // e.g. pread()
    virtual ssize_t write(char* buf, size_t count, off_t offset)   = 0; // e.g. pwrite()
-
 
    // return false only to indicate errors (e.g. not end-of-data for readdir())
    // At EOF, readdir() returns true, but sets path[0] == 0.
@@ -515,6 +609,11 @@ public:
    virtual bool    readdir(char* path, size_t size)  = 0;
    virtual bool    mkdir(mode_t mode)     = 0;
 
+   // delete the file/object
+   virtual bool    remove()                       = 0;
+   virtual bool    unlink()                       = 0;
+
+   virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
 
 #if 0
@@ -534,7 +633,7 @@ public:
 #endif
 
 
-   char*           get_output_path(path_item src_node, path_item dest_node, struct options o);
+   PathPtr         get_output_path(path_item src_node, path_item dest_node, struct options o);
 
    // fstype is apparently only used to distinguish panfs from everything else.
    static FSType   parse_fstype(const char* token) { return (strcmp(token, "panfs") ? UNKNOWN_FS : PAN_FS); }
@@ -602,7 +701,11 @@ protected:
 
 public:
 
-   virtual bool    support_n_to_1() const  { return false; }
+   virtual ~SyntheticDataSource() {
+      close_all();
+   }
+
+   virtual bool    supports_n_to_1() const  { return false; }
 
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
@@ -610,16 +713,16 @@ public:
                                             ((o.syn_size >= 0)  ? o.syn_size : -rank));
       if (! synbuf) {
          errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
-         set_open(0);
+         unset(IS_OPEN);
       }
       else
-         set_open(1);
-      
+         set(IS_OPEN);
+
       return is_open();
    }
    virtual bool    close() {
       syndataDestroyBuffer(_synbuf);
-      set_open(0);
+      unset(IS_OPEN);
       return true;
    }
 
@@ -649,7 +752,10 @@ public:
    virtual bool    readdir(char* path, size_t) { NO_IMPL(readdir); }
    virtual bool    mkdir(mode_t mode)    { NO_IMPL(mkdir); }
 
+   virtual bool    remove()              { return true; }
+   virtual bool    unlink()              { return true; }
 };
+
 #endif
 
 
@@ -685,7 +791,7 @@ protected:
 
       // run appropriate POSIX stat function
       if (_flags & FOLLOW)
-         _rc = stat(_item->path, &_item->st);
+         _rc = ::stat(_item->path, &_item->st);
       else
          _rc = lstat(_item->path, &_item->st);
 
@@ -706,53 +812,69 @@ protected:
    // private.  Use PathFactory to create paths.
    POSIX_Path()
       : Path(),
-        _fd(0)
+        _fd(0),
+        _dirp(NULL)
    { }
 
 
 
 public:
 
+   // This runs on Pool<POSIX_Path>::get(), when initting an old instance
    virtual ~POSIX_Path() {
-      if (is_open())
-         close();
+      close_all();
    }
 
 
-   virtual bool    support_n_to_1() const  { return false; }
+   //   virtual bool operator==(POSIX_Path& p) { return (st().st_ino == p.st().st_ino); }
+   virtual bool identical(POSIX_Path& p) { return (st().st_ino == p.st().st_ino); }
+
+
+   virtual bool    supports_n_to_1() const  { return false; }
 
 
    //   virtual int    mpi_pack() { NO_IMPL(mpi_pack); } // TBD
 
+   virtual const char* const strerror() { return ::strerror(_errno); }
+
+   virtual bool    chown(uid_t owner, gid_t group) {
+      if (_rc = ::chown(path(), owner, group))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   virtual bool    chmod(mode_t mode) {
+      if (_rc = ::chmod(path(), mode))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   virtual bool    utime(const struct utimbuf* ut) {
+      if (_rc = ::utime(path(), ut))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
 
    // see comments at Path::open()
    // NOTE: We don't protect user from calling open when already open
-   // NOTE: if we returned int, we'd screw things up for PLFS_Path::open()
    virtual bool    open(int flags, mode_t mode) {
-      if (is_dir()) {
-         errsend_fmt(FATAL, "Attempt to open dir as file %s\n", _item->path);
-         return false;
-      }
       _fd = ::open((char*)_item->path, flags, mode);
       if (_fd < 0) {
          _rc = _fd;
          _errno = errno;
          return false; // return _fd;
       }
-      set_open(true);
+      set(IS_OPEN);
       return true;  // return _fd;
    }
    virtual bool    opendir() {
-      if (! is_dir()) {
-         errsend_fmt(FATAL, "Attempt to open file as dir %s\n", _item->path);
-         return false;
-      }
       _dirp = ::opendir(_item->path);
-      if (! _dirp) {
+      if (! bool(_dirp)) {
          _errno = errno;
          return false;  // return _rc;
       }
-      set_open(true);
+      set(IS_OPEN_DIR);
       return true;
    }
 
@@ -761,58 +883,84 @@ public:
    virtual bool    close() {
       _rc = ::close(_fd);
       if (_rc < 0) {
-         errsend_fmt(FATAL, "Error closing file %s\n", _item->path);
          _errno = errno;
          return false;  // return _rc;
       }
-      set_open(false);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      unset(IS_OPEN);
       return true; // return _fd;
    }
    virtual bool    closedir() {
       _rc = ::closedir(_dirp);
       if (_rc < 0) {
-         errsend_fmt(FATAL, "Error closing file %s\n", _item->path);
          _errno = errno;
          return false;
       }
-      set_open(false);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      unset(IS_OPEN_DIR);
       return true;
    }
 
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
-      if (! is_open()) {
-         errsend_fmt(FATAL, "Attempt to read un-opened file %s\n", _item->path);
-      }
-      return pread(_fd, buf, count, offset);
+      ssize_t bytes = pread(_fd, buf, count, offset);
+      if (bytes == (ssize_t)-1)
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return bytes;
    }
    virtual bool    readdir(char* path, size_t size) {
       errno = 0;
+      if (size)
+         path[0] = 0;
+
       struct dirent* d = ::readdir(_dirp);
-      if (d) {
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      if (d > 0) {
          strncpy(path, d->d_name, size);
          return true;
       }
-      else {
-         // check errno to see whether this is an error, or EOF
-         if (size)
-            path[0] = 0;
+      else if (d == 0)          // EOF
+         return true;
+      else if (d < 0) {
          _errno = errno;
-         return bool(errno == 0);
+         return bool(_errno == 0);
       }
    }
 
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
-      if (! is_open()) {
-         errsend_fmt(FATAL, "Attempt to write un-opened file %s\n", _item->path);
-      }
-      return pwrite(_fd, buf, count, offset);
+      ssize_t bytes = pwrite(_fd, buf, count, offset);
+      if (bytes ==  (ssize_t)-1)
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return bytes;
    }
    virtual bool    mkdir(mode_t mode) {
-      _rc = ::mkdir(_item->path, mode);
-      if (_rc)
+      if (_rc = ::mkdir(_item->path, mode)) {
          _errno = errno;
+      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+
+
+
+   virtual bool    remove() {
+      return unlink();
+   }
+   virtual bool    unlink() {
+      if (_rc = ::unlink(_item->path))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   
+   virtual bool    symlink(const char* link_name) {
+      if (_rc = ::symlink(_item->path, link_name)) {
+         _errno = errno;
+      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
 };
@@ -877,8 +1025,12 @@ protected:
    { }
 
 
-   // factory calls this, after assignment via op=(path_item*)
-   virtual void factory_install(int count, va_list list) {
+   // we expect args from the Factory:
+   //
+   // (0) int               [pid]
+   // (1) int               [rank]
+   //
+   virtual void factory_install_list(int count, va_list list) {
       _pid  = va_arg(list, int);
       _rank = va_arg(list, int);
    }
@@ -886,37 +1038,52 @@ protected:
 
 public:
 
-   virtual bool    support_n_to_1() const  { return true; }
+   // This runs on Pool<PLFS_Path>::get(), when initting an old instance
+   virtual ~PLFS_Path() {
+      close_all();
+   }
 
+   virtual bool    supports_n_to_1() const  { return true; }
+
+
+   virtual const char* const strerror() { return strplfserr(_plfs_rc); }
+
+
+   virtual bool    chown(uid_t owner, gid_t group) {
+      if (_rc = plfs_chown(path(), owner, group))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   virtual bool    chmod(mode_t mode) {
+      if (_rc = plfs_chmod(path(), mode))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   virtual bool    utime(const struct utimbuf* ut) {
+      // PLFS version of utime() doesn't have the same const-ness as POSIX version
+      if (_rc = plfs_utime(path(), const_cast<struct utimbuf*>(ut)))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
 
    // see comments at Path::open()
    // NOTE: We don't protect user from calling plfs_open when already open
    // NOTE: We return <_plfs_fd> or -1, just like POSIX "open"
    virtual bool    open(int flags, mode_t mode) {
-      // do_stat();
       _plfs_open_flags = flags; // save for plfs_close()
       _plfs_rc = plfs_open(&_plfs_fd, _item->path, flags, _pid+_rank, _item->st.st_mode, NULL);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(NONFATAL, "Failed to open file %s with flags 0x%x (PLFS errno = %d)\n",
-                     _item->path, _plfs_open_flags, _plfs_rc);
-         return false;  // return -1; // like POSIX
-      }
-      set_open(true);
-      return true;  // return *_plfs_fd; // probably a dumb idea.
+      if (_plfs_rc == PLFS_SUCCESS)
+         set(IS_OPEN);
+      return(_plfs_rc == PLFS_SUCCESS);
    }
-   // I think the string-vec arg to plfs_readir() must get filled with the
-   // contents of the directory
    virtual bool    opendir() {
-      if (! is_dir()) {
-         errsend_fmt(FATAL, "Attempt to open file as dir %s\n", _item->path);
-         return false;
-      }
       _plfs_rc = ::plfs_opendir_c(_item->path, &_plfs_dirp);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         return false;
-      }
-      set_open(true);
-      return true;
+      if (_plfs_rc == PLFS_SUCCESS)
+         set(IS_OPEN_DIR);
+      return(_plfs_rc == PLFS_SUCCESS);
    }
 
 
@@ -926,73 +1093,89 @@ public:
    virtual bool    close() {
       int  num_ref;
       _plfs_rc = plfs_close(_plfs_fd, _pid+_rank, _pid+_rank, _plfs_open_flags, NULL, &num_ref);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(NONFATAL, "Failed to close file %s (PLFS errno = %d)\n",
-                     _item->path, _plfs_rc);
-         return false; // return -1;
-      }
-      set_open(false);
-      return true; // return 0;
+      if (_plfs_rc == PLFS_SUCCESS)
+         unset(IS_OPEN);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return(_plfs_rc == PLFS_SUCCESS);
    }
    virtual bool    closedir() {
       _plfs_rc = plfs_closedir_c(_plfs_dirp);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(FATAL, "Error closing dir %s\n", _item->path);
-         return false;
-      }
-      set_open(false);
-      return true;
+      if (_plfs_rc == PLFS_SUCCESS)
+         unset(IS_OPEN_DIR);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return(_plfs_rc == PLFS_SUCCESS);
    }
 
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
-      if (! is_open()) {
-         errsend_fmt(FATAL, "Attempt to read un-opened PLFS-file %s\n", _item->path);
-      }
       ssize_t bytes_read = 0;
       _plfs_rc = plfs_read(_plfs_fd, buf, count, offset, &bytes_read);
       if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(NONFATAL, "Failed to read %lld bytes from file %s + %lld (PLFS errno = %d)\n",
-                     count, _item->path, offset, _plfs_rc);
          return -1;
       }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return bytes_read;
    }
    virtual bool    readdir(char* path, size_t size) {
-      if (! is_open() || ! is_dir()) {
-         errsend_fmt(FATAL, "Attempt to read un-opened PLFS-file %s\n", _item->path);
-         return false;
-      }
       _plfs_rc = plfs_readdir_c(_plfs_dirp, path, size);
+      if (_plfs_rc != PLFS_SUCCESS)
+         path[0] = 0;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_plfs_rc == PLFS_SUCCESS);
    }
 
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
-      if (! is_open()) {
-         errsend_fmt(FATAL, "Attempt to write un-opened PLFS-file %s\n", _item->path);
-      }
-      ssize_t bytes_written = -1;
+      ssize_t bytes_written = 0;
       _plfs_rc = plfs_write(_plfs_fd, buf, count, offset, _pid+_rank, &bytes_written);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(NONFATAL, "Failed to write %lld bytes to file %s + %lld (PLFS errno = %d)\n",
-                     count, _item->path, offset, _plfs_rc);
+      if (_plfs_rc != PLFS_SUCCESS)
          return -1;
-      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return bytes_written;
    }
    virtual bool    mkdir(mode_t mode) {
       _plfs_rc = plfs_mkdir(_item->path, mode);
-      if (_plfs_rc != PLFS_SUCCESS) {
-         errsend_fmt(NONFATAL, "plfs_mkdir failed for %s (PLFS errno = %d)\n",
-                     _item->path, _plfs_rc);
-         return false; // return -1;
-      }
-      return true; // return 0;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_plfs_rc == PLFS_SUCCESS);
    }
+
+
+   virtual bool    remove() {
+      return unlink();
+   }
+   virtual bool    unlink() {
+      _plfs_rc = plfs_unlink(_item->path);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_plfs_rc == PLFS_SUCCESS);
+   }
+   virtual bool    symlink(const char* link_name) {
+      _plfs_rc = plfs_symlink(_item->path, link_name);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_plfs_rc == PLFS_SUCCESS);
+   }
+
 };
 
 #endif
+
+
+
+
+
+
+// ---------------------------------------------------------------------------
+// FUSE-CHUNKER
+//
+// I haven't been able to find anyone who can explain the intent of the
+// fuse-chunker actions.  It looks like it might be an early attempt to do
+// what was later done more effectively with PLFS.
+//
+// It appears that
+//
+// ---------------------------------------------------------------------------
+
+
+
 
 
 
@@ -1012,7 +1195,20 @@ public:
 // queries for bucket-members that have object names matching that part of
 // the path.  Therefore, there is nothing to do, to actually create those
 // "directories".  The only special case is the bucket, at top-level, which
-// must be created.
+// must be created.  We (will eventually) do that automatically for you.
+//
+// Therefore, if you call mkdir() on a path like
+// "http://10.142.0.1:9020/A/B/C/" We will create a bucket named "A".  Our
+// mkdir() is a no-op.  When you later go to create an object named
+// "http://10.142.0.1:9020/A/B/C/my_file.txt", we will create it as an
+// object named "B/C/my_file.txt" in the bucket "A".  When you call
+// readir() on a path named "A/B/C/", we will query the bucket "A" for
+// objects with a prefix matching "B/C/", using "?delimiter=/".  This will
+// do what you expected. See:
+//
+//     http://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketGET.html
+//
+//
 //
 //
 // TBD: pftool makes extensive use of struct stat.  pftool uses struct stat
@@ -1069,20 +1265,23 @@ protected:
 
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
-   struct stat     _st;
    IOBufPtr        _iobuf;
-   
+
    std::string     _host;
    std::string     _bucket;
-   char*           _obj;        // the part of path after bucket (and '/')
+   std::string     _obj;        // path after bucket (and '/')
 
    bool is_service() const { return (!_bucket.size()); }
-   bool is_bucket()  const { return (_bucket.size() && !_obj); }
-   bool is_object()  const { return (_obj); }
+   bool is_bucket()  const { return (_bucket.size() && _obj.size()); }
+   bool is_object()  const { return (_obj.size()); }
 
-   // generic things to be done to set up a query with our path
+   // generic things to be done to set up a query with our path.
+   //
+   // NOTE: The same user may have multiple S3_Paths, potentially having
+   //       different server, bucket, etc.  So this must be done before
+   //       every query.
    void prepare_query() {
-      do_stat();                // no-op, unless needed
+      // do_stat(false);           // no-op, unless needed
 
       // install host/bucket for S3 queries
       s3_set_host(_host.c_str());
@@ -1111,36 +1310,61 @@ protected:
    }
 
 
+   // interpret the fields of _item->st (which have been modified, e.g. by
+   // chmod()), and apply them to the object ACLs, as much as is possible.
+   // Return false only for errors.
+   bool apply_stat() { NO_IMPL(apply_stat); } // TBD  (See fake_stat() impl)
+
+
    S3_Path()
       : Path(),
-        _iobuf(Pool<IOBuf>::get()) // aws_iobuf_new() is just malloc + memset
+        _iobuf(Pool<IOBuf>::get(true)) // aws_iobuf_new() is just malloc + memset
    {
-      memset(_iobuf.get(), 0, sizeof(IOBuf));
+      //      memset(_iobuf.get(), 0, sizeof(IOBuf));
    }
 
 
 public:
 
+   // This runs on Pool<S3_Path>::get(), when initting an old instance
+   virtual ~S3_Path() {
+      close_all();
+      aws_iobuf_reset(_iobuf.get());
+   }
+
+   // TBD: Save our object ID somehow.  Maybe give fake_stat() an extra
+   //      arg, and have the factory call a factory_install_list() method
+   //      to install it.  Then two S3_Path objects are identical if they
+   //      have the same ID.  For now, the NO_IMPL() will help me remember
+   //      that this needs doing.
+   //
+   //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
+   virtual bool identical(const S3_Path& p) { NO_IMPL(identical); }
+
+
    // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
    // "filejoin" operator, which resembles MPU.  EMC extensions also
    // support writing to object+offset.
-   virtual bool    support_n_to_1() const  { return true; }
+   virtual bool    supports_n_to_1() const  { return true; }
 
 
    // Fill out a struct stat, using S3 metadata from an object filesystem.
    // PathFactory can use this (via stat_item()) when determining what
-   // subclass to allocate.
+   // subclass to allocate.  Return true for success, false for error.
    static bool fake_stat(const char* path_name, struct stat* st);
 
    // extracting this to a static method, from path_change_post(), so it
    // can be re-used in fake_stat()
-   static void parse_host_bucket_object(std::string& host,
+   static bool parse_host_bucket_object(std::string& host,
                                         std::string& bucket,
-                                        char*&       obj,
+                                        std::string& obj,
                                         const char*  path) {
+      bool trailing_slash = false;
+
       host.clear();
       bucket.clear();
-      obj = NULL;
+      obj.clear();
+
 
       // Parse host (and maybe bucket (and maybe object)) from the URL/path.
       // Strip off the leading and trailing '/' from each.
@@ -1149,7 +1373,7 @@ public:
          char*                  host_end   = strchr(host_begin, '/');
          std::string::size_type host_size = (host_end
                                              ? (host_end - host_begin)
-                                             : std::string::npos);
+                                             : strlen(host_begin));
          host   = std::string(host_begin, host_size);
 
          // if path includes a bucket, parse it out
@@ -1158,110 +1382,250 @@ public:
             char*                  bkt_end   = strchr(bkt_begin, '/');
             std::string::size_type bkt_size  = (bkt_end
                                                 ? (bkt_end - bkt_begin)
-                                                : std::string::npos);
+                                                : strlen(bkt_begin));
             bucket = std::string(bkt_begin, bkt_size);
 
-            // if path includes an object, beyond the bucket, then save a pointer
-            if (bkt_end && *(bkt_end +1))
-               obj = bkt_end +1;
+            // if path includes an object, beyond the bucket, then extract
+            // that.  We don't want the (possible) '/', at the end of the
+            // bucket-name.  Also don't want trailing slashes in the
+            // object-name.  However, if there were trailing slashes, we
+            // want to return true, but only if there was some object-name.
+            //
+            //            if (bkt_end)
+            //               obj = bkt_end;
+            if (bkt_end && *(bkt_end +1)) {
+               char*  ptr        = bkt_end +1; // beginning of object
+               int    tail_pos   = strlen(ptr) -1;
+               bool   tail_slash = (ptr[tail_pos] == '/');
+               // for (size_t pos=tail_pos; ((pos >= 0) && (ptr[pos] == '/')); --pos) {
+               while ((tail_pos >= 0) && (ptr[tail_pos] == '/'))
+                  --tail_pos;
+               if (tail_pos >= 0) {
+                  obj = std::string(ptr, tail_pos+1);
+                  trailing_slash = tail_slash;
+               }
+            }
          }
       }
+      return trailing_slash;
    }
+
+
+   virtual const char* const strerror() { return _iobuf->result; }
+
+   // aint no such thing as a specific "group"
+   // And your <owner> probably has no relationship at all with S3 owners.
+   //
+   // TBD: This should make an effort to update the ACLs for this object.
+   //
+   // NOTE: Don't want to update ACLs for the hybrid approach.  And
+   //       returning false will cause pftool to emit a FATAL error.  So,
+   //       don't do anything, and say that we succeeded.
+   virtual bool    chown(uid_t owner, gid_t group) {
+      //      _item->st.st_uid = owner;
+      //      _item->st.st_gid = group;
+      //      return apply_stat();
+      return true;              // [ see NOTE above S3_Path::chown() ]
+   }
+   virtual bool    chmod(mode_t mode) {
+      //      _item->st.st_mode = mode;
+      //      return apply_stat();
+      return true;              // [ see NOTE above S3_Path::chown() ]
+   }
+   virtual bool    utime(const struct utimbuf* ut) {
+      //      _item->st.st_atime = ut->actime;
+      //      _item->st.st_mtime = ut->modtime;
+      //      return apply_stat();
+      return true;              // [ see NOTE above S3_Path::chown() ]
+   }
+
 
    // Should we replicate POSIX behavior, where open() fails if you try it
    // multiple times?
+   //
+   // NOTE: S3_Path::write() expects to be able to write byte-ranges.  That
+   //       fails with '404 Not Found', if the object doesn't exist.
+   //       Therefore, our open() must create the object.  We should also
+   //       be looking at O_TRUNC, etc.  If it's not O_CREAT and file
+   //       doesn't exist, we should avoid creating it?  Forget dealing
+   //       with O_WRONLY, for now.  We could implement that by
+   //       manipulating ACLs for this object, but in the future we'll be
+   //       handling permissions through the metadata filesystem, so skip
+   //       it for now.
    virtual bool    open(int flags, mode_t mode) {
-      NO_IMPL(open);            // TBD
-      return true;              // for the compiler
+      if (flags & O_CREAT)
+         write((char*)"", 0, 0);
+      set(IS_OPEN);
+      return true;
    }
-   virtual bool    opendir() { NO_IMPL(opendir); } // TBD
+   // TBD: GET _obj + "?prefix=DIRNAME&delimiter=/" This will return XML
+   //      with "common prefixes".  Parse the XML into a tree.  Find the
+   //      token <IsTruncated> and read its value ("true" or "false", etc).
+   //      Save this somewhere.  Parse to the beginning of the
+   //      CommonPrefixes.  Each call to readdir() will then return the
+   //      next XML entry.  When the XML is exhausted, if IsTruncated was
+   //      true, reiterate and get more XML, and do the same parsing etc.
+   //      Otherwise, treat as EOF.
+   //
+   //      [Leaving this undone, for now, because the first priority is
+   //      moving data *onto* S3 systems.]
+   //
+   virtual bool    opendir() {
+      NO_IMPL(opendir);
+      set(IS_OPEN_DIR);
+   }
 
 
 
    virtual bool    close() {
-      NO_IMPL(open);            // TBD
-      return true;              // for the compiler
+      unset(IS_OPEN);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return true;
    }
-   virtual bool    closedir() { NO_IMPL(opendir); } // TBD
+   // TBD: See opendir().  For the closedir case, be need to deallocate
+   //      whatever is still hanging around from the opendir.
+   virtual bool    closedir() {
+      NO_IMPL(opendir);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      unset(IS_OPEN_DIR);
+   }
 
 
 
 
    // read/write to/from caller's buffer
    // TBD: fix the malloc/free in aws_iobuf_extend/aws_iobuf_reset (see TBD.txt).
+   // NOTE: S3 has no access-time, so we don't reset DID_STAT
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       IOBuf* b = _iobuf.get();
-
       prepare_query();
+
       s3_set_byte_range(offset, count);
 
       // For performance, we add <buf> directly into the linked list of
-      // data _iobuf.  In this case (i.e. reading), we're "extending"
-      // rather than "appending".  That means the buffer represents empty
-      // storage, which will be filled by the libcurl writefunction,
-      // invoked via aws4c.
+      // data in _iobuf.  In this case (i.e. reading), we're "extending"
+      // rather than "appending".  That means the added buffer represents
+      // empty storage, which will be filled by the libcurl writefunction,
+      // invoked via s3_get().
 
       aws_iobuf_reset(b);
       aws_iobuf_extend_static(b, buf, count);
-      AWS4C_CHECK   ( s3_get(b, _item->path) );
+      AWS4C_CHECK   ( s3_get(b, (char*)_obj.c_str()) );
 
       // AWS4C_CHECK_OK( b );
       ssize_t byte_count = count; // default
       if (b->code == 206) {  /* 206: Partial Content */
-         errsend_fmt(NONFATAL, "S3_Path::read(..., %lld, %lld) on '%s' PARTIAL (bytes: %d)\n",
-                     count, offset, _item->path, b->contentLen);
          byte_count = b->contentLen;
       }
       else if (b->code != 200) {
-         errsend_fmt(NONFATAL, "S3_Path::read(..., %lld, %lld) on '%s' FAIL (code: %d)\n",
-                     count, offset, _item->path, b->code);
-         byte_count = 0;
+         byte_count = -1;
       }
+
       // drop ptrs to <buf>
       aws_iobuf_reset(b);
 
       return byte_count;
    }
-   virtual bool    readdir(char* path, size_t size) { NO_IMPL(readdir); }
+   // TBD: See opendir()
+   virtual bool    readdir(char* path, size_t size) {
+      NO_IMPL(readdir);
+   }
 
 
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       IOBuf* b = _iobuf.get();
+      prepare_query();
 
-      s3_set_byte_range(offset, count);
+      // by calling with count=0, offset=0, open() can use write
+      // to initialize a zero-size object.
+      if (count || offset)
+         s3_set_byte_range(offset, count);
 
       // For performance, we add <buf> directly into the linked list of
-      // data _iobuf.  In this case (i.e. writing), we're "appending"
-      // rather than "extending".  That means the buffer represents valid
-      // data, which will be read by the libcurl readfunction, invoked via
-      // aws4c.
-
+      // data in _iobuf.  In this case (i.e. writing), we're "appending"
+      // rather than "extending".  That means the added buffer represents
+      // valid data, which will be read by the libcurl readfunction,
+      // invoked via s3_put().
       aws_iobuf_reset(b);
       aws_iobuf_append_static(b, buf, count);
-      AWS4C_CHECK    ( s3_put(b, _item->path) );
+      AWS4C_CHECK    ( s3_put(b, (char*)_obj.c_str()) );
 
       // AWS4C_CHECK_OK ( b );
       ssize_t byte_count = count; // default
       if (b->code != 200) {
-         errsend_fmt(NONFATAL, "S3_Path::write(..., %lld, %lld) on '%s' FAIL (code: %d)\n",
-                     count, offset, _item->path, b->code);
-         byte_count = 0;
+         byte_count = -1;
       }
+
       // drop ptrs to <buf>
       aws_iobuf_reset(b);
 
       return byte_count;
    }
+
+
+   // NOTE: See comments above this class for discussion of how
+   //       "directories" are handled.  If full path includes an obj, we'll
+   //       have to assume you intend it as an empty directory.
    virtual bool    mkdir(mode_t mode) {
-      if (is_bucket() && ! exists()) {
-         IOBuf* b = _iobuf.get();
-         prepare_query();
-         aws_iobuf_reset(b);                     // empty
-         AWS4C_CHECK( s3_put(b, (char*)"") );   /* PUT creates bucket + obj */
-      }
+      IOBuf* b = _iobuf.get();
+      aws_iobuf_reset(b);                     // clear everything
+
+      prepare_query();                        // update stat, install host and bucket
+      mode_t new_mode = _item->st.st_mode | __S_IFDIR;
+
+      // install value for "mode_bits" key, into meta-data.
+      //
+      // NOTE: We will ignore all permission-related bits!
+      //       See S3_Path::fake_stat()
+      const size_t STR_SIZE = 16;
+      char new_mode_str[STR_SIZE];
+      snprintf(new_mode_str, STR_SIZE, "0x%08X", new_mode);
+      aws_metadata_set(&(b->meta), "mode_bits", new_mode_str);
+
+#if 0
+      // create the directory with a name that includes a final slash.
+      // That way, it will be obvious during readdir() that this thing is a
+      // directory, and S3_Path::fake_stat() can set the mode bits, saving
+      // us ever having to check the metadata.
+      std::string dirname(_obj + "/");
+      AWS4C_CHECK( s3_put(b, (char*)dirname.c_str()) ); // PUT creates bucket + obj
+#else
+      // No, it will be only be obvious this is a directory (among the
+      // results of readdir), if there is anything in the directory.  In
+      // that case, one of the readdir results will include the slash.
+      // Otherwise, fake_stat will just have to query metadata.
+      AWS4C_CHECK( s3_put(b, (char*)_obj.c_str()) ); // PUT creates bucket + obj
+#endif
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      if (b->code == 200)
+         _item->st.st_mode = new_mode;
+
+      return (b->code == 200);
    }
 
+
+   // For S3, we'll assume you called unlink(), rather than remove(),
+   // because you think that, when you unlink() something, it should
+   // continue to be usable until no one is referring to it, or having it
+   // open.  S3 don't play that.
+   virtual bool    unlink() {
+      return true;              // Sure, whatever.
+   }
+
+   virtual bool    remove() {
+      IOBuf* b = _iobuf.get();
+      prepare_query();
+
+      aws_iobuf_reset(b);                     // empty
+      AWS4C_CHECK( s3_delete(b, (char*)(_obj.size() ? _obj.c_str(): "")) );
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+
+      // DELETE returns '204 No Content'  (?)
+      // return (b->code == 200);
+      return true;
+   }
 };
 
 #endif
@@ -1344,7 +1708,7 @@ public:
 
          aws_read_config(getenv("USER"));  // requires ~/.awsAuth
          aws_reuse_connections(1);
-         aws_set_debug(1);
+         aws_set_debug(_opts->verbose >= 3);
 
          // allow EMC extensions to S3
          s3_enable_EMC_extensions(1);
@@ -1357,9 +1721,8 @@ public:
 
    // construct appropriate subclass from raw path.  We will have to guess
    // at the type, using stat_item().
-   static PathPtr create(char* path_name) {
-
-      PathItemPtr  item(Pool<path_item>::get());
+   static PathPtr create(const char* path_name) {
+      PathItemPtr  item(Pool<path_item>::get(true));
       strncpy(item->path, path_name, PATHSIZE_PLUS);
       item->ftype = TBD;        // invoke stat_item() to determine type
 
@@ -1374,7 +1737,7 @@ public:
    //     set to TBD.
 
    // deep copy
-   static PathPtr create(path_item* item) {
+   static PathPtr create(const path_item* item) {
       PathItemPtr  item_ptr(Pool<path_item>::get());
       *item_ptr = *item;        // deep copy;
 
@@ -1409,26 +1772,30 @@ public:
       }
 
       switch (item->ftype) {
-      case TBD:
-         stat_item(item.get(), *_opts); // initialize item->ftype
+      case NONE:
+      case TBD: {
+         int rc = stat_item(item.get(), *_opts); // initialize item->ftype
          p = create_shallow(item);      // recurse
-         break;
+         p->did_stat(rc == 0);          // avoid future repeats of failed stat
+         return p;
+      }
 
       case REGULARFILE:
-      case FUSEFILE:
       case LINKFILE:
-      case PREMIGRATEFILE:
-      case MIGRATEFILE:
          p = Pool<POSIX_Path>::get();
          break;
+
+
+#ifdef FUSE_CHUNKER
+      case FUSEFILE:
+         p = Pool<Fuse_Path>::get(); // TBD
+         break;
+#endif
 
 
 #ifdef PLFS
       case PLFSFILE:
          p = Pool<PLFS_Path>::get();
-         //         {  PLFS_Path* plfs = static_cast<PLFS_Path*>(p.get());
-         //            plfs->factory_install(_pid, _rank);
-         //         }
          p->factory_install(2, _pid, _rank);
          break;
 #endif
@@ -1448,9 +1815,16 @@ public:
          break;
 #endif
 
-      case NONE:
-      default:
 
+#ifdef TAPE
+      case PREMIGRATEFILE:
+      case MIGRATEFILE:
+         p = Pool<Tape_Path>::get(); // TBD
+         break;
+#endif
+
+
+      default:
          PRINT_MPI_DEBUG("PathFactory::create(PathItemPtr&) -- unknown type\n", (unsigned)item->ftype);
          return p;
       }

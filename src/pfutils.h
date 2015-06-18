@@ -110,16 +110,31 @@
 // they are completely ignored, except for one test in #ifdef TAPE.
 // Actually, they are also examined one other place: in the initializations
 // of worker(), if the command-line didn't specify '-P' (parallel
-// destination), and options.destfs is PANASAS, GPFS, NULL, or FUSE, then
-// the destination is considered to be parallel anyhow.  We're converting
-// to an enum, so it will be obvious where these things are (not) used.
+// destination), and options.destfs is not ANYFS, then the destination is
+// considered to be parallel anyhow.  Because this list may grow, we're
+// changing that test to look at whether options.destfs > PARALLEL_DESTFS.
+// So, if you are extending this list, and your FS is not a parallel
+// destination (i.e. capable of N:1), then put it before PARALLEL_DESTFS.
+// Similarly, with REST_FS.  (If you ever find a REST-ful fs that is not
+// parallel, we'll have to replace PARALLEL_FS and REST_FS with functions
+// to check any given FS value for membership.)
+//
+// We're converting to an enum, so it will be obvious where these things
+// are (not) used.
+//
+// TBD: Just add a virtual Path method, to return the SrcDstFSType, and get
+// rid of get_stat_fs_info().
 enum SrcDstFSType {
    ANYFS      = 0,
    PANASASFS  = 1,
    GPFSFS     = 2,
-   NULLFS     = 3,
-   FUSEFS     = 4
+   NULLFS     = 3,     /* unused? */
+   FUSEFS     = 4,
+   S3FS       = 5,
+   PLFSFS     = 6,
 };
+#define PARALLEL_DESTFS  PANASASFS /* beginning of SrcDstFSTypes supporting N:1 writes */
+#define REST_FS          S3FS      /* beginning of SrcDstFSTypes that are RESTful */
 
 #define O_CONCURRENT_WRITE          020000000000
 
@@ -172,7 +187,9 @@ enum WorkType {
 };
 
 enum FileType {
-   TBD = 0,                     // unknown
+   NONE = 0,                    // deleted?  irrelevant?  see process_stat_buffer()
+   TBD,                         // not yet initialized by factory
+
    REGULARFILE,
    FUSEFILE,
    LINKFILE,
@@ -181,7 +198,6 @@ enum FileType {
    PLFSFILE,
    S3FILE,
    SYNDATA,                     // synthetic data (no file)
-   NONE                         // deleted?  irrelevant?  see stat_item()
 };
 
 // this is currently only used in three places:
@@ -196,7 +212,7 @@ enum FSType {
 //Structs and typedefs
 //options{
 struct options {
-    int     verbose;
+    int     verbose;            // each '-v' increases verbosity
     int     recurse;
     int     logging;
     FSType  dest_fstype;			// specifies the FS type of the destination
@@ -265,10 +281,12 @@ typedef struct work_buf_list {
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);
+void  trim_trailing(int ch, char* str);
+
 void  get_base_path(char* base_path, const path_item* path, int wildcard);
 void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item* beginning_node,
                     int makedir, int num_paths, struct options& o);
-void  get_output_path(char* output_path, const char *base_path, path_item* src_node, path_item* dest_node, struct options& o);
+void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
 int   one_byte_read(const char *path);
 int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf=NULL);
 int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only);
@@ -301,6 +319,7 @@ int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct u
 #endif
 
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
+int  stat_item(path_item* work_node, struct options& o);
 void get_stat_fs_info(const char *path, SrcDstFSType *fs);
 int  get_free_rank(int *proc_status, int start_range, int end_range);
 int  processing_complete(int *proc_status, int nproc);

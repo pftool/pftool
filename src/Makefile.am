@@ -6,7 +6,7 @@ debug.h \
 hashtbl.c hashtbl.h \
 str.c str.h \
 syndata.c syndata.h \
-pfutils.c pfutils.h \
+pfutils.cpp pfutils.h \
 pftool.cpp pftool.h \
 Path.cpp Path.h
 
@@ -17,7 +17,7 @@ __top_builddir__bin_pftool_SOURCES = \
 debug.h \
 hashtbl.c hashtbl.h \
 str.c str.h \
-pfutils.c pfutils.h \
+pfutils.cpp pfutils.h \
 pftool.cpp pftool.h \
 Path.cpp Path.h
 

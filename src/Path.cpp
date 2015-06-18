@@ -102,14 +102,12 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    //   NO_IMPL_STATIC(fake_stat, S3_Path); // TBD
 
    // get these from the pool, instead of was_iobuf_new, to avoid mallocs
-   IOBufPtr b_ptr(Pool<IOBuf>::get());
-   IOBufPtr response_ptr(Pool<IOBuf>::get());
-
-   IOBuf* b        = b_ptr.get();
-   IOBuf* response = response_ptr.get();
+   IOBufPtr b_ptr(Pool<IOBuf>::get(true));
+   IOBuf*   b = b_ptr.get();
 
    // defaults
    memset((char*)st, 0, sizeof(struct stat));
+
 
    // .................................................................
    // device    (N/A)
@@ -120,7 +118,8 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    // .................................................................
    // mode
    //
-   //     Use a "?acl" query to get metadata.  We also get mtime, here.
+   //     Use a "?acl" query to get permissions metadata.
+   //     Use a HEAD request to get user-metadata
    //
    //     NOTE: There's no notion of "execute permission" in S3 ACLs.
    //
@@ -147,9 +146,9 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    // These elements are like S3_Path members.
    std::string  host;
    std::string  bucket;
-   char*        obj;
+   std::string  obj;
 
-   S3_Path::parse_host_bucket_object(host, bucket, obj, path_name);
+   bool trailing_slash = S3_Path::parse_host_bucket_object(host, bucket, obj, path_name);
 
    if (! host.size()) {
       errsend_fmt(NONFATAL, "couldn't parse host from '%s'\n", path_name);
@@ -161,21 +160,28 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 
 
    // query for metadata, capturing XML response
-   std::string  acl_path((bucket.size() && !obj) ? "" : obj);
-   acl_path += "?acl";
+#if 0
+   std::string  acl_path(obj);
+   acl_path += (trailing_slash ? "/?acl" : "?acl");
+#else
+   std::string  acl_path(obj + "?acl");
+#endif
    
    const size_t xml_buf_size = 1024 * 256;   // plenty for ACL-XML or error response (?)
    char xml_buf[xml_buf_size];
    aws_iobuf_reset(b);
    aws_iobuf_extend_static(b, xml_buf, xml_buf_size);
-   aws_iobuf_growth_size(response, xml_buf_size); // in case we overflow
+   aws_iobuf_growth_size(b, xml_buf_size); // in case we overflow
 
-   AWS4C_CHECK( s3_post2(b, (char*)acl_path.c_str(), NULL, response) );
-   AWS4C_CHECK_OK( b );
+   AWS4C_CHECK( s3_get(b, (char*)acl_path.c_str()) );
+
+   ///   AWS4C_CHECK_OK( b );
+   if (b->code != 200)
+      return false;             // e.g. 404 'Not Found'
 
    // prepare to parse response-XML
-   aws_iobuf_realloc(response);
-   xmlDocPtr doc = xmlReadMemory(response->first->buf, response->first->len, NULL, NULL, 0);
+   aws_iobuf_realloc(b);
+   xmlDocPtr doc = xmlReadMemory(b->first->buf, b->first->len, NULL, NULL, 0);
    if (! doc) {
       errsend_fmt(NONFATAL, "couldn't xmlReadMemory in ACL-response from '%s'\n",
                   acl_path.c_str());
@@ -237,6 +243,95 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
       st->st_mode |= (S_IRUSR | S_IWUSR);  // what, I can't "execute" this object?
 
 
+   // There is no easy way to tell if this thing "is a directory". We could
+   // query the bucket with "?prefix=<obj>&Delimiter=/", then look through
+   // "common substrings" to see whether this path appeared, but that
+   // sounds expensive.  We can also store custom metadata, when we create
+   // objects containing "/", at objects representing each of the
+   // directory-components along the way.  Or, instead of that, we could
+   // create directories with names ending in "/" for each directory
+   // component; then by adding a slash at the end of the current path, we
+   // could just ask whether that object (with the trailing slash) exists,
+   // and use that to indicate that this is a directory, but that's awkward
+   // for directory listings.
+   //
+   // NOTE: When copying to S3 we have an advantage that S3_Path::mkdir()
+   //       is called, which initializes the struct stat.  Those objects
+   //       passed around in pftool will already be known to be directories,
+   //       so fake_stat() will not be used.
+
+   // (a) if it's a bucket with no path, then it's a directory
+   if (!obj.size() || !strcmp(obj.c_str(), "/"))
+      st->st_mode |= (__S_IFDIR);
+
+   // (b) if path has more than 1 char and ends in "/", then it's a directory
+   //
+   // NOTE: This is a short-cut that lets us avoid the expensive operations
+   //       in (c).  Here's how this is useful: When doing a readdir on an
+   //       S3 "directory", we use the prefix+delimiter query described
+   //       above.  (In this case, it's not inefficient.)  For example,
+   //       suppose in bucket "A" we have objects with the following names:
+   //
+   //     
+   //           B/C/D
+   //           B/C2
+   //
+   //       Then the query for contents of the "directory" named "B" could
+   //       look like this: "http://hostname/A?prefix=B/&delimiter=/" and
+   //       the results would be:
+   //
+   //           C/
+   //           C2
+   //
+   //       If we leave the slash in, then we can immediately determine
+   //       that "C" is a directory, though for "C2", we'd have to query
+   //       metadata, because it might have been created as an object
+   //       (possibly having no contents), or as an empty "directory"
+   //       (definitely having no objects below it).
+   else if (trailing_slash)
+      st->st_mode |= (__S_IFDIR);
+
+#if 1
+   // TBD: Defer this until needed.  Maybe nobody is going to ask whether
+   //      this is a directory, in which case the effort here is wasted.
+   //      Instead, return-value (or something) indicates we didn't check
+   //      metadata yet.  If someone calls S3_Path::is_dir(), and we
+   //      don't already know that it is a dir, *then* we do this.
+
+
+   // (c) if user meta-data says it's a directory, then it's a directory.
+   else if (obj.size()) {
+      IOBufPtr b2_ptr(Pool<IOBuf>::get(true));
+      IOBuf*   b2 = b2_ptr.get();
+
+      // parse user-defined meta-data into <b>->meta
+      AWS4C_CHECK( s3_head(b, (char*)obj.c_str()) );
+      if (b->code == 200 && b->meta) {
+
+         // meta-data includes key="mode_bits" ?
+         //
+         // NOTE: We only use the file-type bits in the meta-data.  The ACL
+         //       (parsed above) says something real about access-mode
+         //       bits.  I think we shouldn't ignore that.  Therefore, we
+         //       OR the meta-data value with __S_IFMT, before installing,
+         //       to make sure we aren't munging permissions.
+         const char* mode_bits_string = aws_metadata_get((const MetaNode**)&(b->meta), "mode_bits");
+         if (mode_bits_string) {
+            mode_t mode;
+            if (sscanf(mode_bits_string, "0x%08x", &mode) != 1) {
+               errsend_fmt(FATAL, "Couldn't parse 'mode_bits' meta-data value ('%s') for '%s'\n",
+                           mode_bits_string, acl_path.c_str());
+               aws_iobuf_reset(b2);
+               return false;
+            }
+            st->st_mode |= (mode & __S_IFMT);
+         }
+      }
+      aws_iobuf_reset(b2);
+   }
+#endif
+
+
    // .................................................................
    // nlink     (N/A)
    // UID       (N/A)
@@ -294,24 +389,35 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 
    // extract modification-time (string).  Translate to time_t.  Use this
    // for ctime, mtime, and atime.
-   struct tm   tm;
-   time_t      mod_time;
-   strptime(b->lastMod, "%a, %d %b %Y %H:%M:%S %Z", &tm);
-   mod_time = mktime(&tm);
+   if (b->lastMod) {
+      struct tm   tm;
+      time_t      mod_time;
+      strptime(b->lastMod, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+      mod_time = mktime(&tm);
 
-   st->st_atime = mod_time;
-   st->st_mtime = mod_time;
-   st->st_ctime = mod_time;
-
+      st->st_atime = mod_time;
+      st->st_mtime = mod_time;
+      st->st_ctime = mod_time;
+   }
+   else {
+      st->st_atime = 0;
+      st->st_mtime = 0;
+      st->st_ctime = 0;
+   }
 
 
    // free storage for parsed XML tree
    xmlFreeDoc(doc);
 
-   // These are now gotten from the pool, so no need to free/reset them
-   //
-   //   aws_iobuf_free(response);
-   //   aws_iobuf_reset(b);
+   // These are now gotten from the pool, and all buffers we added are
+   // static, so no need to free/reset them.  However, it's possible that
+   // the response was longer than xml_buf_size, which would have forced
+   // the system to extend with dynamically-allocated data.  Also, somone
+   // may explicitly add dynamically-allocated buffers.  Thus, it's
+   // probably wise to free, here.
+
+   ///   aws_iobuf_free(response);
+   aws_iobuf_reset(b);
 
    return true;
 }

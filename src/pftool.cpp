@@ -209,6 +209,10 @@ int main(int argc, char *argv[]) {
                 o.meta_data_only = 0;
                 break;
             case 'v':
+                // each '-v' increases verbosity, as follows
+                //  >= 1  means normal diagnostics
+                //  >= 2  means ...
+                //  >= 3  means also show S3 client/server interaction
                 o.verbose += 1;
                 break;
 
@@ -328,6 +332,8 @@ int main(int argc, char *argv[]) {
         // one of these workers is the OUTPUT_PROC.  Wouldn't it make sense
         // for him to sit out the worker() task?  Otherwise we deadlock if
         // we use errsend() when he's e.g. doing a Bcast, as a worker.
+        // [Alternatively, errsend() could be asynchronous, but then you
+        // may have output that never reaches the user.]
         worker(rank, o);
     }
 
@@ -424,50 +430,54 @@ void manager(int             rank,
             //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
             rc = stat_item(&beginning_node, o);
             get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
-            rc = stat_item(&dest_node, o);
+            ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
             if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
-                /// #ifdef PLFS
-                ///                 if (dest_node.ftype == PLFSFILE){
-                ///                     plfs_mkdir(dest_node.path, S_IRWXU);
-                ///                 }
-                ///                 else {
-                /// #endif
-                ///                     mkdir(dest_node.path, S_IRWXU);
-                /// #ifdef PLFS
-                ///                 }
-                /// #endif
-                ///                 rc = stat_item(&dest_node, o);
+                //// #ifdef PLFS
+                ////                 if (dest_node.ftype == PLFSFILE){
+                ////                     plfs_mkdir(dest_node.path, S_IRWXU);
+                ////                 }
+                ////                 else {
+                //// #endif
+                ////                     mkdir(dest_node.path, S_IRWXU);
+                //// #ifdef PLFS
+                ////                 }
+                //// #endif
+                ////                 rc = stat_item(&dest_node, o);
 
 
-                // Oops.  If we errsend anything here, we'll deadlock on
-                // the other procs that are waiting at the Bcast().  That's
-                // because there's a problem witht he way OUTPUT_PROC is
-                // used.  Either the errsend() functions should send
-                // asynchronously, or OUTPUT_PROC should run a special
-                // process (other than worker()), so that it does nothing
-                // but synchronous recevs of diagnostic messages OUTCMD and
-                // LOGCMD.
+                // NOTE: If we errsend anything here, we'll deadlock on the
+                //       other procs that are waiting at the Bcast().
+                //       That's because there's a problem witht he way
+                //       OUTPUT_PROC is used.  Either the errsend()
+                //       functions should send asynchronously, or
+                //       OUTPUT_PROC should run a special process (other
+                //       than worker()), so that it does nothing but
+                //       synchronous recevs of diagnostic messages OUTCMD
+                //       and LOGCMD.
 
-                // errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n", dest_node.path, dest_path);
-                fprintf(stderr, "Debugging: dest_node '%s' -> dest_path '%s'\n", dest_node.path, dest_path);
+                //                errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
+                //                            dest_node.path, dest_path);
+                fprintf(stderr, "Debugging: dest_path '%s' -> dest_node '%s'\n", dest_path, dest_node.path);
+
                 PathPtr p(PathFactory::create_shallow(&dest_node));
-                // errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
+                //                errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
                 fprintf(stderr, "Debugging: Path subclass is '%s'\n", p->class_name().get());
 
                 p->mkdir(S_IRWXU);
-                // errsend_fmt(NONFATAL, "Debugging: created '%s'\n", p->path());
-                fprintf(stderr, "Debugging: created '%s'\n", p->path());
+                //                errsend_fmt(NONFATAL, "Debugging: created '%s'\n", p->path());
+                fprintf(stderr, "Debugging: created directory '%s'\n", p->path());
 
                 // TBD: Remove this.  This is just for now, because most of
-                // pftool still just looks at naked stat structs, inside
-                // Path objects.  Ours hasn't been initialized yet.  If you
-                // ask for any stat-related info from the Path object, it
-                // would do a stat before answering.  But if you just go
-                // look at the raw struct, e.g. with S_ISDIR(st.st_mode),
-                // you'll be looking at all zeros, and you'll think it
-                // isn't a directory.
-                p->probe();
+                //       pftool still just looks at naked stat structs,
+                //       inside Path objects.  Ours hasn't been initialized
+                //       yet.  If you ask for any stat-related info from
+                //       the Path object, it would do a stat before
+                //       answering.  But if you just go look at the raw
+                //       struct, e.g. with S_ISDIR(st.st_mode), you'll be
+                //       looking at all zeros, and you'll think it isn't a
+                //       directory.
+                p->stat();
             }
 
             //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
@@ -485,6 +495,7 @@ void manager(int             rank,
 
     // Make sure there are no multiple roots for a recursive operation
     // (because we assume we can use base_path to generate all destination paths?)
+    // (because multiple roots imply recursive descent will iterate forever?)
     iter = input_queue_head;
     if (strncmp(base_path, ".", PATHSIZE_PLUS) != 0 && o.recurse == 1 && o.work_type != LSWORK) {
         char iter_base_path[PATHSIZE_PLUS];
@@ -501,8 +512,12 @@ void manager(int             rank,
     char* copy = strdup(dest_path);
     strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
     free(copy);
-    rc = stat(temp_path, &st);
-    if (rc < 0) {
+    ////    rc = stat(temp_path, &st);
+    ////    if (rc < 0)
+    PathPtr p_dir(PathFactory::create((char*)temp_path));
+    if (! p_dir->exists())
+
+    {
         char err_cause[MESSAGESIZE];
         strerror_r(errno, err_cause, MESSAGESIZE);
         snprintf(errmsg, MESSAGESIZE, "%s: %s", dest_path, err_cause);
@@ -893,17 +908,17 @@ void worker(int rank, struct options& o) {
     int prc;
 #endif
 
-    char *output_buffer = (char*)NULL;
-    int   type_cmd;
-    int   mpi_ret_code;
-    char  base_path[PATHSIZE_PLUS];
+    char*     output_buffer = (char*)NULL;
+    int       type_cmd;
+    int       mpi_ret_code;
+    char      base_path[PATHSIZE_PLUS];
     path_item dest_node;
 
     //variables stored by the 'accumulator' proc
-    HASHTBL *chunk_hash;
-    int base_count = 100;
-    int hash_count = 0;
-    int output_count = 0;
+    HASHTBL*  chunk_hash;
+    int       base_count = 100;
+    int       hash_count = 0;
+    int       output_count = 0;
 
 
     if (rank == OUTPUT_PROC) {
@@ -934,7 +949,7 @@ void worker(int rank, struct options& o) {
         get_stat_fs_info(base_path, &o.sourcefs);
         if (o.parallel_dest == 0 && o.work_type != LSWORK) {
             get_stat_fs_info(dest_node.path, &o.destfs);
-            if (o.destfs != ANYFS) {
+            if (o.destfs >= PARALLEL_DESTFS) {
                 o.parallel_dest = 1;
             }
         }
@@ -1211,156 +1226,247 @@ void worker_readdir(int         rank,
         errsend(FATAL, "Failed to receive workbuf\n");
     }
 
-    // unpack and process successive paths
+    // unpack and process successive source-paths
     position = 0;
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_readdir() Unpacking the work_node %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
 
+
+        // <p_work> is an appropriately-selected Path subclass, which has
+        // an _item member that points to <work_node>
         PRINT_MPI_DEBUG("rank %d: worker_readdir() PathFactory::cast(%d)\n", rank, (unsigned)work_node.ftype);
-        PathPtr work_path = PathFactory::create(&work_node);
+        PathPtr p_work = PathFactory::create_shallow(&work_node);
 
         if (start == 1 && o.use_file_list == 0) {
+
             //first time through, not using a filelist
-            rc = stat_item(&work_node, o);
-            if (rc != 0) {
-                snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
-                if (o.work_type == LSWORK) {
-                    errsend(NONFATAL, errmsg);
+
+            ////            rc = stat_item(&work_node, o);
+            ////            if (rc != 0) {
+            ////                snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+            ////                if (o.work_type == LSWORK) {
+            ////                    errsend(NONFATAL, errmsg);
+            ////                    return;
+            ////                }
+            ////                else {
+            ////                    errsend(FATAL, errmsg);
+            ////                }
+            ////            }
+            if (! p_work->exists()) { // performs a stat()
+                errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
+                            "Failed to stat path (1) %s\n", p_work->path());
+                if (o.work_type == LSWORK)
                     return;
-                }
-                else {
-                    errsend(FATAL, errmsg);
-                }
             }
             workbuffer[buffer_count] = work_node;
             buffer_count++;
         }
+
         else if (o.use_file_list == 0) {
-#ifdef PLFS
-            if (work_node.ftype == PLFSFILE){
-                if ((rc = plfs_opendir_c(work_node.path,&pdirp)) != 0){
-                    snprintf(errmsg, MESSAGESIZE, "Failed to open plfs dir %s\n", work_node.path);
-                    errsend(NONFATAL, errmsg);
-                    continue;
-                }
+            // work_node is a source-directory.  Read file-names from it,
+            // construct full source-side pathnames.  Eventually these go
+            // to process_stat_buffer(), where they are converted to
+            // destination-paths.
+
+
+            ////#ifdef PLFS
+            ////            if (work_node.ftype == PLFSFILE){
+            ////                if ((rc = plfs_opendir_c(work_node.path,&pdirp)) != 0){
+            ////                    snprintf(errmsg, MESSAGESIZE, "Failed to open plfs dir %s\n", work_node.path);
+            ////                    errsend(NONFATAL, errmsg);
+            ////                    continue;
+            ////                }
+            ////            }
+            ////
+            ////            else{
+            ////#endif
+            ////                if ((dip = opendir(work_node.path)) == NULL) {
+            ////                    snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
+            ////                    errsend(NONFATAL, errmsg);
+            ////                    continue;
+            ////                }
+            ////#ifdef PLFS
+            ////            }
+            ////#endif
+            if (! p_work->opendir()) {
+                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s\n", 
+                            p_work->class_name().get(), p_work->path());
             }
 
-            else{
-#endif
-                if ((dip = opendir(work_node.path)) == NULL) {
-                    snprintf(errmsg, MESSAGESIZE, "Failed to open dir %s\n", work_node.path);
-                    errsend(NONFATAL, errmsg);
-                    continue;
-                }
-#ifdef PLFS
-            }
-#endif
+
             if (makedir == 1) {
-                get_output_path(mkdir_path, base_path, &work_node, dest_node, o);
-#ifdef PLFS
-                struct stat st_temp;
-                char* copy = strdup(mkdir_path); // possibly-altered by dirname()
-                rc = plfs_getattr(NULL, dirname(copy), &st_temp, 0);
-                free(copy);
-                if (rc == 0){
-                    plfs_mkdir(mkdir_path, S_IRWXU);
-                }
-                else{
-#endif
-                    mkdir(mkdir_path, S_IRWXU);
-#ifdef PLFS
-                }
-#endif
-            }
-            strncpy(path, work_node.path, PATHSIZE_PLUS);
-            //we're not a file list
-#ifdef PLFS
-            if (work_node.ftype == PLFSFILE){
-                while (1) {
-                    rc = plfs_readdir_c(pdirp, dname, PATHSIZE_PLUS);
-                    if (rc != 0){
-                        snprintf(errmsg, MESSAGESIZE, "Failed to plfs_readdir path %s", work_node.path);
-                        errsend(NONFATAL, errmsg);
-                        break;
-                    }
-                    if (strlen(dname) == 0){
-                        break;
-                    }
-                    if (strncmp(dname, ".", PATHSIZE_PLUS) != 0 && strncmp(dname, "..", PATHSIZE_PLUS) != 0) {
-                        strncpy(full_path, path, PATHSIZE_PLUS);
-                        if (full_path[strlen(full_path) - 1 ] != '/') {
-                            strncat(full_path, "/", 1);
-                        }
-                        strncat(full_path, dname, PATHSIZE_PLUS - strlen(full_path) - 1);
-                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
-                        rc = stat_item(&work_node, o);
-                        if (rc != 0) {
-                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
-                            if (o.work_type == LSWORK) {
-                                errsend(NONFATAL, errmsg);
-                                continue;
-                            }
-                            else {
-                                errsend(FATAL, errmsg);
-                            }
-                        }
-                        workbuffer[buffer_count] = work_node;
-                        buffer_count++;
-                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
-                        }
-                    }
-                }
-            }
-            else{
-#endif
-                while ((dit = readdir(dip)) != NULL) {
-                    if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0) {
-                        strncpy(full_path, path, PATHSIZE_PLUS);
-                        if (full_path[strlen(full_path) - 1 ] != '/') {
-                            strncat(full_path, "/", 1);
-                        }
-                        strncat(full_path, dit->d_name, PATHSIZE_PLUS - strlen(full_path) - 1);
-                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
-                        rc = stat_item(&work_node, o);
-                        if (rc != 0) {
-                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
-                            if (o.work_type == LSWORK) {
-                                errsend(NONFATAL, errmsg);
-                                continue;
-                            }
-                            else {
-                                errsend(FATAL, errmsg);
-                            }
-                        }
-                        workbuffer[buffer_count] = work_node;
-                        buffer_count++;
-                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
-                        }
-                    }
-                }
-#ifdef PLFS
-            }
-            if (work_node.ftype == PLFSFILE){
-                if (plfs_closedir_c(pdirp) != 0) {
-                    snprintf(errmsg, MESSAGESIZE, "Failed to plfs_closedir: %s", work_node.path);
-                    errsend(1, errmsg);
-                }
+                //get_output_path(mkdir_path, base_path, &work_node, dest_node, o);
+                get_output_path(mkdir_path, base_path, &p_work->node(), dest_node, o);
 
+                ////#ifdef PLFS
+                ////                struct stat st_temp;
+                ////                char* copy = strdup(mkdir_path); // possibly-altered by dirname()
+                ////                rc = plfs_getattr(NULL, dirname(copy), &st_temp, 0);
+                ////                free(copy);
+                ////                if (rc == 0){
+                ////                    plfs_mkdir(mkdir_path, S_IRWXU);
+                ////                }
+                ////                else{
+                ////#endif
+                ////                    mkdir(mkdir_path, S_IRWXU);
+                ////#ifdef PLFS
+                ////                }
+                ////#endif
+                PathPtr p_dir(PathFactory::create(mkdir_path));
+                p_dir->mkdir(S_IRWXU);
             }
-            else{
-#endif
-                if (closedir(dip) == -1) {
-                    snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
-                    errsend(1, errmsg);
+            // strncpy(path, work_node.path, PATHSIZE_PLUS);
+            strncpy(path, p_work->path(), PATHSIZE_PLUS);
+
+
+            //we're not a file list
+            ////#ifdef PLFS
+            ////            if (work_node.ftype == PLFSFILE){
+            ////                while (1) {
+            ////                    rc = plfs_readdir_c(pdirp, dname, PATHSIZE_PLUS);
+            ////                    if (rc != 0){
+            ////                        snprintf(errmsg, MESSAGESIZE, "Failed to plfs_readdir path %s", work_node.path);
+            ////                        errsend(NONFATAL, errmsg);
+            ////                        break;
+            ////                    }
+            ////                    if (strlen(dname) == 0){
+            ////                        break;
+            ////                    }
+            ////                    if (strncmp(dname, ".", PATHSIZE_PLUS) != 0 && strncmp(dname, "..", PATHSIZE_PLUS) != 0) {
+            ////                        strncpy(full_path, path, PATHSIZE_PLUS);
+            ////                        if (full_path[strlen(full_path) - 1 ] != '/') {
+            ////                            strncat(full_path, "/", 1);
+            ////                        }
+            ////                        strncat(full_path, dname, PATHSIZE_PLUS - strlen(full_path) - 1);
+            ////                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
+            ////                        rc = stat_item(&work_node, o);
+            ////                        if (rc != 0) {
+            ////                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+            ////                            if (o.work_type == LSWORK) {
+            ////                                errsend(NONFATAL, errmsg);
+            ////                                continue;
+            ////                            }
+            ////                            else {
+            ////                                errsend(FATAL, errmsg);
+            ////                            }
+            ////                        }
+            ////                        workbuffer[buffer_count] = work_node;
+            ////                        buffer_count++;
+            ////                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+            ////                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+            ////                        }
+            ////                    }
+            ////                }
+            ////            }
+            ////            else{
+            ////#endif
+            ////                while ((dit = readdir(dip)) != NULL) {
+            ////                    if (strncmp(dit->d_name, ".", PATHSIZE_PLUS) != 0 && strncmp(dit->d_name, "..", PATHSIZE_PLUS) != 0) {
+            ////                        strncpy(full_path, path, PATHSIZE_PLUS);
+            ////                        if (full_path[strlen(full_path) - 1 ] != '/') {
+            ////                            strncat(full_path, "/", 1);
+            ////                        }
+            ////                        strncat(full_path, dit->d_name, PATHSIZE_PLUS - strlen(full_path) - 1);
+            ////                        strncpy(work_node.path, full_path, PATHSIZE_PLUS);
+            ////                        rc = stat_item(&work_node, o);
+            ////                        if (rc != 0) {
+            ////                            snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", work_node.path);
+            ////                            if (o.work_type == LSWORK) {
+            ////                                errsend(NONFATAL, errmsg);
+            ////                                continue;
+            ////                            }
+            ////                            else {
+            ////                                errsend(FATAL, errmsg);
+            ////                            }
+            ////                        }
+            ////                        workbuffer[buffer_count] = work_node;
+            ////                        buffer_count++;
+            ////                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+            ////                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+            ////                        }
+            ////                    }
+            ////                }
+            ////#ifdef PLFS
+            ////            }
+            ////            if (work_node.ftype == PLFSFILE){
+            ////                if (plfs_closedir_c(pdirp) != 0) {
+            ////                    snprintf(errmsg, MESSAGESIZE, "Failed to plfs_closedir: %s", work_node.path);
+            ////                    errsend(1, errmsg);
+            ////                }
+            ////
+            ////            }
+            ////            else{
+            ////#endif
+            ////                if (closedir(dip) == -1) {
+            ////                    snprintf(errmsg, MESSAGESIZE, "Failed to closedir: %s", work_node.path);
+            ////                    errsend(1, errmsg);
+            ////                }
+            ////#ifdef PLFS
+            ////            }
+            ////#endif
+
+
+            // assure <path> ends with a single slash
+            trim_trailing('/', path);
+            size_t path_len  = strlen(path);
+            path[path_len] = '/';
+            path_len      += 1;
+            path[path_len] = 0;
+
+            // NOTE: dir-entry names will be directly appended to the tail of <path>
+            char*  append_path = path + path_len; // ptr to end of directory-name
+            size_t append_len  = PATHSIZE_PLUS - path_len;
+
+            // Use readdir() to append each directory-entry directly onto
+            // to the tail of <path>.  Path::readdir() returns false only
+            // for errors.  EOF is signalled by returning with a
+            // zero-length entry.
+            bool   readdir_p;
+            while (readdir_p = p_work->readdir(append_path, append_len)) {
+                if (! *append_path) {
+                    break;      // end of directory entries
                 }
-#ifdef PLFS
+                if (strncmp(append_path, ".", PATHSIZE_PLUS) != 0 &&
+                    strncmp(append_path, "..", PATHSIZE_PLUS) != 0) {
+
+                    // full-path is <path> + "/" + readdir()
+                    PathPtr p_new = PathFactory::create(path);
+                    if (! p_new->exists()) {
+                        errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
+                                    "Failed to stat path (2) %s\n", p_new->path());
+                        if (o.work_type == LSWORK)
+                            return;
+                    }
+
+                    workbuffer[buffer_count] = p_new->node();
+                    buffer_count++;
+                    if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+                        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
+                    }
+                }
             }
-#endif
+
+            // did the readdir() loop exit because of an error?
+            if (! readdir_p) {
+                errsend_fmt(NONFATAL, "readdir (entry %d) failed on %s (%s)\n",
+                            buffer_count, work_node.path, p_work->strerror());
+            }
+
+            // done with 
+            if (! p_work->closedir()) {
+                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s\n", 
+                            p_work->class_name().get(), p_work->path());
+            }
         }
+
+
+
         //we were provided a file list
+        //
+        // NOTE: We'll just assume the file-list is stored on a POSIX
+        //       filesys, so we don't have to add fgets() methods to all
+        //       the PATH subclasses.
         else {
             fp = fopen(work_node.path, "r");
             while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL) {
@@ -1377,6 +1483,8 @@ void worker_readdir(int         rank,
             fclose(fp);
         }
     }
+
+    // process any remaining partially-filled workbuffer contents
     while(buffer_count != 0) {
         process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o);
     }
@@ -1385,173 +1493,32 @@ void worker_readdir(int         rank,
 }
 
 
-// takes a work node (with a path installed), stats it, and figures out
-// some of its characteristics.  Updates the following fields:
-//
-//   work_node.dest_ftype
-//   work_node.ftype
-//   work_node.st
-//
-// TBD: Why not just use the stat struct in <work_node>?
-int stat_item(path_item *work_node, struct options& o) {
 
-    char        errmsg[MESSAGESIZE];
-    struct stat st;
-    int         rc;
+// This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
+// routine later checks for ftype==NONE.  In other cases, these path_items
+// that have been reset to NONE are being built into path_buffers and sent
+// away.  What will happen is that whoever receives them (and constructs
+// Path objects) will use stat_item() to rediscover an appropriate ftype
+// for them.  It looks like what we're doing is destroying any existing
+// destinations that match our out_node, and resetting out_node to an ftype
+// that stat_item will re-consider.
 
-    //dmapi
-#ifdef TAPE
-    uid_t uid;
-    int   dmarray[3];
-    char  hexbuf[128];
-#endif
-
-    int  numchars;
-    char linkname[PATHSIZE_PLUS];
-
-    // defaults
-    work_node->ftype      = REGULARFILE;
-    work_node->dest_ftype = REGULARFILE;
-
-      
-#ifdef S3
-    // --- is it an S3 path?
-    if ( (! strcmp(work_node->path, "http://")) ||
-         (! strcmp(work_node->path, "https://"))) {
-
-        rc = S3_Path::fake_stat(work_node->path, &st);
-        if (rc == 0)
-            work_node->ftype = S3FILE;
-        else
-            return -1;
-    }
-#endif
-
-
-#ifdef PLFS
-    //plfs_get attr on the base file
-    rc = plfs_getattr(NULL, work_node->path, &st, 0);
-    if (rc == 0){
-        work_node->ftype = PLFSFILE;
-    }
-    else{
-        char* copy = strdup(work_node->path);
-        rc = plfs_getattr(NULL, dirname(copy), &st, 0);
-        free(copy);
-        if (rc == 0) {
-            work_node->ftype = PLFSFILE;
-        }
-        else {
-            ///            if (lstat(work_node->path, &st) == -1) {
-            ///                return -1;
-            ///            }
-            rc = lstat(work_node->path, &st);
-            if (rc == 0){
-                work_node->ftype = REGULARFILE;
-            }
-            else{
-                return -1;
-            }
-        }
-    }
-#else
-    if (lstat(work_node->path, &st) == -1) {
-        return -1;
-    }
-#endif
-
-
-#ifdef GEN_SYNDATA
-    if(o.syn_size) // We are generating synthetic data, and NOT copying data in file. Need to muck with the file size
-       st.st_size = o.syn_size;
-#endif
-
-
-    work_node->st = st;
-
-    //dmapi to find managed files
-#ifdef TAPE
-    if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS) {
-        uid = getuid();
-# ifndef THREADS_ONLY
-        if (uid == 0 && st.st_size > 0 && st.st_blocks == 0)
-# else
-        if (0)
-# endif
-        {
-            dmarray[0] = 0;
-            dmarray[1] = 0;
-            dmarray[2] = 0;
-            if (read_inodes (work_node->path, work_node->st.st_ino, work_node->st.st_ino+1, dmarray) != 0) {
-                snprintf(errmsg, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
-                errsend(FATAL, errmsg);
-            }
-            else if (dmarray[0] > 0) {
-                dmapi_lookup(work_node->path, dmarray, hexbuf);
-                if (dmarray[1] == 1) {
-                    work_node->ftype = PREMIGRATEFILE;
-                }
-                else if (dmarray[2] == 1) {
-                    work_node->ftype = MIGRATEFILE;
-                }
-            }
-        }
-        else if (st.st_size > 0 && st.st_blocks == 0) {
-            work_node->ftype = MIGRATEFILE;
-        }
-    }
-#endif
-
-
-
-    //special cases for links
-    if (S_ISLNK(work_node->st.st_mode)) {
-        memset(linkname,'\0', PATHSIZE_PLUS);
-        numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
-        if (numchars < 0) {
-            snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", work_node->path);
-            errsend(NONFATAL, errmsg);
-            work_node->ftype = LINKFILE;
-            return -1;
-        }
-        linkname[numchars] = '\0';
-        work_node->ftype = LINKFILE;
-
-
-#ifdef FUSE_CHUNKER
-
-        if (
-#ifdef PLFS
-            // this will *always* be true, right?  We just set ftype = LINKFILE, above.
-            (work_node->ftype != PLFSFILE) &&
-#endif
-
-            is_fuse_chunk(realpath(work_node->path, NULL), o)) {
-            if (lstat(linkname, &st) == -1) {
-                snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
-                errsend(FATAL, errmsg);
-            }
-            work_node->st = st;
-            work_node->ftype = FUSEFILE;
-        }
-#endif
-
-
-    }
-
-
-#ifdef FUSE_CHUNKER
-    //if it qualifies for fuse and is on the "archive" path
-    if (work_node->st.st_size > o.fuse_chunk_at ) {
-        work_node->dest_ftype = FUSEFILE;
-    }
-#endif
-
-    return 0;
-}
-
-
-
+// We've started using the new C++ classes to provide generic access to
+// path_item structs, allowing support for S3, HDFS, etc, to be added
+// without changing the code.  However, there is some code here that would
+// require undue effort to add to the object-interface (for instance,
+// different updates to path_item.length, depending on the value of ftype
+// or dest_ftype).  It's easy to let these things continue to be done
+// directly on the path_item, because the object (built via
+// PathFactory::create_shallow) points at the same object.  No updates are
+// done here which the object classes should care about (e.g. no changes to
+// path-names, etc).  Therefore, the two can co-exist.  HOWEVER, if you add
+// any code that does change "important" parts of the path_item
+// (e.g. changing the path), then you should realize that the Path object
+// will become out-of-sync until you do another Path::stat() call.  You can
+// alter dest_ftype, and you can read ftype, but do not alter ftype and
+// continue to use a Path object that was constructed with a
+// shallow-pointer to that path_item.
 
 void process_stat_buffer(path_item*      path_buffer,
                          int*            stat_count,
@@ -1569,13 +1536,13 @@ void process_stat_buffer(path_item*      path_buffer,
     int         num_examined_dirs = 0;
     char        errmsg[MESSAGESIZE];
     char        statrecord[MESSAGESIZE];
-    path_item   work_node;
+    ////    path_item   work_node;
     path_item   out_node;
     int         process = 0;
     int         parallel_dest = 0;
 
     //stat
-    struct stat st;
+    ////    struct stat st;
     struct tm   sttm;
     char        modebuf[15];
 
@@ -1625,36 +1592,45 @@ void process_stat_buffer(path_item*      path_buffer,
     writebuf = (char *) malloc(writesize * sizeof(char));
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
-        work_node = path_buffer[i];
-        st = work_node.st;
+
         process = 0;
 
-#if 1
-        // NOTE: This is no longer a good way to check whether two files
-        //       are the same.  The small problem is that this just assumes
-        //       that two POSIX files on different filesystems would never
-        //       have the same inode-number.  It's pretty unlikely that
-        //       they ever would, but not impossible.  The bigger problem
-        //       is that if these are both on object storage systems, it's
-        //       *guaranteed* that they will have the same inode-number,
-        //       because object filesystems dont have inodes, so st.st_ino
-        //       is always zero.
+        ////        work_node = path_buffer[i];
+        ////        st = work_node.st;
+        ////
+        ////        // NOTE: This is no longer a good way to check whether two files
+        ////        //       are the same.  The small problem is that this just assumes
+        ////        //       that two POSIX files on different filesystems would never
+        ////        //       have the same inode-number.  It's pretty unlikely that
+        ////        //       they ever would, but not impossible.  The bigger problem
+        ////        //       is that if these are both on object storage systems, it's
+        ////        //       *guaranteed* that they will have the same inode-number,
+        ////        //       because object filesystems dont have inodes, so st.st_ino
+        ////        //       is always zero.
+        ////
+        ////        //if the source is the initial destination
+        ////        if (st.st_ino == dest_node->st.st_ino) {
+        ////            write_count--;
+        ////            continue;
+        ////        }
+        path_item&  work_node = path_buffer[i]; // avoid a copy
+        PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
+        PathPtr p_dest(PathFactory::create_shallow(dest_node));
+        PathPtr p_out;
 
-        //if the source is the initial destination
-        if (st.st_ino == dest_node->st.st_ino) {
+
+        // TBD: This should test for *identical* items (e.g. same POSIX
+        //      inode num)
+        if (p_work->identical(p_dest)) {
             write_count--;
             continue;
         }
-#else
-        if (p_work == p_dest) {
-            write_count--;
-            continue;
-        }
-#endif
 
         //check if the work is a directory
-        else if (S_ISDIR(st.st_mode)) {
-            dirbuffer[dir_buffer_count] = work_node;
+        ////        else if (S_ISDIR(st.st_mode))
+        else if (p_work->is_dir())
+        {
+            dirbuffer[dir_buffer_count] = p_work->node();  //// work_node;
             dir_buffer_count++;
             if (dir_buffer_count % DIRBUFFER == 0) {
                 send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
@@ -1667,54 +1643,88 @@ void process_stat_buffer(path_item*      path_buffer,
 
             //do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
+            memset(&out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
             get_output_path(out_node.path, base_path, &work_node, dest_node, o);
-            rc = stat_item(&out_node, o);
+
+            ////            rc = stat_item(&out_node, o);
+            p_out = PathFactory::create_shallow(&out_node);
+            p_out->stat();
+
             if (o.work_type == COPYWORK) {
                 process = 1;
 
-#ifdef PLFS
-                if(out_node.ftype == PLFSFILE) {
+                ////#ifdef PLFS
+                ////                if(out_node.ftype == PLFSFILE) {
+                ////                    parallel_dest = 1;
+                ////                    work_node.dest_ftype = PLFSFILE;
+                ////                }
+                ////                else {
+                ////                    parallel_dest = o.parallel_dest;
+                ////                }
+                ////#endif
+                p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
+                if (p_out->supports_n_to_1())
                     parallel_dest = 1;
-                    work_node.dest_ftype = PLFSFILE;
-                }
-                else {
-                    parallel_dest = o.parallel_dest;
-                }
-#endif
 
                 //if the out path exists
-                if (rc == 0) {
+                ////                if (rc == 0)
+                if (p_out->exists()) {
 
-                    //Check if it's a valid match
                     if (o.different == 1) {
+                        // user only wants to operate on source-files that
+                        // are "different" from the corresponding
+                        // dest-files.
+
+
                         //check size, mtime, mode, and owners
+                        //
+                        // NOTE: S3 objects DO NOT HAVE create-time or
+                        //       access-time.  Therefore, their metadata is
+                        //       initialized with ctime=mtime, and
+                        //       atime=mtime.  Therefore, if you compare a
+                        //       POSIX file having values for ctime, atime,
+                        //       and mtime that are not all the same, with
+                        //       any S3 object, the two sets of metadata
+                        //       will *always* differ in these values, even
+                        //       if you freshly create them and set all
+                        //       these values to match the original.
+                        //       Therefore, it might make sense to
+                        //       reconsider this test.
                         if (work_node.st.st_size == out_node.st.st_size &&
-                                (work_node.st.st_mtime == out_node.st.st_mtime  ||
-                                 S_ISLNK(work_node.st.st_mode))&&
-                                work_node.st.st_mode == out_node.st.st_mode &&
-                                work_node.st.st_uid == out_node.st.st_uid &&
-                                work_node.st.st_gid == out_node.st.st_gid) {
-                            process = 0;
+                            (work_node.st.st_mtime == out_node.st.st_mtime  ||
+                             S_ISLNK(work_node.st.st_mode)) &&
+                            work_node.st.st_mode == out_node.st.st_mode &&
+                            work_node.st.st_uid == out_node.st.st_uid &&
+                            work_node.st.st_gid == out_node.st.st_gid) {
+
+                            process = 0; // source/dest are the same, so skip
                         }
                     }
+
 
 
                     if (process == 1) {
 
 #ifdef FUSE_CHUNKER
                         if (out_node.ftype == FUSEFILE) {
-                            //it's a fuse file unlink link dest and link
-                            if (o.different == 0 || (o.different == 1 && out_node.st.st_size > work_node.st.st_size)) {
+
+                            //it's a fuse file: delete the link-dest, and the link itself
+                            if (o.different == 0 ||
+                                (o.different == 1 && out_node.st.st_size > work_node.st.st_size)) {
+
+                                // <linkname> = name of the link-destination
                                 numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
                                 if (numchars < 0) {
                                     snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", out_node.path);
                                     errsend(FATAL, errmsg);
                                 }
                                 linkname[numchars] = '\0';
+
                                 //first unlink the actual fuse file
                                 rc = unlink(linkname);
                                 if (rc < 0) {
-                                    snprintf(errmsg, MESSAGESIZE, "Failed to unlink (1) %s -- ftype==%d", linkname, out_node.ftype);
+                                    snprintf(errmsg, MESSAGESIZE, "Failed to unlink (1) %s -- ftype==%d",
+                                             linkname, out_node.ftype);
                                     errsend(FATAL, errmsg);
                                 }
                                 //now unlink the symlink
@@ -1723,49 +1733,63 @@ void process_stat_buffer(path_item*      path_buffer,
                                     sprintf(errmsg, "Failed to unlink file %s", out_node.path);
                                     errsend(NONFATAL, errmsg);
                                 }
+
+                                p_out.reset(); // p_out was created shallow, and we're going to change ftype
                                 out_node.ftype = NONE;
                             }
                         }
-#endif
-
-
-                        //it's not fuse, ulink
-#ifdef FUSE_CHUNKER
                         else {
 #endif
 
-#ifdef PLFS
-                            if (out_node.ftype == PLFSFILE){
-                                rc = plfs_unlink(out_node.path);
+                            //it's not fuse, unlink
+                            ////#ifdef PLFS
+                            ////                            if (out_node.ftype == PLFSFILE){
+                            ////                                rc = plfs_unlink(out_node.path);
+                            ////                            }
+                            ////                            else{
+                            ////#endif
+                            ////                                rc = unlink(out_node.path);
+                            ////#ifdef PLFS
+                            ////                            }
+                            ////#endif
+                            ////
+                            ////                            if (rc < 0) {
+                            ////                                snprintf(errmsg, MESSAGESIZE, "Failed to unlink (2) %s -- ftype==%d", out_node.path, out_node.ftype);
+                            ////                                errsend(FATAL, errmsg);
+                            ////                            }
+                            ////
+#if 0
+                            // COMMENTED OUT.  See NOTE, below.
+                            if (! p_out->unlink()) {
+                                errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
+                                            p_out->path(), p_out->strerror());
                             }
-                            else{
+#else
+                            // NOTE: the old code considered
+                            //       (return-code<0) to be an error.  But
+                            //       plfs_unlink() and unlink() both always
+                            //       return >= 0.  (Errors are small
+                            //       positive integers.)  Therefore, the
+                            //       old code never actually tested for
+                            //       errors, and, if I do so now, I
+                            //       discover that plfs_unlink() is
+                            //       returning ENOENT when unlinking, even
+                            //       though the unlink is apparently
+                            //       successful.  Therefore, I'm stifling
+                            //       this test.
+                            p_out->unlink();
 #endif
 
-
-                                rc = unlink(out_node.path);
-
-
-#ifdef PLFS
-                            }
-#endif
-
-
-
-                            if (rc < 0) {
-                                snprintf(errmsg, MESSAGESIZE, "Failed to unlink (2) %s -- ftype==%d", out_node.path, out_node.ftype);
-                                errsend(FATAL, errmsg);
-                            }
+                            p_out.reset(); // p_out was created shallow, and we're going to change ftype
                             out_node.ftype = NONE;
 
 #ifdef FUSE_CHUNKER
                         }
 #endif
-
-
-
                     }
                 }
                 else {
+                    p_out.reset(); // p_out was created shallow, and we're going to change ftype
                     out_node.ftype = NONE;
                 }
             }
@@ -1780,11 +1804,14 @@ void process_stat_buffer(path_item*      path_buffer,
 
                 //parallel filesystem can do n-to-1
                 if (parallel_dest) {
-                    //non_archive files need to not be fuse
 
 #ifdef FUSE_CHUNKER
-                   if(strncmp((o.archive_path, out_node.path, strlen(o.archive_path)) != 0)
-                      && (work_node.dest_ftype == FUSEFILE)) {
+                    //non_archive files need to not be
+                    // fuse. (i.e. dest_ftype==FUSEFILE is only for
+                    // out_nodes where o.archive_path is the first part of
+                    // the path)
+                    if(strncmp((o.archive_path, out_node.path, strlen(o.archive_path)) != 0)
+                       && (work_node.dest_ftype == FUSEFILE)) {
 
                         work_node.dest_ftype = REGULARFILE;
                     }
@@ -1868,10 +1895,10 @@ void process_stat_buffer(path_item*      path_buffer,
 
 #ifdef TAPE
                         if ((work_node.ftype == MIGRATEFILE)
-#ifdef FUSE_CHUNKER
+#  ifdef FUSE_CHUNKER
                             || ((work_node.st.st_size > 0)
                                 && (work_node.st.st_blocks == 0 && work_node.ftype == FUSEFILE))
-#endif
+#  endif
                            ) {
                             tapebuffer[tape_buffer_count] = work_node;
                             tape_buffer_count++;
@@ -1883,7 +1910,6 @@ void process_stat_buffer(path_item*      path_buffer,
 #endif
 
 
-
                             num_bytes_seen += work_node.length;
                             regbuffer[reg_buffer_count] = work_node;
                             reg_buffer_count++;
@@ -1891,7 +1917,6 @@ void process_stat_buffer(path_item*      path_buffer,
                                 send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                                 num_bytes_seen = 0;
                             }
-
 
 
 #ifdef TAPE
@@ -1917,35 +1942,41 @@ void process_stat_buffer(path_item*      path_buffer,
                 }
             }
         }
-        if (! S_ISDIR(st.st_mode)) {
+
+
+        ////        if (! S_ISDIR(st.st_mode))
+        if (! S_ISDIR(work_node.st.st_mode)) {
             num_examined_files++;
-            num_examined_bytes += st.st_size;
+            num_examined_bytes += work_node.st.st_size;
 #ifdef TAPE
             if (work_node.ftype == MIGRATEFILE) {
                 num_examined_tapes++;
-                num_examined_tape_bytes += st.st_size;
+                num_examined_tape_bytes += work_node.st.st_size;
             }
 #endif
         }
-        printmode(st.st_mode, modebuf);
-        memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
+        printmode(work_node.st.st_mode, modebuf);
+        memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
         strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
-        //if (st.st_size > 0 && st.st_blocks == 0){
+        //if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
         if (o.verbose) {
             if (work_node.ftype == MIGRATEFILE) {
                 sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n",
-                        modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid,
-                        (size_t) st.st_size, timebuf, work_node.path);
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
             }
             else if (work_node.ftype == PREMIGRATEFILE) {
                 sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n",
-                        modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid,
-                        (size_t) st.st_size, timebuf, work_node.path);
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
             }
             else {
                 sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
-                        modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid,
-                        (size_t) st.st_size, timebuf, work_node.path);
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
             }
             MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
             write_count++;
@@ -1956,6 +1987,8 @@ void process_stat_buffer(path_item*      path_buffer,
             }
         }
     }
+
+
     //incase we tried to copy a file into itself
     if (o.verbose) {
         writesize = MESSAGESIZE * write_count;
@@ -1975,10 +2008,14 @@ void process_stat_buffer(path_item*      path_buffer,
     send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
 #endif
     send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
+
+
     //free malloc buffers
     free(writebuf);
     *stat_count = 0;
 }
+
+
 
 #ifdef TAPE
 void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct options& o) {
@@ -2109,16 +2146,21 @@ void worker_copylist(int             rank,
             errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
     }
 #endif
+
     position = 0;
     out_position = 0;
     for (i = 0; i < read_count; i++) {
+
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
+
         offset = work_node.offset;
         length = work_node.length;
         get_output_path(out_node.path, base_path, &work_node, dest_node, o);
 
-        out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
+        // make sure destination filesystem type is assigned for copy - cds 6/2014
+        out_node.fstype = o.dest_fstype;
+
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
 #endif
@@ -2141,11 +2183,9 @@ void worker_copylist(int             rank,
             	 rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
-            else {
-                rc = 0;
-            }
         }
 #endif
+
         if (rc >= 0) {
             if (o.verbose) {
                 if (S_ISLNK(work_node.st.st_mode)) {
@@ -2286,4 +2326,6 @@ void worker_comparelist(int             rank,
     free(workbuf);
     free(writebuf);
 }
+
+
 
