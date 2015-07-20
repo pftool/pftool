@@ -30,13 +30,14 @@
 * @return the length of the pattern buffer. A negative
 *	value is returned if there is an error
 */
-int synFillPattern(char *pfile,char *inBuf, int inBufLen)
+int synFillPattern(char *pfile, char *inBuf, int inBufLen)
 {
 	int	fd;					// pattern file fd
 	int	n;					// number of bytes read from pattern file
 
 	if(!inBuf || inBufLen <= 0) 
 		return(n = -42);			// input buffer does not have any size or is null
+
 	if( (fd = open(pfile, O_RDONLY)) <= 0)
 		return(n = -errno);
 
@@ -224,9 +225,17 @@ int synGenerateData(char *pfile,char *inBuf, int inBufLen, int randomizeData)
 //
 
 /**
-* This function returns a buffer filled with a synthetic data
-* pattern. If the pname parameter is a valid file, then
-* the pattern generated is based on the contents of that file.
+* This function returns a buffer filled with a synthetic data pattern.
+*
+* If length is negative, we use its absolute-value as the seed to generate
+* a random pattern (of length SYN_PATTERN_SIZE).  If length is zero, we use
+* SYN_PATTERN_SIZE as the length.  Otherwise, length specifies the length
+* of the pattern to generate.
+*
+* If not generating random-data, pname is either a file-name, or one of the
+* strings "zero" or "lzinf" (which mean to generate all-zeros, of the
+* specified length), or a literal string to use as the pattern.  In the
+* latter case, the first character must be non-zero
 *
 * If the pname parameter is a string, it is used as a repeatable
 * pattern. pname is a valid pattern if the first character is printable
@@ -236,45 +245,63 @@ int synGenerateData(char *pfile,char *inBuf, int inBufLen, int randomizeData)
 * If pname does NOT start with a printable character, or is NULL, then
 * a randomized pattern is generated in the syndata_buffer.
 *
-* @param pname		the name of the pattern file
-*			to use as a basis, so some other
-*			pattern designation.
-* @param length		the size of the buffer to create.
-*			if a number <= 0 is specified, then
-*			SYN_PATTERN_SIZE is used.
+* Avoid calling stat(), if parameters don't require it.
 *
-* @return a pointer to a syndata_buffer. NULL is returned if
-* 	there are errors
+* @param pname       the name of the pattern file to use as a basis, or an
+*        explicit pattern, or either of the strings "zero" or "lzinf"
+*        (which mean to use all-zeros as the pattern).
+*
+* @param length      the size of the buffer to create.
+*        If length  > 0, it's treated as a length.
+*        If length == 0, SYN_PATTERN_SIZE is used.
+*        If length  < 0, it's treated as the negative of a random-seed
+*                        for a random pattern (of size SYN_PATTERN_SIZE).
+*
+* @return a pointer to a syndata_buffer. NULL is returned if there are
+*        errors
 */
 syndata_buffer* syndataCreateBufferWithSize(char *pname, int length)
 {
-	syndata_buffer *out;					// The buffer to return
-	int len = (length)?length:SYN_PATTERN_SIZE;		// the length of the created buffer
-	struct stat st_test;					// a Stat buffer to test for existence
+   syndata_buffer *out;             // The buffer to return
+   int len = (length > 0) ? length : SYN_PATTERN_SIZE;      // the length of the created buffer
+   struct stat st_test;             // a Stat buffer to test for existence
 
-	out = (syndata_buffer*)malloc(sizeof(syndata_buffer));
-	out->buf = (char*)malloc(len);
-	out->length = len;
+   out = (syndata_buffer*)malloc(sizeof(syndata_buffer));
+   out->buf = (char*)malloc(len);
+   out->length = len;
 
-	if (!stat(pname,&st_test)) {				// patten file exists - use it to generate the pattern
-		if ( (len = synFillPattern(pname,out->buf,out->length)) <= 0) 
-			return(syndataDestroyBuffer(out));
-	}
-	else if (pname && isgraph(*pname)) {			// a pattern string is specified if 1st character is printable
-		int isZero = (!strcasecmp(pname,"zero") || !strcasecmp(pname, "lzinf"));
+   int rc;
 
-		if ( (len = synCopyPattern((isZero?"":pname),out->buf,out->length)) <= 0) 
-			return(syndataDestroyBuffer(out));
-        }
-	else {							// patten file does not exist and not a valid pattern - need to generate the pattern
-		int rseed = (pname && *pname)?(int)*pname:42;
+   if (length < 0) {
+      // convert length positive, and use it as a random seed
+      int rseed = -length;
+      rc = synGeneratePattern(out->buf,out->length,rseed);
+   }
+   else if (!strcasecmp(pname, "zero") ||
+            !strcasecmp(pname, "lzinf")) {
+      // caller wants all-zeros
+      rc = synCopyPattern("",out->buf,out->length);
+   }
+   else if (!stat(pname,&st_test)) {
+      // patten file exists - use it to generate the pattern
+      rc = synFillPattern(pname,out->buf,out->length);
+   }
+   else if (pname && isgraph(*pname)) {
+      // user provided an explicit pattern string
+      rc = synCopyPattern(pname,out->buf,out->length); /* uses strlen() on pattern */
+   }
+   else {
+      rc = -1;
+   }
 
-		if ( (len = synGeneratePattern(out->buf,out->length,rseed)) <= 0)
-			return(syndataDestroyBuffer(out));
-	}
-	out->length = len;					// Make sure length of pattern is acurate!
-	
-	return(out);
+   // check for errors
+   if (rc <= 0) {
+      syndataDestroyBuffer(out);
+      return ((syndata_buffer*)NULL);
+   }
+
+   out->length = len;               // Make sure length of pattern is acurate!
+   return(out);
 }
 
 /**
