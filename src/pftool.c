@@ -1259,11 +1259,10 @@ int stat_item(path_item *work_node, struct options o) {
         work_node->ftype = LINKFILE;
 #ifdef FUSE_CHUNKER
 #ifdef PLFS
-        if (work_node->ftype != PLFSFILE &&
+        if (work_node->ftype != PLFSFILE &&  is_fuse_chunk(realpath(work_node->path, NULL), o)) {
 #else
-        if ( 
+        if (is_fuse_chunk(realpath(work_node->path, NULL), o)) { 
 #endif
-            is_fuse_chunk(realpath(work_node->path, NULL), o)) {
             if (lstat(linkname, &st) == -1) {
                 snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
                 errsend(FATAL, errmsg);
@@ -1516,7 +1515,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                   chunk_at = 0;
                 }
 #endif
-                if (work_node.st.st_size == 0) {		// handle zero-length source file
+                if (work_node.st.st_size == 0) {		// handle zero-length source file - because it will not be processed through chunk/file loop below.
                   work_node.chkidx = 0;
                   work_node.chksz = 0;
                   regbuffer[reg_buffer_count] = work_node;
@@ -1533,7 +1532,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 	   	      char *ctmstr = ctm_flags;
 	    	      int ctmlen = 2048;
 
-		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistenr stor of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
+		      PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistent store of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
 		    }
 		  }
 		  else if (ctmExists)				// get rid of the CTM on the file if we are NOT doing a conditional transfer
@@ -1587,9 +1586,9 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 } // end Parallel destination
                 else {						// non-parallel destination
                     work_node.chkidx = 0;			// for non-chunked files, index is always 0
-                    work_node.chksz = work_node.st.st_size;		// set chunk size to size of file
+                    work_node.chksz = work_node.st.st_size;	// set chunk size to size of file
 
-                    num_bytes_seen += work_node.chksz;			// send this off to the manager work list, if ready to
+                    num_bytes_seen += work_node.chksz;		// send this off to the manager work list, if ready to
                     regbuffer[reg_buffer_count] = work_node;
                     reg_buffer_count++;
                     if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
@@ -1613,7 +1612,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
         printmode(st.st_mode, modebuf);
         memcpy(&sttm, localtime(&st.st_mtime), sizeof(sttm));
         strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
-        //if (st.st_size > 0 && st.st_blocks == 0){
+        //if (st.st_size > 0 && st.st_blocks == 0)
         if (o.verbose) {
             if (work_node.ftype == MIGRATEFILE) {
                 sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n", modebuf, (long unsigned int) st.st_blocks, st.st_uid, st.st_gid, (size_t) st.st_size, timebuf, work_node.path);
@@ -1632,7 +1631,12 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 write_count = 0;
             }
         }
-    }
+
+        if (reg_buffer_count >= COPYBUFFER) {			// regbuffer is full (probably with zero-length files) -> send it off to manager. - cds 8/2015
+	    PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg buffers to manager.\n", rank, reg_buffer_count);
+            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+        }
+    } //end of stat processing loop
     //incase we tried to copy a file into itself
     if (o.verbose) {
         writesize = MESSAGESIZE * write_count;

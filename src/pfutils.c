@@ -541,7 +541,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     //MPI_Status status;
     int rc;
     size_t completed = 0;
-    char *buf = '\0';
+    char *buf = NULL;
     char errormsg[MESSAGESIZE];
     //FILE *src_fd, *dest_fd;
     int flags;
@@ -553,7 +553,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     int pid = getpid();
     Plfs_fd  *plfs_src_fd = NULL, *plfs_dest_fd = NULL;
 #endif
-    size_t bytes_processed;
+    size_t bytes_processed = 0;
     //symlink
     char link_path[PATHSIZE_PLUS];
     int numchars;
@@ -577,12 +577,13 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
         return 0;
     }
-    //a file less then 1 MB
-    if (length < blocksize) {
+    if (length < blocksize) {										// a file < blocksize in size
         blocksize = length;
     }
-    buf = malloc(blocksize * sizeof(char));
-    memset(buf, '\0', blocksize);
+    if (blocksize) {											// if a non-zero length file -> allocate buf - cds 8/2015
+       buf = malloc(blocksize * sizeof(char));
+       memset(buf, '\0', blocksize);
+    }
     //MPI_File_read(src_fd, buf, 2, MPI_BYTE, &status);
     //open the source file for reading in binary mode
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
@@ -607,7 +608,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 #ifdef GEN_SYNDATA
     }
 #endif
-    PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld\n", rank, src_file.chkidx, offset, length);
+    PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld   blocksize = %ld\n", rank, src_file.chkidx, offset, length, blocksize);
 
     //first create a file and open it for appending (file doesn't exist)
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
@@ -691,6 +692,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
         }
         completed += blocksize;
     }
+    PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n", rank, bytes_processed, dest_file.path);
 #ifdef GEN_SYNDATA
     if(!syndataExists(synbuf)) {
 #endif
@@ -718,7 +720,7 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
     }
     else {
 #endif
-        if (close(dest_fd) < 0) {				// Report error if problems closing
+        if (close(dest_fd) < 0) {									// Report error if problems closing
             sprintf(errormsg, "Failed to close file: %s (errno = %d)", dest_file.path, errno);
             errsend(NONFATAL, errormsg);
             return -1;
@@ -726,8 +728,9 @@ int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int ran
 #ifdef PLFS
     }
 #endif
-    free(buf);
+    if(buf) free(buf);											// if buf has been allocated -> free it - cds 8/2015
     if (offset == 0 && length == src_file.st.st_size) {
+        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n", rank, dest_file.path);
         if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
