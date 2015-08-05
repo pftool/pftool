@@ -1,0 +1,416 @@
+** ORDER OF DEVO OPERATIONS
+
+   Let's make the minimal changes we can first, considering that transition to
+   C++ is a major overhaul.  Then validate that 
+
+   (1) install Path objects calling pfutils methods
+       leave work_buf_lists in place, in pftool.c
+       Do not support S3, at first.
+
+       validate with as many different config-options/filesys-types as possible.
+       {tape, threads-only, plfs, posix, object}^2 all combinations of A -> B
+
+   (2) Add S3 support and test S3 X all.
+
+   (3) remove work_buf_lists path_list, etc.
+
+
+-- rewrite the whole thing in C++.
+
+   Get rid of custom linked-lists.
+   Get rid of custom hash-tables.
+   Get rid of custom queues (e.g. path_list).
+
+   Attempt to get rid of, or hide away, as much of the inline
+   conditional-compilation as possible.  For example, instead of manually
+   copying this or that option for each element of <options>, just copy the
+   whole thing as one item.
+
+
+-- Add some documentation.
+
+   Basics of how it works.  Maybe even put some comments in the code.
+
+   The '-h' output shows some options, but doesn't tell how to use them.
+   e.g. '-w' is "work type".  Looking at source code, this is just a
+   number.  I think it maps to the enum <wrk_type>, in pfutils.h (without
+   even an assignment of constants).  Make this be something good, instead.
+
+
+-- [DONE] validate cmd-line args
+
+   mpirun -np 2 -p /panfs/pas12a/vol2/jti/pftool_src -c /panfs/pas12a/vol2/jti/pftool_dst -w copy -r -t foo
+   -> MPI error sending to non-existent rank
+
+   Turns out we need at least 4 ranks.  Someone should check that we have that.
+
+
+-- issues with pack/unpack
+
+   (a) a path_item includes stat info, which is a raw struct.  These
+   things are MPI_Pack'ed into a buffer and the buffer is sent.  Upon
+   receipt, the buffer elements are MPI_Unpak'ed into structs again.  Will
+   that work with class objects?  [Answer: It already is.  Compiled w/ C++
+   compiler, those structs *are* class objects.]
+
+   Okay, but, if we pack subclasses into buffers sent via MPI, and the
+   subclasses have any members, we run into complications:
+
+   (b) need to unpack the path_item first, decode the ftype, then create an
+   appropriate Path subclass, giving that path_item.  Then unpack remaining
+   members?  (Then dynamically allocate a Path?)  options:
+
+   -- don't let subclasses have members
+
+   -- [DONE.]  Factory use a pool of Path subclass items, dynamically
+      initialized with unpacked contents, then returned to the factory by
+      destructor.
+
+   -- avoid dynamic consing of new Paths by casting unpacked path_item to
+      appropriate subclass.
+
+
+   NOTE: we could still do away with the need for pack/unpack by definining
+   user-level MPI data-type for structs/classes.
+
+
+-- get_stat_fs_info()
+
+   This is used to install values in options.sourcefs/destfs, but if
+   HAVE_SYS_VFS_H is not defined, it stamps everything as ANYFS.  Some
+   places in the code seem to assume that get_stat_fs_info() will have
+   identified GPFSFS (for instance, the TAPE case in stat_info()).  This
+   implies that sys_vfs.h is a *requirement*, at least in the TAPE case.
+
+   worker() also assumes parallelism is only needed if options.sourcefs is
+   not ANYFS.  This implies no parallelism (?) unless HAVE_SYS_VFS_H is
+   defined (or user requests parallelism on the command-line).
+   
+
+
+-- [DONE] START_PROC should become another worker after performing its readdir work.
+
+   [It already does.]
+
+
+-- send smaller strings for pathnames
+   
+   instead of packing paths which contain padding up to FILENAME_MAX
+   (4096), why not pack a length followed by a string?  In the case of many
+   short paths, this could cut communication BW requirements.
+
+   Actually, the value used is PATHSIZE_PLUS, which is FILENAME_MAX + 30.
+   Why 30?  (Is the 30 supposed to cover the extra space used by some
+   struct?)
+
+
+-- problem with options.use_file_list ?
+
+   in main(), the mgr enqueues multiple files if they are supplied at the
+   end of the command-line, or if the user provides an explicit file-list
+   with '-i'.  But in manager(), it is assumed that
+   (!options.use_file_list) means there is a single file enqueued.
+
+
+-- inline strdup() is a leak?
+
+   e.g. find "dirname(strdup(...), ...)" in pftool.c
+
+
+-- unnecessary copying (1)
+
+   main() builds a path_list (linked-list), which it passes to manager().
+   manager() then calls pack_list() to convert to an array of path_items.
+
+   ON 2ND THOUGHT: This is probably just a couple of items passed in on the
+   command-line, at initialization-time.  Not worth the trouble of avoiding
+   these copies, unless it would help eliminate the need for the
+   linked-list types.
+
+   HOWEVER, I suspect there is a lot of other unnecessary copying.
+
+
+-- unnecessary copying (2)
+
+   e.g. in the following, we could just use "&buffer[i]" to get a pointer,
+   instead of copying each element into a path_item variable.
+
+   in worker_readdir():
+
+       workbuffer[...] = work_node;
+       process_stat_buffer(workbuffer, ...)
+
+   then, in process_stat_buffer():
+
+       work_node = path_buffer[i];
+       regbuffer[...] = work_node;
+       send_manager_regs_buffer(regbuffer, ...)
+
+   then, in send_manager_regs_buffer():
+
+       send_path_buffer(...)
+
+   then, in send_path_buffer()
+
+       work_node = buffer[i];
+
+
+
+-- unnecessary copying (3)
+
+   get_output_path() returns a strcpy'ed string.  follow-up with callers,
+   to see that they delete.
+
+   lots of strncpys, etc, into temp variables, then strncpy to caller's
+   value.  Could at least just build the result in caller's variable.
+
+
+-- should Options struct be a hierarchy of classes?
+
+   That way, instead of simply removing the #ifdefs and merging all
+   possible options into one struct (losing track of which ones may
+   actually be supported), we could extend options at configure-time, and
+   corresponding init(), and update() methods would be provided, so you'd
+   know immediately, if you tried to update an option that wasn't
+   supported.
+
+   BETTER YET: Maybe options should be static members of the Path classes?
+
+
+
+-- work_buf_list elements should include associated command?
+
+   That way, <stat_buf_list>, <process_buf_list>, <dir_buf_list>, and
+   <tape_buf_list> could all be collapsed into a single list, and processed
+   in a single loop.  Each "buf" in the list is a chunk of contiguous
+   files.  The associated command would apply to that chunk.
+
+   QUESTION: do we ever need to process one type of buf-list before the
+   others?
+
+   ANSWER:  the manager loop appear includes this code:
+
+   if (((start == 1 || o.recurse) && work_rank != -1 && dir_buf_list_size != 0) ||
+       (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
+
+
+-- [FIXED] potential segfault
+
+   A bigger view of the snippet of code mentioned in the previous item, is
+   shown below.  If no workers are free (so work_rank = -1), and the second
+   expression evaaluates true, we assign to proc_status[-1].  Note that
+   start and o.recurse can potentially have any values in this situation.
+
+      work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+      if (((start == 1 || o.recurse) && work_rank != -1 && dir_buf_list_size != 0) ||
+          (o.use_file_list && dir_buf_list_size != 0 && stat_buf_list_size < nproc*3)) {
+          proc_status[work_rank] = 1;
+          send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
+          start = 0;
+      }
+
+   [Added some insurance to the tests.]
+
+
+
+-- get_free_rank() should search workers in round-robin order?
+
+   [Currently, it always returns lowest-numbered available worker.]
+
+   Not sure whether it should make much difference.
+  
+
+
+-- Are the '#ifdef TAPE' sections ever compiled?
+
+   Answer: no.  There was a bug in src/Makefile.am.  'tape_flags' should
+   have been 'tape_cflags'.  Changing this, and reconfiguring with
+   --with-tape, and the compiler now sees the '#ifdef TAPE' sections.  Many
+   compile errors.  Doesn't build.
+
+   It came up because I found this in in worker_taperecall(), in the
+   unaltered git version of pftool.c.  I thought maybe it was a TBD
+   method-call that I had planted for myself, but, no, it's in the github
+   version of pftool as well:
+
+        #ifdef TAPE
+        void worker_taperecall(...) {
+          ...
+          rc = work_node.one_byte_read(work_node.path);
+          ...
+        }
+
+
+
+-- The "#ifdef PLFS" case will *always* be true, because of the preceding line:  (?)
+   [from stat_item(), in pftool.c]
+
+    //special cases for links
+    if (S_ISLNK(work_node->st.st_mode)) {
+        memset(linkname,'\0', PATHSIZE_PLUS);
+        numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
+        if (numchars < 0) {
+            snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", work_node->path);
+            errsend(NONFATAL, errmsg);
+            work_node->ftype = LINKFILE;
+            return -1;
+        }
+        linkname[numchars] = '\0';
+        work_node->ftype = LINKFILE;
+#ifdef FUSE_CHUNKER
+#ifdef PLFS
+        if (work_node->ftype != PLFSFILE &&
+#else
+        if ( 
+#endif
+            is_fuse_chunk(realpath(work_node->path, NULL), o)) {
+            if (lstat(linkname, &st) == -1) {
+                snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
+                errsend(FATAL, errmsg);
+            }
+            work_node->st = st;
+            work_node->ftype = FUSEFILE;
+        }
+#endif
+    }
+
+
+
+-- S3 read/write doing alloc/free
+
+The issue is that aws_iobuf_extend/append creates an IOBufNode,
+to hold a pointer to caller's buffer.  Then aws_iobuf_reset() frees that again.
+
+This hasn't been a performance issue for IOR, but is wasteful, and could be
+removed.  Better approach would be for aws_iobuf_reset() to leave the first
+IOBufNode in place, but showing no content.  Then extend append can just
+write a value into the buff-pointer and update length fields.
+
+
+
+-- add Path methods to write metadata
+
+For POSIX, use chmod()/fchmod()/fchmodat(), and utime/utimes/futimes/utimensat/futimens
+
+For S3, this is done via PUT, appending "?acl" to path, then sending ACL
+info as XML.
+
+
+
+-- add Path methods to opendir and read elements
+
+For POSIX, obvious
+
+FOR S3:
+
+   GET "bucket_name/?prefix=<prefix_string>&delimiter=<delim_string>"
+   [Looks like the ',' and '>' are literal ?]
+
+   Get at most 1000 XML entries for elements matching the criteria.
+   I guess we could take the 1000th result and use it as the new prefix
+   for another query.
+
+
+
+-- need Path methods to support fgets() ?
+
+Used in one place in pftool.
+
+
+
+-- sending diagnostics to OUTPUT_PROC can deadlock
+
+OUTPUT_PROC runs worker(), just like all the other workers.  That means it
+enters MPI_Bcast() / MPI_Send() / MPI_Recv(), just like all the other
+workers.
+
+The call stack errsend[_fmt]() -> write_output() -> send_command() devolves
+to an MPI_Send().  So does the the other MPI_Send(), in write_output().
+Therefore, any worker that calls errsend[_fmt] is likely to dealock, if
+there is a pending send/recv that other workers are performing.
+
+There are at least two obvious solutions: (a) make errsend[_fmt]() devolve
+to asynchronous sends, or (b) give OUTPUT_PROC its own function, so that
+does nothing but synchronous receives of output messages.
+
+
+
+-- BUG: attempt to unlink destination directory
+
+Suppose we are copying from /A/B/source to /C/D/dest.  The result will be
+that /C/D/dest/source contains all the files under /A/B/source.  If
+C/D/dest/source doesn't exist, it will be created.  HOWEVER, in that case,
+process_stat_buffer() will also attempt (and fail, because it's a
+directory) to unlink /C/D/dest/source.  If /C/D/dest/source DOES exist, it
+will not be unlinked.
+
+FIXED: I had experimentally created dest_node via the PathFactory.  It
+worked fine, but all the rest of pftool still just looks at raw stat
+values.  The stat struct in a newly-minted, non-existing, directory name is
+all-zeros.  Therefore, when someone does S_ISDIR(st.st_mode), it looks like
+it is not a directory, so it can be unlinked.  If they had instead used
+Path::is_dir(), we would have run the lstat() at that time, and told you
+that, yes, it is a directory.
+
+
+
+-- PathFactory::create_shallow() provides an opportunity for user bugs
+
+If you create a path via PathFactory::create_shallow(path_item), then alter
+the path in the path_item, you might have a subclass with a pointer to a
+path that is not proper for that subclass.  The path subclass instance
+wouldn't know that the path had changed.  Therefore, this object could be
+using methods on a path that are inappropriate.  For example, a PLFS_Path
+object could have a path_item that has been changed to contain a POSIX
+path.
+
+POSSIBLE SOLUTION: require the factory create method to take a "path_item
+const *", or something.  Users could still short circuit this by casting
+their non-const path_item pointer, but at least they'd get a clue that they
+were doing something wrong.
+
+
+
+-- Should POSIX_Path::do_stat_internal() be setting ftype=LINKFILE?
+
+Check pftool: I think REGULARFILE is used for links as well.
+
+
+
+-- Path::_flags should be part of path_item.
+
+Otherwise, we re-stat the path_item->path everytime a shallowly-created
+Path object wants to know whether it's a 
+
+
+-- S3_Path::open() needs some thought
+
+This is going to be superceded, so I've left some problems unfixed.
+Basically, we're depending on EMC byte-range in S3_Path::write().  This
+fails unless the object exists.  So open() creates an empty object, if
+needed.  What about O_TRUNC, etc?
+ 
+
+
+--- for MarFS: streaming S3 writes (with S3)
+
+We can write offset+length with EMC extensions.  For Scality (and "pure"
+S3), we need a single streaming write going into the object, so that I can
+repeatedly do the following (e.g. in copy_file(), in pfutils.cpp):
+
+    read from file into buffer A,
+    write to object from A (without closing!)
+
+Better yet,  One approach is to extend aws4c
+such that readfunc is double buffered, and blocks waiting when the new
+buffer isn't ready yet.  Then, aws4c needs to export this double-buffer
+Ideally, the read-from file cou
+
+
+[* this problem doesn't apply to reads, because offset+length is supported
+for reads in "pure" S3.]
+
+
+--- config needs to move man-pages to <install>/share/man/man1/...
+
+New manpages are under top-level/man

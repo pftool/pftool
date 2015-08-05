@@ -25,7 +25,7 @@
 *
 * @return a string representation of the implementation
 */
-char *_impl2str(CTM_ITYPE implidx) {
+const char *_impl2str(CTM_ITYPE implidx) {
 	static char *IMPLSTR[] = {
 			 "No CTM"
 			,"File CTM"
@@ -73,27 +73,27 @@ CTM_ITYPE _whichCTM(const char *transfilename) {
 * 	if there are problems allocating the structure.
 */
 CTM *_createCTM(const char *transfilename) {
-	CTM *new = (CTM *)NULL;				// pointer to the new structure
+	CTM *newCTM = (CTM *)NULL;				// pointer to the newCTM structure
 	CTM_ITYPE itype =  _whichCTM(transfilename);	// implementation type. Get how the CTM is store in persistent store
 
 	if(itype == CTM_NONE || itype == CTM_UNKNOWN)	// no or unsupported type? -> return NULL
-	  return(new);
+	  return(newCTM);
 
-	new = (CTM *)malloc(sizeof(CTM));		// now we allocate the structure
-	memset(new,0,sizeof(CTM));			// clear the memory of the new CTM structure
-	new->chnkimpl = itype;				// assign implmentation
-	switch ((int)new->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
-	  case CTM_XATTR : new->chnkfname = strdup(transfilename);
-			   registerCTA(&new->impl);	// assign implementation
+	newCTM = (CTM *)malloc(sizeof(CTM));		// now we allocate the structure
+	memset(newCTM,0,sizeof(CTM));			// clear the memory of the newCTM CTM structure
+	newCTM->chnkimpl = itype;				// assign implmentation
+	switch ((int)newCTM->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
+	  case CTM_XATTR : newCTM->chnkfname = strdup(transfilename);
+			   registerCTA(&newCTM->impl);	// assign implementation
 			   break;
 	  case CTM_FILE  :
-          default        : if(new->chnkfname = genCTFFilename(transfilename))
-			     registerCTF(&new->impl);	// assign implementation
+          default        : if(newCTM->chnkfname = genCTFFilename(transfilename))
+			     registerCTF(&newCTM->impl);	// assign implementation
 			   else
-			     freeCTM(&new);		// problems generating filename for CTM -> abort creation and clean up memory
+			     freeCTM(&newCTM);		// problems generating filename for CTM -> abort creation and clean up memory
 	}
 
-	return(new);
+	return(newCTM);
 }
 
 /**
@@ -155,13 +155,13 @@ void freeCTM(CTM **pctmptr) {
 * 	if there are problems allocating the structure.
 */
 CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
-	CTM *new = _createCTM(transfilename);			// allocate the new structure
+	CTM *newCTM = _createCTM(transfilename);			// allocate the newCTM structure
 
-	if(new) {						// we have an allocated CTM structure. Read from persistent store
-	  if(new->impl.read(new,numchnks,sizechnks) < 0)
-	    freeCTM(&new);					// problems reading metadata -> abort get and clean up memory
+	if(newCTM) {						// we have an allocated CTM structure. Read from persistent store
+	  if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
+	    freeCTM(&newCTM);					// problems reading metadata -> abort get and clean up memory
 	}
-	return(new);
+	return(newCTM);
 }
 
 /**
@@ -213,7 +213,7 @@ int removeCTM(CTM **pctmptr) {
 	int rc = 0;						// return code for function
 
 	if(!ctmptr) return(EINVAL);				// Nothing to remove, because there is no structure!
-	rc=ctmptr->impl.delete(ctmptr->chnkfname);		// delete CTM from persistent store
+	rc=ctmptr->impl.del(ctmptr->chnkfname);		// delete CTM from persistent store
 	freeCTM(pctmptr);					// deallocate the CTM structure
 	return(rc);
 }
