@@ -112,6 +112,54 @@ char *printmode (mode_t aflag, char *buf) {
     return buf;
 }
 
+/**
+* This function walks the path, and creates all elements in 
+* the path as a directory - if they do not exist. It
+* basically does a "mkdir -p" programatically.
+*
+* @param thePath	the path to test and create
+* @param perms		the permission mode to use when
+* 			creating directories in this path
+*
+* @return 0 if all directories are succesfully created.
+* 	errno (i.e. non-zero) if there is an error. 
+* 	See "man -s 2 mkdir" for error description.
+*/
+int mkpath(char *thePath, mode_t perms) {
+	char *slash = thePath;				// point at the current "/" in the path
+	struct stat sbuf;				// a buffer to hold stat information
+	int save_errno;					// errno from mkdir()
+
+	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
+							// then thePath will be created relative to CWD of process.
+	while(slash = strchr(slash,'/')) {		// start parsing thePath
+	  *slash = '\0';
+	  
+	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
+	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
+	      save_errno = errno;			// save off errno - in case of error...
+	      *slash = '/';
+	      return(save_errno);
+	    }
+	  }
+	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
+	    *slash = '/';
+	    return(ENOTDIR);
+	  }
+	  *slash = '/';slash++;				// increment slash ...
+	  while( *slash == '/') slash++;		// burn through any blank path elements
+	} // end mkdir loop
+
+	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
+	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
+	    return(save_errno = errno);			// save off errno - just to be sure ...
+	}
+	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
+	  return(ENOTDIR);
+
+	return(0);
+}
+
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
     short str_index;
     char smsg[64];
@@ -126,6 +174,36 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
         strncat (smsg, tmsg, 2);
     }
     sprintf (outhexbuf, "%s", smsg);
+}
+
+/**
+* Low Level utility function to write a field of a data
+* structure - any data structure.
+*
+* @param fd		the open file descriptor
+* @param start		the starting memory address
+* 			(pointer) of the field
+* @param len		the length of the filed in bytes
+*
+* @return number of bytes written, If return
+* 	is < 0, then there were problems writing,
+* 	and the number can be taken as the errno.
+*/
+ssize_t write_field(int fd, void *start, size_t len) {
+	size_t n;					// number of bytes written for a given call to write()
+	ssize_t tot = 0;				// total number of bytes written
+	void *wstart = start;				// the starting point in the buffer
+	size_t wcnt = len;				// the running count of bytes to write
+
+	while(wcnt > 0) {
+	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
+	    return((ssize_t)-errno);
+	  tot += n;
+	  wstart += n;					// incremant the start address by n
+	  wcnt -= n;					// decreamnt byte count by n
+	}
+
+	return(tot);
 }
 
 #ifdef TAPE

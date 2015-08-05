@@ -168,7 +168,7 @@ int deleteCTA(const char *chnkfname) {
 void registerCTA(CTM_IMPL *ctmimplptr) {
 	ctmimplptr->read = populateCTA;
 	ctmimplptr->write = storeCTA;
-	ctmimplptr->delete = deleteCTA;
+	ctmimplptr->del = deleteCTA;
 	return;
 }
 

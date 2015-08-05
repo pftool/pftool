@@ -275,7 +275,7 @@ typedef struct path_item {
     off_t         offset;
     size_t        length;       // (remaining) data in the file
     char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
-    char fstype[128];					// the file system type of the source file
+//    char fstype[128];					// the file system type of the source file
 } path_item;
 
 
@@ -307,7 +307,7 @@ void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item
 void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
 //int one_byte_read(const char *path);
 int   one_byte_read(const char *path);
-
+ssize_t write_field(int fd, void *start, size_t len);
 int mkpath(char *thePath, mode_t perms);
 //#ifdef GEN_SYNDATA
 //int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
