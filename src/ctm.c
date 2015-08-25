@@ -39,7 +39,7 @@ char *_impl2str(CTM_ITYPE implidx) {
 * This function determines how CTM is stored in the persistent
 * store, based on where the file is stored. That is to say,
 * it determines if xattrs or files are used to store CTM for
-* the given file. If the file does not exist, then a value
+* the given file. If the file is not specified, then a value
 * of CTM_NONE is returned.
 *
 * @param transfilename	the name of the file to test
@@ -56,8 +56,16 @@ CTM_ITYPE _whichCTM(const char *transfilename) {
 	    removexattr(transfilename,CTM_TEST_XATTR);	// done with test -> remove it.
 	    itype = CTM_XATTR;				// yes, it does!
   	  }
-	  else if(errno != ENOENT)			// file exist ...
-	    itype = CTM_FILE;				// no, store chunk metadata in files
+	  else {
+	    int errcpy = errno;				// make a copy of errno ...
+
+	    switch (errcpy) {
+	      case ENOENT : itype = CTM_XATTR;		// if file does not exist -> assume xattrs are supported
+			    break;
+	      case ENOTSUP:				// xattrs are not supported
+	      default     : itype = CTM_FILE;		// another error? -> use files
+	    } // end error switch
+	  } // end setxattr() else
 	}
 	return(itype);
 }

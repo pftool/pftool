@@ -837,8 +837,9 @@ void worker(int rank, struct options o) {
 * @param chunk_hash	a pointer to the hash table that contains the structures
 * 			that describe the chunked files
 * @param hash_count	the length of the hash table
-* @param base_path	??
-* @param dest_node	??
+* @param base_path	used to generate the output path
+* @param dest_node	a potentially sparsely path_item that is used to generate
+* 			the full output path. 
 * @param o		PFTOOL global/command options
 */
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
@@ -867,36 +868,41 @@ void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
-        hash_value = hashtbl_get(*chunk_hash, work_node.path);					// get the value
+        strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));		// CTM is based off of destination file. Populate out_node
+	out_node.chkidx = work_node.chkidx;							// with necessary data from work_node.
+	out_node.chksz = work_node.chksz;
+	out_node.st.st_size = work_node.st.st_size;
+	
+
+        hash_value = hashtbl_get(*chunk_hash, out_node.path);					// get the value 
         if (hash_value == (HASHDATA *)NULL) {							// --- File is new to the hash table
             if (*hash_count == (*chunk_hash)->size) {						//resize the hashtable if needed
                 hashtbl_resize(*chunk_hash, *hash_count+100);
             }
             *hash_count += 1;
 
-	    if(hash_value = hashdata_create(work_node)) {
-              hashtbl_insert(*chunk_hash, work_node.path, hash_value);
-	      hashdata_update(hash_value,work_node);						// make sure the new structure has recorded this chunk!
+	    if(hash_value = hashdata_create(out_node)) {
+              hashtbl_insert(*chunk_hash, out_node.path, hash_value);
+	      hashdata_update(hash_value,out_node);						// make sure the new structure has recorded this chunk!
 	    }
         }
 	else {											// --- Structure for File needs to be updated
-	    hashdata_update(hash_value,work_node);						// this will update the data in the table
+	    hashdata_update(hash_value,out_node);						// this will update the data in the table
 	    if(IO_DEBUG_ON) {
 	      char ctm_flags[2048];
 	      char *ctmstr = ctm_flags;
 	      int ctmlen = 2048;
 
-	      PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n", rank, work_node.chkidx, work_node.path,tostringCTM((CTM *)hash_value,&ctmstr,&ctmlen));
+	      PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n", rank, out_node.chkidx, out_node.path,tostringCTM((CTM *)hash_value,&ctmstr,&ctmlen));
 	   }
 	}
 
         if (hash_value == (HASHDATA *)NULL) 							// if no hash_value at this point, we have a problem!
 	    errsend(NONFATAL, "Do not have a hashed data structure for a chunked file!\n");
         else if (hashdata_filedone(hash_value)) {						// --- File is done transferring
-	    PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTM should be removed. (chunk %d of file %s)\n", rank, work_node.chkidx, work_node.path);
-            hash_value = hashtbl_remove(*chunk_hash, work_node.path);				// remove structure for File from hash table
+	    PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTM should be removed. (chunk %d of file %s)\n", rank, out_node.chkidx, out_node.path);
+            hash_value = hashtbl_remove(*chunk_hash, out_node.path);				// remove structure for File from hash table
 	    hashdata_destroy(&hash_value);							// we are done with the data
-            strcpy(out_node.path, get_output_path(base_path, work_node, dest_node, o));
             update_stats(work_node, out_node);
         }
     }
@@ -1523,10 +1529,10 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
                 }
 									
 		if (work_node.st.st_size >= chunk_at) {		// working with a chunkable file
-		  int ctmExists = hasCTM(work_node.path);
+		  int ctmExists = hasCTM(out_node.path);
 
-		  if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure
-		    ctm = getCTM(work_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
+		  if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure based on out_node path
+		    ctm = getCTM(out_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
 		    if(IO_DEBUG_ON) {
 	    	      char ctm_flags[2048];
 	   	      char *ctmstr = ctm_flags;
@@ -1536,7 +1542,7 @@ void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *ba
 		    }
 		  }
 		  else if (ctmExists)				// get rid of the CTM on the file if we are NOT doing a conditional transfer
-		    purgeCTM(work_node.path);	
+		    purgeCTM(out_node.path);	
 		}
                 chunk_curr_offset = 0;				// keeps track of current offset in file for chunk.
 		idx = 0;				 	// keeps track of the chunk index

@@ -1,6 +1,6 @@
 AC_PREREQ([2.59])
 
-AC_INIT([pftool], [2.1.2], [dsherril@lanl.gov])
+AC_INIT([pftool], [2.1.3], [dsherril@lanl.gov])
 
 
 # Check If AM_SILENT_RULES Rule Are Supported
