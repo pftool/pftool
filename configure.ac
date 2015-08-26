@@ -32,6 +32,9 @@ AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
 AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
 
+AC_ARG_ENABLE(marfs, [  --enable-marfs]  [enable marfs support])
+AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
+
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 
@@ -50,6 +53,10 @@ AC_PROG_CXX([mpic++ mpicxx mpig++ c++ g++])
 # jti experiments
 AC_SUBST([_s3_cflags],  ${S3_CFLAGS})
 AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
+
+# dejager experiments
+AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
+AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
 
 AC_SUBST([_plfs_cflags],  ${PLFS_CFLAGS})
 AC_SUBST([_plfs_ldflags], ${PLFS_LDFLAGS})
@@ -94,6 +101,9 @@ AS_IF([test x$enable_plfs == xyes],
 )
 AS_IF([test x$enable_s3 == xyes],
   [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
+)
+AS_IF([test x$enable_marfs == xyes],
+  [AC_CHECK_HEADERS([common.h marfs_fuse.h aws4c.h aws4c_extra.h])]
 )
 
 # checks for typedefs, structures, and compiler characteristics.

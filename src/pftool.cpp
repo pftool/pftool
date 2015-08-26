@@ -64,6 +64,51 @@ int main(int argc, char *argv[]) {
     s3_enable_EMC_extensions(1);
 #endif
 
+#ifdef MARFS
+    // aws_init() (actually, curl_global_init()) is supposed to be done
+    // before *any* threads are created.  Could MPI_Init() create threads
+    // (or call multi-threaded libraries)?  We'll assume so.
+    AWS4C_CHECK( aws_init() );
+    s3_enable_EMC_extensions(1);
+
+#if (DEBUG > 1)
+    aws_set_debug(1);
+#endif
+
+    char* const user_name = (getenv("USER"));
+    // TODO: is this nessary. I am not sure that it is
+    if (aws_read_config(user_name)) {
+          exit(1);
+    } 
+
+    if (load_config("~/marfs.config")) { // TODO: I do not think this should be loaded from the home dir
+        fprintf(stderr, "unable to load marfs config\n");
+        // TODO: should some sort of error be stated here?
+    }
+
+    init_xattr_specs();
+
+#ifdef USE_SPROXYD
+    // NOTE: sproxyd doesn't require authentication, and so it could work on
+    //     an installation without a ~/.awsAuth file.  But suppose we're
+    //     supporting some repos that use S3 and some that use sproxyd?  In
+    //     that case, the s3 requests will need this.  Loading it once
+    //     up-front, like this, at start-time, means we don't have to reload
+    //     it inside marfs_open(), for every S3 open, but it also means we
+    //     don't know whether we really need it.
+    //
+    // ALSO: At start-up time, $USER is "root".  If we want per-user S3 IDs,
+    //     then we would have to either (a) load them all now, and
+    //     dynamically pick the one we want inside marfs_open(), or (b) call
+    //     aws_read_config() inside marfs_open(), using the euid of the user
+    //     to find ~/.awsAuth.
+    int config_fail_ok = 1;
+#else
+    int config_fail_ok = 0;
+#endif
+
+#endif
+
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
         fprintf(stderr, "Error in MPI_Init\n");
         return -1;

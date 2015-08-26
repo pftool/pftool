@@ -37,6 +37,7 @@ Path::append(char* suffix) const {
 
 
 
+#ifdef S3
 
 // Parse metadata for a given path, and translate into a 'struct stat'.
 // Having a sat struct allows pftool to compare with results from stat() on
@@ -421,3 +422,7 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 
    return true;
 }
+
+#endif
+
+

@@ -50,6 +50,12 @@ s3_cflags=$(_s3_cflags) -DS3
 s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 
+if MARFS
+marfs_cflags=$(_marfs_cflags) -DMARFS
+marfs_ldflags=$(_marfs_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
+endif
+
+
 if ALLSTATIC
 allstatic_ldflags=-all-static
 endif
@@ -57,10 +63,10 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
-__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
 
-__top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(s3_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
 
 
 

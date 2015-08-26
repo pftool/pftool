@@ -68,6 +68,7 @@
 
 #include "pfutils.h"
 
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdarg.h>             // va_list, va_start(), va_arg(), va_end()
@@ -90,8 +91,11 @@
 #  include<aws4c.h>             // must have version >= 5.2 !
 #endif
 
-
-
+#ifdef MARFS
+#  include<aws4c.h>             // must have version >= 5.2 !
+#  include <common.h>
+#  include <marfs_fuse.h>
+#endif
 
 // --- fwd-decls
 
@@ -143,7 +147,7 @@ public:
 // POOL
 //
 // Pool<T> manages a vector of a specific class of objects (e.g. type
-// PLFSPath, or POSIXPath).  The get() method returns objects from the pool
+// PLFSPath, or PpOSIXPath).  The get() method returns objects from the pool
 // (if there are any), or else newly-minted objects of the proper type.  We
 // actually give you a shared_ptr to the object.  When your shared-ptr goes
 // out of scope (or you call shared_ptr<T>::reset()), then the object will
@@ -1632,6 +1636,221 @@ public:
 
 
 
+// ---------------------------------------------------------------------------
+// MARFS
+//
+//
+//
+// ---------------------------------------------------------------------------
+
+#ifdef MARFS
+
+class MARFS_Path : public Path {
+protected:
+
+   friend class Pool<MARFS_Path>;
+
+   typedef SharedPtr<IOBuf>  IOBufPtr;
+
+   IOBufPtr        _iobuf;
+   struct fuse_file_info ffi_directory;
+
+   // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
+   virtual bool do_stat_internal() {
+      printf("do_stat_internal()\n"); // TODO: remove
+      _errno = 0;
+
+      // run appropriate POSIX stat function
+      if (_flags & FOLLOW) {
+         _rc = marfs_getattr(_item->path, &_item->st);
+      } else {
+         // TODO: should there be something different here?
+         _rc = marfs_getattr(_item->path, &_item->st);
+      }
+
+      if (_rc) {
+         _errno = errno;
+         return false;
+      }
+
+      // couldn't we just look at S_ISLNK(_item->st.st_mode), when we want to know?
+      if (S_ISLNK(_item->st.st_mode))
+         _item->ftype = LINKFILE;
+      else
+         _item->ftype = REGULARFILE;
+
+      return true;
+   }
+
+   /**
+    * Takes the path provided in marPath and converts it to a gpfs path
+    *
+    * @param marPath The path to read in and find gpfs for
+    * @param gpfsPath Where to write the new path
+    * @return true if succesful
+    */
+   bool mar_to_gpfs_path(char* marPath, char* gpfsPath) {
+      return true;
+   }
+
+   MARFS_Path()
+      : Path()
+   { 
+
+   }
+
+
+public:
+
+   // This runs on Pool<S3_Path>::get(), when initting an old instance
+   virtual ~MARFS_Path() {
+      close_all();
+      //aws_iobuf_reset(_iobuf.get()); TODO: fix
+   }
+
+   // TBD: Save our object ID somehow.  Maybe give fake_stat() an extra
+   //      arg, and have the factory call a factory_install_list() method
+   //      to install it.  Then two S3_Path objects are identical if they
+   //      have the same ID.  For now, the NO_IMPL() will help me remember
+   //      that this needs doing.
+   //
+   //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
+   virtual bool identical(const MARFS_Path& p) { NO_IMPL(identical); }
+
+
+   // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
+   // "filejoin" operator, which resembles MPU.  EMC extensions also
+   // support writing to object+offset.
+   //virtual bool    supports_n_to_1() const  { return true; }
+
+
+   // Fill out a struct stat, using S3 metadata from an object filesystem.
+   // PathFactory can use this (via stat_item()) when determining what
+   // subclass to allocate.  Return true for success, false for error.
+   static bool fake_stat(const char* path_name, struct stat* st);
+
+
+   // TODO: fix
+   //virtual const char* const strerror() { return _iobuf->result; }
+
+   virtual bool    supports_n_to_1() const  { return false; }
+
+   virtual bool    chown(uid_t owner, gid_t group) {
+      NO_IMPL(chown);
+   }
+   virtual bool    chmod(mode_t mode) {
+      NO_IMPL(chmod);
+   }
+   virtual bool    utime(const struct utimbuf* ut) {
+      NO_IMPL(utime);
+   }
+
+
+   virtual bool    open(int flags, mode_t mode) {
+      NO_IMPL(open);
+   }
+   virtual bool    opendir() {
+      if (0 != marfs_opendir(_item->path, &ffi_directory)) {
+         _errno = errno;
+         return false;  // return _rc;
+      }
+      set(IS_OPEN_DIR);
+      return true;
+   }
+
+
+
+   virtual bool    close() {
+      unset(IS_OPEN);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return true;
+   }
+   // TBD: See opendir().  For the closedir case, be need to deallocate
+   //      whatever is still hanging around from the opendir.
+   virtual bool    closedir() {
+
+      if (0 != marfs_releasedir(_item->path, &ffi_directory) ) {
+         _errno = errno;
+         return false;
+      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      unset(IS_OPEN_DIR);
+      return true;
+   }
+
+
+
+
+   // read/write to/from caller's buffer
+   // TBD: fix the malloc/free in aws_iobuf_extend/aws_iobuf_reset (see TBD.txt).
+   // NOTE: S3 has no access-time, so we don't reset DID_STAT
+   virtual ssize_t read( char* buf, size_t count, off_t offset) {
+      NO_IMPL(read);
+   }
+   // TBD: See opendir()
+   virtual bool    readdir(char* path, size_t size) {
+      printf("marfs readdir\n"); // TODO: remove
+
+      int rc;
+
+      errno = 0;
+      if (size)
+         path[0] = 0;
+
+      PathInfo info;
+      memset((char*)&info, 0, sizeof(PathInfo));
+      EXPAND_PATH_INFO(&info, path);
+
+      // No need for access check, just try the op
+      // Appropriate  readdir call filling in fuse structure  (fuse does this in chunks)
+      DIR*           dirp = (DIR*)ffi_directory.fh;
+
+      struct dirent* d = ::readdir(dirp);
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      if (d > 0) {
+         strncpy(path, d->d_name, size);
+         return true;
+      }
+      else if (d == 0)          // EOF
+         return true;
+      else if (d < 0) {
+         _errno = errno;
+         return bool(_errno == 0);
+      }
+
+   }
+
+
+
+   virtual ssize_t write(char* buf, size_t count, off_t offset) {
+      NO_IMPL(write);
+   }
+
+
+   // NOTE: See comments above this class for discussion of how
+   //       "directories" are handled.  If full path includes an obj, we'll
+   //       have to assume you intend it as an empty directory.
+   virtual bool    mkdir(mode_t mode) {
+      NO_IMPL(mkdir);
+   }
+
+
+   // For S3, we'll assume you called unlink(), rather than remove(),
+   // because you think that, when you unlink() something, it should
+   // continue to be usable until no one is referring to it, or having it
+   // open.  S3 don't play that.
+   virtual bool    unlink() {
+      NO_IMPL(unlink);
+   }
+
+   virtual bool    remove() {
+      NO_IMPL(remove);
+   }
+};
+
+#endif
+
+
 
 
 
@@ -1807,6 +2026,11 @@ public:
          break;
 #endif
 
+#ifdef MARFS
+      case MARFSFILE:
+         p = Pool<MARFS_Path>::get();
+         break;
+#endif
 
 #if GEN_SYNDATA
       case SYNDATA:

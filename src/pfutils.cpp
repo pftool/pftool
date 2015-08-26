@@ -1576,6 +1576,18 @@ int stat_item(path_item *work_node, struct options& o) {
     }
 #endif
 
+#ifdef MARFS
+    // --- is it a MARFS path?
+    // TODO: replace with code that checks file system stuff
+    if ( (! strncmp(work_node->path, "/marfs",  6)) ) {
+
+       work_node->ftype = MARFSFILE;
+       got_type = true;
+
+    }
+#endif
+
+
 
 #ifdef PLFS
     // --- is it a PLFS path?
@@ -1753,6 +1765,10 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
        }
        else if (p->node().ftype == PLFSFILE) {
           *fs = PLFSFS;          // NOTE: less than PARALLEL_DESTFS
+          return;
+       }
+       else if (p->node().ftype == MARFSFILE) {
+          *fs = MARFSFS;
           return;
        }
 
