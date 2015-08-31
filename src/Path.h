@@ -1696,6 +1696,7 @@ protected:
    MARFS_Path()
       : Path()
    { 
+      printf("MARFS_PATH() : PATH()\n"); // TODO: remove
 
    }
 
@@ -1750,6 +1751,7 @@ public:
       NO_IMPL(open);
    }
    virtual bool    opendir() {
+      printf("MARFS : opendir()\n");
       if (0 != marfs_opendir(_item->path, &ffi_directory)) {
          _errno = errno;
          return false;  // return _rc;
@@ -1768,6 +1770,7 @@ public:
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
+      printf("MARFS : closedir()\n"); // TODO: Remove
 
       if (0 != marfs_releasedir(_item->path, &ffi_directory) ) {
          _errno = errno;

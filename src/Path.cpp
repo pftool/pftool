@@ -1,7 +1,9 @@
 #include "pftool.h"
 #include "Path.h"
-#include "aws4c_extra.h"        // XML-parsing tools
 
+#ifdef S3 or MARFS
+#include "aws4c_extra.h"        // XML-parsing tools
+#endif
 
 
 // definitions of static vector-members for Pool templated-classes
