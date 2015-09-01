@@ -1579,13 +1579,13 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a MARFS path?
     if(! got_type) {
         // TODO: replace with code that checks file system stuff
-        if ( (! strncmp(work_node->path, "/marfs",  6)) ) {
+        if ( (! strncmp(work_node->path, "/marfs/",  7)) ) {
 
            work_node->ftype = MARFSFILE;
            got_type = true;
 
-        rc = lstat(work_node->path, &st);
-        if (rc != 0){
+        bool okay = MARFS_Path::mar_stat(work_node->path, &st);
+        if (!okay){
            return -1;
 
         }
@@ -1618,7 +1618,7 @@ int stat_item(path_item *work_node, struct options& o) {
 
     // --- is it a POSIX path?
     if (! got_type) {
-        rc = lstat(work_node->path, &st);
+        rc = lstat(work_node->path, &st); // TODO: in posix path it checks to see if it should follow links
         if (rc == 0){
             work_node->ftype = REGULARFILE;
             got_type = true;

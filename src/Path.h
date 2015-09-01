@@ -1665,28 +1665,7 @@ protected:
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
-      _errno = 0;
-
-      // run appropriate POSIX stat function
-      if (_flags & FOLLOW) {
-         _rc = marfs_getattr(_item->path, &_item->st); // TODO: 
-      } else {
-         // TODO: should there be something different here?
-         _rc = marfs_getattr(_item->path, &_item->st);
-      }
-
-      if (_rc) {
-         _errno = errno;
-         return false;
-      }
-
-      // couldn't we just look at S_ISLNK(_item->st.st_mode), when we want to know?
-      if (S_ISLNK(_item->st.st_mode))
-         _item->ftype = LINKFILE;
-      else
-         _item->ftype = REGULARFILE;
-
-      return true;
+      return mar_stat(_item->path, &_item->st);
    }
 
    MARFS_Path()
@@ -1695,6 +1674,17 @@ protected:
       unset(DID_STAT);
       unset(IS_OPEN_DIR);
       unset(IS_OPEN);
+   }
+
+   /**
+    * converts the path provided to pftool to the path expected by marfs
+    * This strips off the begining of the path
+    *
+    * @param fs_path The path provided to pftool
+    * @return The path expected by marfs
+    */
+   static const char* fs_to_mar_path(const char* fs_path) {
+      return fs_path+6; // adds the number of characters in "/marfs" TODO: make this more robust
    }
 
 
@@ -1717,6 +1707,21 @@ public:
       NO_IMPL(identical);
    }
 
+   // Fill out a struct stat, using metadata from gpfs backend
+   static bool mar_stat(const char* path_name, struct stat* st) {
+      int rc;
+
+      // get the attributes for the file from marfs
+      // TODO: is there a way to detect links
+      rc = marfs_getattr(fs_to_mar_path(path_name), st);
+
+      if (rc) {
+         errno = errno;
+         return false;
+      }
+
+      return true;
+   }
 
    // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
    // "filejoin" operator, which resembles MPU.  EMC extensions also
@@ -1752,7 +1757,7 @@ public:
       NO_IMPL(open);
    }
    virtual bool    opendir() {
-      if (0 != marfs_opendir(_item->path+6, &ffi_directory)) {
+      if (0 != marfs_opendir(fs_to_mar_path(_item->path), &ffi_directory)) {
          printf("failed to open: %s\n", _item->path); // TODO: add debuging and remove
          _errno = errno;
          return false;  // return _rc;
@@ -1773,7 +1778,7 @@ public:
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
 
-      if (0 != marfs_releasedir(_item->path+6, &ffi_directory) ) {
+      if (0 != marfs_releasedir(fs_to_mar_path(_item->path), &ffi_directory) ) {
          _errno = errno;
          return false;
       }
@@ -1799,10 +1804,6 @@ public:
       errno = 0;
       if (size)
          path[0] = 0;
-
-      //PathInfo info;
-      //memset((char*)&info, 0, sizeof(PathInfo));
-      //EXPAND_PATH_INFO(&info, path+6);
 
       // No need for access check, just try the op
       // Appropriate  readdir call filling in fuse structure  (fuse does this in chunks)
