@@ -1,7 +1,7 @@
 #include "pftool.h"
 #include "Path.h"
 
-#ifdef S3 or MARFS
+#if defined(S3) || defined(MARFS)
 #include "aws4c_extra.h"        // XML-parsing tools
 #endif
 

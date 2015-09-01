@@ -1539,7 +1539,6 @@ int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct ut
 // create.  Therefore: DO NOT RETURN WITHOUT INITIALIZING FTYPE!
 //
 int stat_item(path_item *work_node, struct options& o) {
-
     char        errmsg[MESSAGESIZE];
     struct stat st;
     int         rc;
@@ -1578,12 +1577,19 @@ int stat_item(path_item *work_node, struct options& o) {
 
 #ifdef MARFS
     // --- is it a MARFS path?
-    // TODO: replace with code that checks file system stuff
-    if ( (! strncmp(work_node->path, "/marfs",  6)) ) {
+    if(! got_type) {
+        // TODO: replace with code that checks file system stuff
+        if ( (! strncmp(work_node->path, "/marfs",  6)) ) {
 
-       work_node->ftype = MARFSFILE;
-       got_type = true;
+           work_node->ftype = MARFSFILE;
+           got_type = true;
 
+        rc = lstat(work_node->path, &st);
+        if (rc != 0){
+           return -1;
+
+        }
+      }
     }
 #endif
 

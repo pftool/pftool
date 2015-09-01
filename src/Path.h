@@ -818,7 +818,8 @@ protected:
       : Path(),
         _fd(0),
         _dirp(NULL)
-   { }
+   { 
+   }
 
 
 
@@ -831,15 +832,22 @@ public:
 
 
    //   virtual bool operator==(POSIX_Path& p) { return (st().st_ino == p.st().st_ino); }
-   virtual bool identical(POSIX_Path& p) { return (st().st_ino == p.st().st_ino); }
+   virtual bool identical(POSIX_Path& p) { 
+      return (st().st_ino == p.st().st_ino);
+   }
 
 
-   virtual bool    supports_n_to_1() const  { return false; }
+   virtual bool    supports_n_to_1() const  {
+      return false;
+   }
+
 
 
    //   virtual int    mpi_pack() { NO_IMPL(mpi_pack); } // TBD
 
-   virtual const char* const strerror() { return ::strerror(_errno); }
+   virtual const char* const strerror() {
+      return ::strerror(_errno);
+   }
 
    virtual bool    chown(uid_t owner, gid_t group) {
       if (_rc = ::chown(path(), owner, group))
@@ -1657,12 +1665,11 @@ protected:
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
-      printf("do_stat_internal()\n"); // TODO: remove
       _errno = 0;
 
       // run appropriate POSIX stat function
       if (_flags & FOLLOW) {
-         _rc = marfs_getattr(_item->path, &_item->st);
+         _rc = marfs_getattr(_item->path, &_item->st); // TODO: 
       } else {
          // TODO: should there be something different here?
          _rc = marfs_getattr(_item->path, &_item->st);
@@ -1682,22 +1689,12 @@ protected:
       return true;
    }
 
-   /**
-    * Takes the path provided in marPath and converts it to a gpfs path
-    *
-    * @param marPath The path to read in and find gpfs for
-    * @param gpfsPath Where to write the new path
-    * @return true if succesful
-    */
-   bool mar_to_gpfs_path(char* marPath, char* gpfsPath) {
-      return true;
-   }
-
    MARFS_Path()
       : Path()
    { 
-      printf("MARFS_PATH() : PATH()\n"); // TODO: remove
-
+      unset(DID_STAT);
+      unset(IS_OPEN_DIR);
+      unset(IS_OPEN);
    }
 
 
@@ -1716,7 +1713,9 @@ public:
    //      that this needs doing.
    //
    //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
-   virtual bool identical(const MARFS_Path& p) { NO_IMPL(identical); }
+   virtual bool identical(const MARFS_Path& p) {
+      NO_IMPL(identical);
+   }
 
 
    // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
@@ -1728,13 +1727,15 @@ public:
    // Fill out a struct stat, using S3 metadata from an object filesystem.
    // PathFactory can use this (via stat_item()) when determining what
    // subclass to allocate.  Return true for success, false for error.
-   static bool fake_stat(const char* path_name, struct stat* st);
+   //static bool fake_stat(const char* path_name, struct stat* st);
 
 
    // TODO: fix
    //virtual const char* const strerror() { return _iobuf->result; }
 
-   virtual bool    supports_n_to_1() const  { return false; }
+   virtual bool    supports_n_to_1() const  {
+      return false;
+   }
 
    virtual bool    chown(uid_t owner, gid_t group) {
       NO_IMPL(chown);
@@ -1751,11 +1752,12 @@ public:
       NO_IMPL(open);
    }
    virtual bool    opendir() {
-      printf("MARFS : opendir()\n");
-      if (0 != marfs_opendir(_item->path, &ffi_directory)) {
+      if (0 != marfs_opendir(_item->path+6, &ffi_directory)) {
+         printf("failed to open: %s\n", _item->path); // TODO: add debuging and remove
          _errno = errno;
          return false;  // return _rc;
       }
+
       set(IS_OPEN_DIR);
       return true;
    }
@@ -1770,9 +1772,8 @@ public:
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
-      printf("MARFS : closedir()\n"); // TODO: Remove
 
-      if (0 != marfs_releasedir(_item->path, &ffi_directory) ) {
+      if (0 != marfs_releasedir(_item->path+6, &ffi_directory) ) {
          _errno = errno;
          return false;
       }
@@ -1792,7 +1793,6 @@ public:
    }
    // TBD: See opendir()
    virtual bool    readdir(char* path, size_t size) {
-      printf("marfs readdir\n"); // TODO: remove
 
       int rc;
 
@@ -1800,9 +1800,9 @@ public:
       if (size)
          path[0] = 0;
 
-      PathInfo info;
-      memset((char*)&info, 0, sizeof(PathInfo));
-      EXPAND_PATH_INFO(&info, path);
+      //PathInfo info;
+      //memset((char*)&info, 0, sizeof(PathInfo));
+      //EXPAND_PATH_INFO(&info, path+6);
 
       // No need for access check, just try the op
       // Appropriate  readdir call filling in fuse structure  (fuse does this in chunks)
