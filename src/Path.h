@@ -1662,6 +1662,7 @@ protected:
 
    IOBufPtr        _iobuf;
    struct fuse_file_info ffi_directory;
+   struct fuse_file_info ffi_file;
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
@@ -1753,8 +1754,22 @@ public:
    }
 
 
+   // TODO: what do I do with mode?
    virtual bool    open(int flags, mode_t mode) {
-      NO_IMPL(open);
+      int rc;
+
+      ffi_file.flags = flags;
+
+      rc = marfs_open(fs_to_mar_path(_item->path), &ffi_file);
+      if (0 != rc) {
+         _rc = ffi_file.fh;
+         _errno = errno;
+         return false;
+      }
+
+      set(IS_OPEN);
+      unset(DID_STAT);
+      return true;
    }
    virtual bool    opendir() {
       if (0 != marfs_opendir(fs_to_mar_path(_item->path), &ffi_directory)) {
@@ -1770,6 +1785,14 @@ public:
 
 
    virtual bool    close() {
+      int rc;
+
+      rc = marfs_release(fs_to_mar_path(_item->path), &ffi_file);
+      if (0 != rc) {
+         _errno = errno;
+         return false;  // return _rc;
+      }
+
       unset(IS_OPEN);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return true;
@@ -1794,7 +1817,13 @@ public:
    // TBD: fix the malloc/free in aws_iobuf_extend/aws_iobuf_reset (see TBD.txt).
    // NOTE: S3 has no access-time, so we don't reset DID_STAT
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
-      NO_IMPL(read);
+      ssize_t bytes;
+
+      bytes = marfs_read(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
+      if (bytes == (ssize_t)-1)
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return bytes;
    }
    // TBD: See opendir()
    virtual bool    readdir(char* path, size_t size) {
@@ -1827,7 +1856,12 @@ public:
 
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
-      NO_IMPL(write);
+      ssize_t bytes;
+      bytes = marfs_read(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
+      if (bytes ==  (ssize_t)-1)
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return bytes;
    }
 
 
