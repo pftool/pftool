@@ -1761,6 +1761,9 @@ public:
    // TODO: what do I do with mode?
    virtual bool    open(int flags, mode_t mode) {
       int rc;
+      const char* marPath;
+
+      marPath = fs_to_mar_path(_item->path);
 
       printf("O_RDONLY: %x\n", O_RDONLY);
       printf("O_WRONLY: %x\n", O_WRONLY);
@@ -1777,13 +1780,20 @@ public:
       // TODO: this might be a deaper problem with pftool
 
       if(O_CREAT & flags) {
+         /* we need to create the node */
+         if(0 != marfs_mknod(marPath, mode, 0)) {
+            fprintf(stderr, "marfs_mknod failed\n");
+            _errno = errno;
+            return false;
+         }
          ffi_file.flags = (flags & ~O_CREAT);
       } else {
          ffi_file.flags = flags;
       }
 
-      rc = marfs_open(fs_to_mar_path(_item->path), &ffi_file);
+      rc = marfs_open(marPath, &ffi_file);
       if (0 != rc) {
+         fprintf(stderr, "marfs_open failed\n");
          _rc = ffi_file.fh;
          _errno = errno;
          return false;
@@ -1885,7 +1895,7 @@ public:
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
       ssize_t bytes;
-      bytes = marfs_read(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
+      bytes = marfs_write(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
       if (bytes ==  (ssize_t)-1)
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
