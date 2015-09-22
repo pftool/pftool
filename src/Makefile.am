@@ -51,7 +51,7 @@ s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 
 if MARFS
-marfs_cflags=$(_marfs_cflags) -DMARFS
+marfs_cflags=$(_marfs_cflags) -DMARFS -DSTATIC_CONFIG
 marfs_ldflags=$(_marfs_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 

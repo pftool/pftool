@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
           exit(1);
     } 
 
-    if (load_config("~/marfs.config")) { // TODO: I do not think this should be loaded from the home dir
+    if (read_config("~/marfs.config")) { // TODO: I do not think this should be loaded from the home dir
         fprintf(stderr, "unable to load marfs config\n");
         // TODO: should some sort of error be thrown here?
     }

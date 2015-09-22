@@ -1661,8 +1661,12 @@ protected:
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
    IOBufPtr        _iobuf;
-   struct fuse_file_info ffi_directory;
+   //struct fuse_file_info ffi_directory;
    struct fuse_file_info ffi_file;
+
+   int            _fd;          // after open()
+   DIR*           _dirp;        // after opendir()
+
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
@@ -1758,7 +1762,25 @@ public:
    virtual bool    open(int flags, mode_t mode) {
       int rc;
 
-      ffi_file.flags = flags;
+      printf("O_RDONLY: %x\n", O_RDONLY);
+      printf("O_WRONLY: %x\n", O_WRONLY);
+      printf("O_RDWR: %x\n", O_RDWR);
+      printf("O_CREAT: %x\n", O_CREAT);
+      printf("O_TRUNC: %x\n", O_TRUNC);
+      printf("flags: %x\n", flags);
+      printf("mode: %x\n", mode);
+
+      // clear the ffi_file structure
+      memset(&ffi_file, 0, sizeof(struct fuse_file_info ));
+
+      // check to see if we are createing. if so we must also truncate
+      // TODO: this might be a deaper problem with pftool
+
+      if(O_CREAT & flags) {
+         ffi_file.flags = (flags & ~O_CREAT);
+      } else {
+         ffi_file.flags = flags;
+      }
 
       rc = marfs_open(fs_to_mar_path(_item->path), &ffi_file);
       if (0 != rc) {
@@ -1772,12 +1794,26 @@ public:
       return true;
    }
    virtual bool    opendir() {
-      if (0 != marfs_opendir(fs_to_mar_path(_item->path), &ffi_directory)) {
-         printf("failed to open: %s\n", _item->path); // TODO: add debuging and remove
+      PathInfo info;
+      memset((char*)&info, 0, sizeof(PathInfo));
+
+      //EXPAND_PATH_INFO(&info, path);
+      if(0 != expand_path_info(&info, fs_to_mar_path(_item->path))) {
+         fprintf(stderr, "pftool was unable to expand the path \"%s\" for marfs\n");
+         return false;
+      }
+
+      if (IS_ROOT_NS(info.ns)) {
+         // TODO: Deal with root namespaces
+         fprintf(stderr, "pftool does not yet support root namespaces in marfs\n");
+         return false;
+      }
+
+      _dirp = ::opendir(info.post.md_path);
+      if (! bool(_dirp)) {
          _errno = errno;
          return false;  // return _rc;
       }
-
       set(IS_OPEN_DIR);
       return true;
    }
@@ -1800,8 +1836,8 @@ public:
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
-
-      if (0 != marfs_releasedir(fs_to_mar_path(_item->path), &ffi_directory) ) {
+      _rc = ::closedir(_dirp);
+      if (_rc < 0) {
          _errno = errno;
          return false;
       }
@@ -1827,18 +1863,11 @@ public:
    }
    // TBD: See opendir()
    virtual bool    readdir(char* path, size_t size) {
-
-      int rc;
-
       errno = 0;
       if (size)
          path[0] = 0;
 
-      // No need for access check, just try the op
-      // Appropriate  readdir call filling in fuse structure  (fuse does this in chunks)
-      DIR*           dirp = (DIR*)ffi_directory.fh;
-
-      struct dirent* d = ::readdir(dirp);
+      struct dirent* d = ::readdir(_dirp);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       if (d > 0) {
          strncpy(path, d->d_name, size);
@@ -1850,7 +1879,6 @@ public:
          _errno = errno;
          return bool(_errno == 0);
       }
-
    }
 
 

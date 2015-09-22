@@ -1578,6 +1578,7 @@ int stat_item(path_item *work_node, struct options& o) {
 #ifdef MARFS
     // --- is it a MARFS path?
     if(! got_type) {
+       fflush(stdout);
         // TODO: replace with code that checks file system stuff
         if ( (! strncmp(work_node->path, "/marfs/",  7)) ) {
 
@@ -1587,7 +1588,6 @@ int stat_item(path_item *work_node, struct options& o) {
         bool okay = MARFS_Path::mar_stat(work_node->path, &st);
         if (!okay){
            return -1;
-
         }
       }
     }
