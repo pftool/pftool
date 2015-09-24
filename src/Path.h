@@ -1653,6 +1653,10 @@ public:
 
 #ifdef MARFS
 
+int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off);
+
+int marfs_readdir_wrapper(struct dirent* dir, const char* path, struct fuse_file_info* ffi);
+
 class MARFS_Path : public Path {
 protected:
 
@@ -1661,11 +1665,12 @@ protected:
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
    IOBufPtr        _iobuf;
-   //struct fuse_file_info ffi_directory;
+   struct fuse_file_info ffi_directory;
    struct fuse_file_info ffi_file;
+   //const char * dirname;
 
-   int            _fd;          // after open()
-   DIR*           _dirp;        // after opendir()
+   //int            _fd;          // after open()
+   //DIR*           _dirp;        // after opendir()
 
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
@@ -1694,6 +1699,10 @@ protected:
 
 
 public:
+
+   virtual const char* const strerror() {
+      return ::strerror(_errno);
+   }
 
    // This runs on Pool<S3_Path>::get(), when initting an old instance
    virtual ~MARFS_Path() {
@@ -1765,14 +1774,6 @@ public:
 
       marPath = fs_to_mar_path(_item->path);
 
-      printf("O_RDONLY: %x\n", O_RDONLY);
-      printf("O_WRONLY: %x\n", O_WRONLY);
-      printf("O_RDWR: %x\n", O_RDWR);
-      printf("O_CREAT: %x\n", O_CREAT);
-      printf("O_TRUNC: %x\n", O_TRUNC);
-      printf("flags: %x\n", flags);
-      printf("mode: %x\n", mode);
-
       // clear the ffi_file structure
       memset(&ffi_file, 0, sizeof(struct fuse_file_info ));
 
@@ -1804,28 +1805,35 @@ public:
       return true;
    }
    virtual bool    opendir() {
-      PathInfo info;
-      memset((char*)&info, 0, sizeof(PathInfo));
-
-      //EXPAND_PATH_INFO(&info, path);
-      if(0 != expand_path_info(&info, fs_to_mar_path(_item->path))) {
-         fprintf(stderr, "pftool was unable to expand the path \"%s\" for marfs\n");
-         return false;
-      }
-
-      if (IS_ROOT_NS(info.ns)) {
-         // TODO: Deal with root namespaces
-         fprintf(stderr, "pftool does not yet support root namespaces in marfs\n");
-         return false;
-      }
-
-      _dirp = ::opendir(info.post.md_path);
-      if (! bool(_dirp)) {
+      if(0 != marfs_opendir(fs_to_mar_path(_item->path), &ffi_directory)) {
          _errno = errno;
          return false;  // return _rc;
       }
       set(IS_OPEN_DIR);
       return true;
+
+      //PathInfo info;
+      //memset((char*)&info, 0, sizeof(PathInfo));
+
+      ////EXPAND_PATH_INFO(&info, path);
+      //if(0 != expand_path_info(&info, fs_to_mar_path(_item->path))) {
+      //   fprintf(stderr, "pftool was unable to expand the path \"%s\" for marfs\n");
+      //   return false;
+      //}
+
+      //if (IS_ROOT_NS(info.ns)) {
+      //   // TODO: Deal with root namespaces
+      //   fprintf(stderr, "pftool does not yet support root namespaces in marfs\n");
+      //   return false;
+      //}
+
+      //_dirp = ::opendir(info.post.md_path);
+      //if (! bool(_dirp)) {
+      //   _errno = errno;
+      //   return false;  // return _rc;
+      //}
+      //set(IS_OPEN_DIR);
+      //return true;
    }
 
 
@@ -1846,8 +1854,7 @@ public:
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
-      _rc = ::closedir(_dirp);
-      if (_rc < 0) {
+      if(0 != marfs_releasedir(fs_to_mar_path(_item->path), &ffi_directory)) {
          _errno = errno;
          return false;
       }
@@ -1871,21 +1878,24 @@ public:
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return bytes;
    }
+
    // TBD: See opendir()
    virtual bool    readdir(char* path, size_t size) {
+      int rc;
       errno = 0;
       if (size)
          path[0] = 0;
 
-      struct dirent* d = ::readdir(_dirp);
+      struct dirent d;
+      rc = marfs_readdir_wrapper(&d, fs_to_mar_path(_item->path), &ffi_directory);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
-      if (d > 0) {
-         strncpy(path, d->d_name, size);
+      if (rc > 0) {
+         strncpy(path, d.d_name, size);
          return true;
-      }
-      else if (d == 0)          // EOF
+      } else if (rc == 0) {         // EOF
          return true;
-      else if (d < 0) {
+      } else if (rc < 0) {
+         perror("readdir failure");
          _errno = errno;
          return bool(_errno == 0);
       }
