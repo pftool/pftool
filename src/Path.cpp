@@ -439,11 +439,11 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
  * @return 1 This tells marfs_readdir to only copy one thing
  */
 int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off) {
-   struct dirent* dir = (struct dirent*) buf;
+   marfs_dirp_t* dir = (marfs_dirp_t*) buf;
 
    // /usr/include/bits/dirent.h shows that the size of this is 256 but I do not know how long this will be true
-   strncpy(dir->d_name, name, 256);
-   dir->d_type = 1; // this will allow us to see if the buffer has been filled
+   strncpy(dir->name, name, PATH_MAX);
+   dir->valid = 1; // this will allow us to see if the buffer has been filled
 
    /* we only want to copy once */
    return 1;
@@ -458,13 +458,13 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
  * @param ffi The information about the directoy to be used by marfs_readdir
  * @return 0 on EOF, <0 on error, >0 on success
  */
-int marfs_readdir_wrapper(struct dirent* dir, const char* path, struct fuse_file_info* ffi) {
+int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, struct fuse_file_info* ffi) {
    int rc;
-   dir->d_type = 0; // this will allow us to see if the buffer has been filled
+   dir->valid = 0; // this will allow us to see if the buffer has been filled
 
    rc = marfs_readdir(path, dir, marfs_readdir_filler, 0, ffi);
    if(0 == rc) {
-      if(0 == dir->d_type) {
+      if(1 != dir->valid) {
          return 0;
       } else {
          return 1;

@@ -1653,9 +1653,16 @@ public:
 
 #ifdef MARFS
 
+#include <linux/limits.h>
+
+typedef struct {
+   char valid; // lets us know if name is valid. 1 == valid
+   char name[PATH_MAX];
+} marfs_dirp_t;
+
 int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off);
 
-int marfs_readdir_wrapper(struct dirent* dir, const char* path, struct fuse_file_info* ffi);
+int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, struct fuse_file_info* ffi);
 
 class MARFS_Path : public Path {
 protected:
@@ -1886,11 +1893,11 @@ public:
       if (size)
          path[0] = 0;
 
-      struct dirent d;
+      marfs_dirp_t d;
       rc = marfs_readdir_wrapper(&d, fs_to_mar_path(_item->path), &ffi_directory);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       if (rc > 0) {
-         strncpy(path, d.d_name, size);
+         strncpy(path, d.name, size);
          return true;
       } else if (rc == 0) {         // EOF
          return true;
