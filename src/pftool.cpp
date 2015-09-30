@@ -1102,8 +1102,9 @@ void worker(int rank, struct options& o) {
  * @param chunk_hash a pointer to the hash table that contains the structures
  *           that describe the chunked files
  * @param hash_count the length of the hash table
- * @param base_path  ??
- * @param dest_node  ??
+ * @param base_path   used to generate the output path
+ * @param dest_node  a potentially sparsely path_item that is used to generate
+ *          the full output path. 
  * @param o      PFTOOL global/command options
  */
 // TODO: Check void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
@@ -1144,7 +1145,13 @@ void worker_update_chunk(int            rank,
 
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
-        hash_value = hashtbl_get(*chunk_hash, work_node.path);
+        get_output_path(out_node.path, base_path, &work_node, dest_node, o);     // CTM is based off of destination file. Populate out_node
+        out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
+        out_node.chksz = work_node.chksz;
+        out_node.st.st_size = work_node.st.st_size;
+
+
+        hash_value = hashtbl_get(*chunk_hash, out_node.path);             // get the value 
         chunk_size = work_node.length;
         if (hash_value == (HASHDATA *)NULL) {
 
@@ -1994,7 +2001,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 chunk_at = 0;
             }
 #endif
-            if (work_node.st.st_size == 0) {        // handle zero-length source file
+            if (work_node.st.st_size == 0) {        // handle zero-length source file - because it will not be processed through chunk/file loop below.
                 work_node.chkidx = 0;
                 work_node.chksz = 0;
                 regbuffer[reg_buffer_count] = work_node;
@@ -2002,20 +2009,20 @@ void process_stat_buffer(path_item*      path_buffer,
             }
 
             if (work_node.st.st_size >= chunk_at) {     // working with a chunkable file
-                int ctmExists = hasCTM(work_node.path);
+                int ctmExists = hasCTM(out_node.path);
 
                 if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure
-                    ctm = getCTM(work_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
+                    ctm = getCTM(out_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
                     if(IO_DEBUG_ON) {
                         char ctm_flags[2048];
                         char *ctmstr = ctm_flags;
                         int ctmlen = 2048;
 
-                        PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistenr stor of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
+                        PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistenr store of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
                     }
                 }
                 else if (ctmExists)               // get rid of the CTM on the file if we are NOT doing a conditional transfer
-                    purgeCTM(work_node.path);   
+                    purgeCTM(out_node.path);   
             }
             chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
             idx = 0;                    // keeps track of the chunk index

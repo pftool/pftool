@@ -593,7 +593,7 @@ int copy_file(path_item*    src_file,
     //MPI_Status status;
     int         rc;
     size_t      completed = 0;
-    char *      buf = '\0';
+    char *      buf = NULL;
     char        errormsg[MESSAGESIZE];
     //FILE *src_fd;
     //FILE *dest_fd;
@@ -610,7 +610,7 @@ int copy_file(path_item*    src_file,
     ////    Plfs_fd *   plfs_src_fd = NULL;
     ////    Plfs_fd *   plfs_dest_fd = NULL;
     ////#endif
-    ssize_t     bytes_processed;
+    ssize_t     bytes_processed = 0;
 
     //symlink
     char        link_path[PATHSIZE_PLUS];
@@ -652,11 +652,13 @@ int copy_file(path_item*    src_file,
     }
 
     //a file less than 1 MB
-    if (length < blocksize) {
+    if (length < blocksize) { // a file < blocksize in size
         blocksize = length;
     }
-    buf = (char*)malloc(blocksize * sizeof(char));
-    memset(buf, '\0', blocksize);
+    if (blocksize) {
+        buf = (char*)malloc(blocksize * sizeof(char));
+        memset(buf, '\0', blocksize);
+    }
 
     // OPEN source for reading (binary mode)
     //
@@ -691,7 +693,7 @@ int copy_file(path_item*    src_file,
 #ifdef GEN_SYNDATA
     }
 #endif
-
+   PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld   blocksize = %ld\n", rank, src_file.chkidx, offset, length, blocksize);
     // OPEN destination for writing
     //
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
@@ -748,6 +750,7 @@ int copy_file(path_item*    src_file,
         //
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
 
+        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n", rank, bytes_processed, dest_file.path);
 #ifdef GEN_SYNDATA
         if (syndataExists(synbuf)) {
            int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
@@ -875,8 +878,9 @@ int copy_file(path_item*    src_file,
     }
     
 
-    free(buf);
+    if(buf) free(buf);
     if (offset == 0 && length == src_file->st.st_size) {
+        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n", rank, dest_file.path);
         if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
