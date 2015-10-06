@@ -458,7 +458,7 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
  * @param ffi The information about the directoy to be used by marfs_readdir
  * @return 0 on EOF, <0 on error, >0 on success
  */
-int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, struct fuse_file_info* ffi) {
+int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* ffi) {
    int rc;
    dir->valid = 0; // this will allow us to see if the buffer has been filled
 

@@ -92,9 +92,8 @@
 #endif
 
 #ifdef MARFS
-#  include<aws4c.h>             // must have version >= 5.2 !
-#  include <common.h>
-#  include <marfs_fuse.h>
+#  include <aws4c.h>             // must have version >= 5.2 !
+#  include <marfs_ops.h>
 #endif
 
 // --- fwd-decls
@@ -1662,7 +1661,7 @@ typedef struct {
 
 int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off);
 
-int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, struct fuse_file_info* ffi);
+int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* ffi);
 
 class MARFS_Path : public Path {
 protected:
@@ -1672,8 +1671,8 @@ protected:
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
    IOBufPtr        _iobuf;
-   struct fuse_file_info ffi_directory;
-   struct fuse_file_info ffi_file;
+   MarFS_DirHandle ffi_directory;
+   MarFS_FileHandle ffi_file;
    //const char * dirname;
 
    //int            _fd;          // after open()
@@ -1774,7 +1773,6 @@ public:
    }
 
 
-   // TODO: what do I do with mode?
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath;
@@ -1782,11 +1780,10 @@ public:
       marPath = fs_to_mar_path(_item->path);
 
       // clear the ffi_file structure
-      memset(&ffi_file, 0, sizeof(struct fuse_file_info ));
+      memset(&ffi_file, 0, sizeof(ffi_file));
 
       // check to see if we are createing. if so we must also truncate
-      // TODO: this might be a deaper problem with pftool
-
+      // TODO: is this now nessary with the new version of marfs_ops.h
       if(O_CREAT & flags) {
          /* we need to create the node */
          if(0 != marfs_mknod(marPath, mode, 0)) {
@@ -1799,10 +1796,10 @@ public:
          ffi_file.flags = flags;
       }
 
-      rc = marfs_open(marPath, &ffi_file);
+      rc = marfs_open(marPath, &ffi_file, flags);
       if (0 != rc) {
          fprintf(stderr, "marfs_open failed\n");
-         _rc = ffi_file.fh;
+         _rc = rc;
          _errno = errno;
          return false;
       }
