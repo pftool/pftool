@@ -52,7 +52,7 @@ endif
 
 if MARFS
 marfs_cflags=$(_marfs_cflags) -DMARFS
-marfs_ldflags=$(_marfs_ldflags) -laws4c -laws4c_extra -lcurl -lxml2 -lmarfs
+marfs_ldflags=$(_marfs_ldflags) -laws4c -laws4c_extra -lcurl -lxml2 -lmarfs -lconfig
 endif
 
 

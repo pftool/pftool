@@ -1734,6 +1734,7 @@ public:
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
       rc = marfs_getattr(fs_to_mar_path(path_name), st);
+      //rc = marfs_getattr(path_name, st);
 
       if (rc) {
          errno = errno;
@@ -1763,13 +1764,22 @@ public:
    }
 
    virtual bool    chown(uid_t owner, gid_t group) {
-      NO_IMPL(chown);
+      if (_rc = marfs_chown(fs_to_mar_path(path()), owner, group))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
    }
    virtual bool    chmod(mode_t mode) {
-      NO_IMPL(chmod);
+      if (_rc = marfs_chmod(fs_to_mar_path(path()), mode))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
    }
    virtual bool    utime(const struct utimbuf* ut) {
-      NO_IMPL(utime);
+      if (_rc = ::utime(path(), ut))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
    }
 
 
@@ -1791,7 +1801,7 @@ public:
             _errno = errno;
             return false;
          }
-         ffi_file.flags = (flags & ~O_CREAT);
+         flags = (flags & ~O_CREAT);
       } else {
          ffi_file.flags = flags;
       }
@@ -1921,7 +1931,11 @@ public:
    //       "directories" are handled.  If full path includes an obj, we'll
    //       have to assume you intend it as an empty directory.
    virtual bool    mkdir(mode_t mode) {
-      NO_IMPL(mkdir);
+      if (_rc = marfs_mkdir(fs_to_mar_path(_item->path), mode)) {
+         _errno = errno;
+      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
    }
 
 
@@ -1930,11 +1944,14 @@ public:
    // continue to be usable until no one is referring to it, or having it
    // open.  S3 don't play that.
    virtual bool    unlink() {
-      NO_IMPL(unlink);
+      if (_rc = marfs_unlink(fs_to_mar_path(_item->path)))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
    }
 
    virtual bool    remove() {
-      NO_IMPL(remove);
+      return unlink();
    }
 };
 
