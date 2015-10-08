@@ -1776,7 +1776,7 @@ public:
       return (_rc == 0);
    }
    virtual bool    utime(const struct utimbuf* ut) {
-      if (_rc = ::utime(path(), ut))
+      if (_rc = marfs_utime(fs_to_mar_path(path()), (struct utimbuf*) ut))
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
