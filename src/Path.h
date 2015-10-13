@@ -1806,7 +1806,7 @@ public:
          ffi_file.flags = flags;
       }
 
-      rc = marfs_open(marPath, &ffi_file, flags);
+      rc = marfs_open(marPath, &ffi_file, flags, OSOF_CTE);
       if (0 != rc) {
          fprintf(stderr, "marfs_open failed\n");
          _rc = rc;
