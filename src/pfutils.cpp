@@ -190,16 +190,16 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
 * 	and the number can be taken as the errno.
 */
 ssize_t write_field(int fd, void *start, size_t len) {
-	size_t n;					// number of bytes written for a given call to write()
+	size_t  n;					// number of bytes written for a given call to write()
 	ssize_t tot = 0;				// total number of bytes written
-	void *wstart = start;				// the starting point in the buffer
-	size_t wcnt = len;				// the running count of bytes to write
+	char*   wstart = (char*)start;				// the starting point in the buffer
+	size_t  wcnt = len;				// the running count of bytes to write
 
 	while(wcnt > 0) {
 	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
 	    return((ssize_t)-errno);
 	  tot += n;
-	  wstart += n;					// incremant the start address by n
+	  wstart += n;					// increment the start address by n
 	  wcnt -= n;					// decreamnt byte count by n
 	}
 
@@ -729,6 +729,13 @@ int copy_file(path_item*    src_file,
     ////        errsend(NONFATAL, errormsg);
     ////        return -1;
     ////    }
+
+    // p_dest->expected_write_size(p_src->st().st_size); // broken in libcurl 7.19.7 ?
+    fprintf(stderr, "opening %s with expected-size %lu\n",
+            p_dest->node().path,
+            p_src->st().st_size);
+    aws_set_debug(1);
+
     if (! p_dest->open(flags, 0600)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
@@ -755,11 +762,18 @@ int copy_file(path_item*    src_file,
         if (syndataExists(synbuf)) {
            int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
 
-           if(bytes_processed = syndataFill(synbuf,buf,buflen)) {
-              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", bytes_processed);
+#if 0
+           // Don't waste time filling the buffer.  We just want a fast
+           // way to create source data
+
+
+           if(rc = syndataFill(synbuf,buf,buflen)) {
+              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
               errsend(NONFATAL, errormsg);
               return -1;
            }
+#endif
+
            bytes_processed = buflen;				// On a successful call to syndataFill(), bytes_processed equals 0
         }
         else {
@@ -1584,7 +1598,10 @@ int stat_item(path_item *work_node, struct options& o) {
     if(! got_type) {
        fflush(stdout);
         // TODO: replace with code that checks file system stuff
-        if ( (! strncmp(work_node->path, "/marfs/",  7)) ) {
+       // if ( (! strncmp(work_node->path, "/marfs/",  7)) ) {
+       if ( (! strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len))
+            && ((   work_node->path[marfs_config->mnt_top_len] == 0)
+                || (work_node->path[marfs_config->mnt_top_len] == '/'))) {
 
            work_node->ftype = MARFSFILE;
            got_type = true;

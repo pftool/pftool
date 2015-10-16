@@ -26,12 +26,12 @@
 * @return a string representation of the implementation
 */
 const char *_impl2str(CTM_ITYPE implidx) {
-	static char *IMPLSTR[] = {
-			 "No CTM"
-			,"File CTM"
-			,"xattr CTM"
-			,"Unsupported CTM"
-				 };
+	static const char *IMPLSTR[] = {
+      "No CTM"
+      ,"File CTM"
+      ,"xattr CTM"
+      ,"Unsupported CTM"
+   };
 	return((implidx > CTM_UNKNOWN)?"Unknown CTM":IMPLSTR[implidx]);
 }
 

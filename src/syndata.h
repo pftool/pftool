@@ -11,16 +11,16 @@
 typedef struct {
 	int length;			// length of buffer
 	char *buf;			// The actual pattern buffer
-} syndata_buffer;
+} SyndataBuffer;
 
 // convenient for outsiders to mock up dummy types
-typedef syndata_buffer* SyndataBufPtr;
+typedef SyndataBuffer* SyndataBufPtr;
 
 // Function Declarations
-syndata_buffer* syndataCreateBuffer        (char *pname);
-syndata_buffer* syndataCreateBufferWithSize(char *pname, int length);
-syndata_buffer* syndataDestroyBuffer(syndata_buffer *synbuf);
-int             syndataExists       (syndata_buffer *synbuf);
-int             syndataFill         (syndata_buffer *synbuf, char *inBuf, int inBufLen);
+SyndataBuffer* syndataCreateBuffer        (char *pname);
+SyndataBuffer* syndataCreateBufferWithSize(char *pname, int length);
+SyndataBuffer* syndataDestroyBuffer(SyndataBuffer *synbuf);
+int            syndataExists       (SyndataBuffer *synbuf);
+int            syndataFill         (SyndataBuffer *synbuf, char *inBuf, int inBufLen);
 
 #endif	//__SYNDATA_H

@@ -177,8 +177,8 @@ public:
          _pool.pop_back();
          /// if (init_w_default)
          *t = T();                     // initialize to defaults (always)
-         //         std::cout << "Pool<T>::get() -- old = " << t
-         //                   << (init_w_default ? "  init" : "") << std::endl;
+         // std::cout << "Pool<T>::get() -- old = " << t
+         //           << (init_w_default ? "  init" : "") << std::endl;
          return SharedPtr<T>(t, put);     // use put(), as shared_ptr deleter-fn
       }
       else {
@@ -590,6 +590,10 @@ public:
    // corresponding error-string from here.
    virtual const char* const strerror()     { NO_IMPL(strerror); }
 
+   // Certain subclasses (MARFS_Path) can do a different open(), which
+   // allows more-efficient writing, if they know ahead of time how much
+   // data is going to be written.  For everyone else, this is a no-op.
+   virtual void    expected_write_size(uint64_t size) { }
 
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
@@ -710,12 +714,18 @@ public:
 
    virtual bool    supports_n_to_1() const  { return false; }
 
+
+   virtual bool    chown(uid_t owner, gid_t group) { NO_IMPL(chown); }
+   virtual bool    chmod(mode_t mode)              { NO_IMPL(chmod); }
+   virtual bool    utime(const struct utimbuf* ut) { NO_IMPL(utime); }
+
+
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
-      _synbuf = syndataCreateBufferWithSize(((o.syn_pattern[0]) ? o.syn_pattern : NULL),
-                                            ((o.syn_size >= 0)  ? o.syn_size : -rank));
-      if (! synbuf) {
-         errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
+      _synbuf = syndataCreateBufferWithSize(((_o->syn_pattern[0]) ? _o->syn_pattern : NULL),
+                                            ((_o->syn_size >= 0)  ? _o->syn_size : -_rank));
+      if (! _synbuf) {
+         errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", _rank);
          unset(IS_OPEN);
       }
       else
@@ -1663,6 +1673,7 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
 
 int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* ffi);
 
+
 class MARFS_Path : public Path {
 protected:
 
@@ -1670,13 +1681,26 @@ protected:
 
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
-   IOBufPtr        _iobuf;
-   MarFS_DirHandle ffi_directory;
+   IOBufPtr         _iobuf;
+   MarFS_DirHandle  ffi_directory;
    MarFS_FileHandle ffi_file;
    //const char * dirname;
 
+   uint64_t         _expected_write_size;
+
    //int            _fd;          // after open()
    //DIR*           _dirp;        // after opendir()
+
+   int              _rank;
+
+
+   // we expect args from the Factory:
+   //
+   // (0) int               [pid]
+   //
+   virtual void factory_install_list(int count, va_list list) {
+      _rank = va_arg(list, int);
+   }
 
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
@@ -1685,7 +1709,8 @@ protected:
    }
 
    MARFS_Path()
-      : Path()
+      : Path(),
+        _expected_write_size(0)
    { 
       unset(DID_STAT);
       unset(IS_OPEN_DIR);
@@ -1700,7 +1725,8 @@ protected:
     * @return The path expected by marfs
     */
    static const char* fs_to_mar_path(const char* fs_path) {
-      return fs_path+6; // adds the number of characters in "/marfs" TODO: make this more robust
+      /// return fs_path+6; // adds the number of characters in "/marfs" TODO: make this more robust
+      return marfs_sub_path(fs_path);
    }
 
 
@@ -1737,7 +1763,7 @@ public:
       //rc = marfs_getattr(path_name, st);
 
       if (rc) {
-         errno = errno;
+         // errno = errno;
          return false;
       }
 
@@ -1783,6 +1809,10 @@ public:
    }
 
 
+   virtual void    expected_write_size(uint64_t size) {
+      _expected_write_size = size;
+   }
+
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath;
@@ -1806,7 +1836,9 @@ public:
          ffi_file.flags = flags;
       }
 
-      rc = marfs_open(marPath, &ffi_file, flags);
+      // rc = marfs_open(marPath, &ffi_file, flags, 512*1024*1024); // testing content_length arg
+      rc = marfs_open(marPath, &ffi_file, flags, _expected_write_size);
+      _expected_write_size = 0;
       if (0 != rc) {
          fprintf(stderr, "marfs_open failed\n");
          _rc = rc;
@@ -1997,7 +2029,7 @@ protected:
 
    static struct options*  _opts;
    static pid_t            _pid;       // for PLFS
-   static int              _rank;      // for PLFS
+   static int              _rank;      // for PLFS, MARFS
 
 
 public:
@@ -2136,6 +2168,7 @@ public:
 #ifdef MARFS
       case MARFSFILE:
          p = Pool<MARFS_Path>::get();
+         p->factory_install(1, _rank);
          break;
 #endif
 

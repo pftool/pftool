@@ -3,6 +3,7 @@
 * manage a buffer filled with synthetic data.
 */
 
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -103,16 +104,19 @@ int synCopyPattern(char *pattern, char *inBuf, int inBufLen)
 */
 int synGeneratePattern(char *inBuf, int inBufLen, int rseed)
 {
-	int 	ii;
-	int	seed;					// seed for rand()
-	struct timeval tv;				// used in calculating the seed
-	
+   int            ii;
+   int            seed;         // seed for rand()
+   struct timeval tv;           // used in calculating the seed
+
 	if(!inBuf || inBufLen <= 0) 
 		return(-42);									// input buffer does not have any size or is null
 
-	seed = (gettimeofday(&tv,NULL) < 0)?rseed:(int)(tv.tv_sec + tv.tv_usec + rseed);	// try to start random with a semi-random seed
+	// try to start random with a semi-random seed
+	seed = (gettimeofday(&tv,NULL) < 0) ? rseed : (int)(tv.tv_sec + tv.tv_usec + rseed);
+
 	for(ii=0; ii<inBufLen; ii++)
-		inBuf[ii] = (char)(128.0 * rand_r(&seed)/(RAND_MAX + 1.0));
+		inBuf[ii] = (char)(128.0 * rand_r((unsigned int*)&seed)/(RAND_MAX + 1.0));
+
 	return(inBufLen);
 }
 
@@ -171,7 +175,7 @@ int synFillData(char *patbuf, int patlen, char *inBuf, int inBufLen, int randomi
 	seed = (gettimeofday(&tv,NULL) < 0)?42:(int)(tv.tv_sec + tv.tv_usec);			// try to start random with a semi-random seed
 	mlen = (inBufLen < wsize)?inBufLen:wsize;
 	for (ii=0; ii<inBufLen; ii += mlen) {
-		pstart = (int)(((double)wsize) * rand_r(&seed)/(RAND_MAX + 1.0));		// generate the pattern offset
+		pstart = (int)(((double)wsize) * rand_r((unsigned int*)&seed)/(RAND_MAX + 1.0));		// generate the pattern offset
 		if(ii && (ii + mlen)>inBufLen)							// Make sure memcpy stays within inBuf!
 			mlen = inBufLen - ii;
 		memcpy(inBuf + ii, patbuf + pstart, mlen);
@@ -243,7 +247,7 @@ int synGenerateData(char *pfile,char *inBuf, int inBufLen, int randomizeData)
 * "zero" and "lzinf", which fill the pattern buffer with zeros.
 *
 * If pname does NOT start with a printable character, or is NULL, then
-* a randomized pattern is generated in the syndata_buffer.
+* a randomized pattern is generated in the SyndataBuffer.
 *
 * Avoid calling stat(), if parameters don't require it.
 *
@@ -257,16 +261,16 @@ int synGenerateData(char *pfile,char *inBuf, int inBufLen, int randomizeData)
 *        If length  < 0, it's treated as the negative of a random-seed
 *                        for a random pattern (of size SYN_PATTERN_SIZE).
 *
-* @return a pointer to a syndata_buffer. NULL is returned if there are
+* @return a pointer to a SyndataBuffer. NULL is returned if there are
 *        errors
 */
-syndata_buffer* syndataCreateBufferWithSize(char *pname, int length)
+SyndataBuffer* syndataCreateBufferWithSize(char *pname, int length)
 {
-   syndata_buffer *out;             // The buffer to return
+   SyndataBuffer *out;             // The buffer to return
    int len = (length > 0) ? length : SYN_PATTERN_SIZE;      // the length of the created buffer
    struct stat st_test;             // a Stat buffer to test for existence
 
-   out = (syndata_buffer*)malloc(sizeof(syndata_buffer));
+   out = (SyndataBuffer*)malloc(sizeof(SyndataBuffer));
    out->buf = (char*)malloc(len);
    out->length = len;
 
@@ -277,10 +281,14 @@ syndata_buffer* syndataCreateBufferWithSize(char *pname, int length)
       int rseed = -length;
       rc = synGeneratePattern(out->buf,out->length,rseed);
    }
+   else if (!pname) {
+      int rseed = 0;
+      rc = synGeneratePattern(out->buf,out->length,rseed);
+   }
    else if (!strcasecmp(pname, "zero") ||
             !strcasecmp(pname, "lzinf")) {
       // caller wants all-zeros
-      rc = synCopyPattern("",out->buf,out->length);
+      rc = synCopyPattern(NULL,out->buf,out->length);
    }
    else if (!stat(pname,&st_test)) {
       // patten file exists - use it to generate the pattern
@@ -297,7 +305,7 @@ syndata_buffer* syndataCreateBufferWithSize(char *pname, int length)
    // check for errors
    if (rc <= 0) {
       syndataDestroyBuffer(out);
-      return ((syndata_buffer*)NULL);
+      return ((SyndataBuffer*)NULL);
    }
 
    out->length = len;               // Make sure length of pattern is acurate!
@@ -312,44 +320,44 @@ syndata_buffer* syndataCreateBufferWithSize(char *pname, int length)
 * @param pname		the name of the pattern file
 *			to use as a basis, so some other
 *			pattern designation.
-* @return a pointer to a syndata_buffer. NULL is returned if
+* @return a pointer to a SyndataBuffer. NULL is returned if
 * 	there are errors
 */
-syndata_buffer* syndataCreateBuffer(char *pname)
+SyndataBuffer* syndataCreateBuffer(char *pname)
 {
 	return(syndataCreateBufferWithSize(pname,SYN_PATTERN_SIZE));
 }
 
 /**
-* This routine frees space used by a syndata_buffer.
+* This routine frees space used by a SyndataBuffer.
 * If the buffer is not allocated, or otherwise empty,
 * nothing done.
 *
-* @param synbuf		the syndata_buffer to free
+* @param synbuf		the SyndataBuffer to free
 *
 * @return always returns null sysdata_buffer.
 */
-syndata_buffer* syndataDestroyBuffer(syndata_buffer *synbuf)
+SyndataBuffer* syndataDestroyBuffer(SyndataBuffer *synbuf)
 {
 	if(synbuf) {
 	   if(synbuf->buf) free(synbuf->buf);
 	   free(synbuf);
 	}
 
-	return((syndata_buffer*)NULL);
+	return((SyndataBuffer*)NULL);
 }
 
 /**
-* This function tests to see of a syndata_buffer has been 
+* This function tests to see of a SyndataBuffer has been 
 * initialized or allocated.
 *
-* @param synbuf		the syndata_buffer to free
+* @param synbuf		the SyndataBuffer to free
 *
 * @return a non-zero value (i.e. TRUE) if this buffer
 * 	has been initialized. Otherwise zero (i.e. FALSE)
 *	is returned.
 */
-int syndataExists(syndata_buffer *synbuf)
+int syndataExists(SyndataBuffer *synbuf)
 {
 	return(synbuf && synbuf->length > 0);
 }
@@ -357,9 +365,9 @@ int syndataExists(syndata_buffer *synbuf)
 /**
 * This function fills a given buffer with the data from
 * the provided sysdata_buffer. See synFillData(). Note
-* that the reading of the syndata_buffer will be random.
+* that the reading of the SyndataBuffer will be random.
 *
-* @param synbuf		the syndata_buffer to fill from
+* @param synbuf		the SyndataBuffer to fill from
 *
 * @param inBuf		the buffer to write the data into
 *
@@ -368,7 +376,7 @@ int syndataExists(syndata_buffer *synbuf)
 * @return 0 if the data is generated without error. Otherwise
 *	non-zero is returned.
 */
-int syndataFill(syndata_buffer *synbuf, char *inBuf, int inBufLen)
+int syndataFill(SyndataBuffer *synbuf, char *inBuf, int inBufLen)
 {
 	if(!syndataExists(synbuf)) return(42);
 	return(synFillData(synbuf->buf,synbuf->length,inBuf,inBufLen,1));

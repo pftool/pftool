@@ -71,9 +71,9 @@ int main(int argc, char *argv[]) {
     AWS4C_CHECK( aws_init() );
     //s3_enable_EMC_extensions(1); TODO: Where does this need to be set
 
-#if (DEBUG > 1)
+# if (DEBUG > 1)
     aws_set_debug(1);
-#endif
+# endif
 
     char* const user_name = (getenv("USER"));
     // TODO: is this nessary. I am not sure that it is
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
 
     init_xattr_specs();
 
-#ifdef USE_SPROXYD
+# ifdef USE_SPROXYD
     // NOTE: sproxyd doesn't require authentication, and so it could work on
     //     an installation without a ~/.awsAuth file.  But suppose we're
     //     supporting some repos that use S3 and some that use sproxyd?  In
@@ -103,9 +103,9 @@ int main(int argc, char *argv[]) {
     //     aws_read_config() inside marfs_open(), using the euid of the user
     //     to find ~/.awsAuth.
     int config_fail_ok = 1;
-#else
+# else
     int config_fail_ok = 0;
-#endif
+# endif
 
 #endif
 
@@ -272,6 +272,19 @@ int main(int argc, char *argv[]) {
                 default:
                     break;
             }
+
+#if 0
+        // EXPERIMENT:  allow me to attach gdb, before proceeding
+        int gdb = 0;
+        while (!gdb) {
+            fprintf(stderr, "spinning waiting for gdb attach\n");
+            sleep(5);
+        }
+#elif 1
+        fprintf(stderr, "sleeping to give you time for gdb attach\n");
+        sleep(20);
+#endif
+
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -561,13 +574,13 @@ void manager(int             rank,
     free(copy);
     ////    rc = stat(temp_path, &st);
     ////    if (rc < 0)
+    fprintf(stderr, "manager: creating temp_path %s\n", temp_path);
     PathPtr p_dir(PathFactory::create((char*)temp_path));
-    if (! p_dir->exists())
-
-    {
+    if (! p_dir->exists()) {
+        fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
         char err_cause[MESSAGESIZE];
         strerror_r(errno, err_cause, MESSAGESIZE);
-        snprintf(errmsg, MESSAGESIZE, "%s: %s", dest_path, err_cause);
+        snprintf(errmsg, MESSAGESIZE, "parent doesn't exist: %s: %s", dest_path, err_cause);
         errsend(FATAL, errmsg);
     }
 
@@ -2284,7 +2297,7 @@ void worker_copylist(int             rank,
     if(o.syn_size) {
         // If no pattern id is given -> use rank as a seed for random data
         synbuf = syndataCreateBufferWithSize((o.syn_pattern[0] ? o.syn_pattern : NULL),
-                (o.syn_size >= 0) ? o.syn_size : -rank));
+                                             ((o.syn_size >= 0) ? o.syn_size : -rank));
         if (! synbuf)
             errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
     }
