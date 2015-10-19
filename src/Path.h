@@ -1836,7 +1836,6 @@ public:
          ffi_file.flags = flags;
       }
 
-      // rc = marfs_open(marPath, &ffi_file, flags, 512*1024*1024); // testing content_length arg
       rc = marfs_open(marPath, &ffi_file, flags, _expected_write_size);
       _expected_write_size = 0;
       if (0 != rc) {

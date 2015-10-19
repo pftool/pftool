@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "spinning waiting for gdb attach\n");
             sleep(5);
         }
-#elif 1
+#elif 0
         fprintf(stderr, "sleeping to give you time for gdb attach\n");
         sleep(20);
 #endif

@@ -730,11 +730,11 @@ int copy_file(path_item*    src_file,
     ////        return -1;
     ////    }
 
-    // p_dest->expected_write_size(p_src->st().st_size); // broken in libcurl 7.19.7 ?
-    fprintf(stderr, "opening %s with expected-size %lu\n",
-            p_dest->node().path,
-            p_src->st().st_size);
-    aws_set_debug(1);
+    p_dest->expected_write_size(p_src->st().st_size); // broken in libcurl 7.19.7 ?
+    //    fprintf(stderr, "opening %s with expected-size %lu\n",
+    //            p_dest->node().path,
+    //            p_src->st().st_size);
+    // aws_set_debug(1);
 
     if (! p_dest->open(flags, 0600)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
