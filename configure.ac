@@ -103,7 +103,7 @@ AS_IF([test x$enable_s3 == xyes],
   [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
 )
 AS_IF([test x$enable_marfs == xyes],
-  [AC_CHECK_HEADERS([common.h marfs_fuse.h aws4c.h aws4c_extra.h])]
+  [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
 
 # checks for typedefs, structures, and compiler characteristics.
