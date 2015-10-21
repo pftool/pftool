@@ -2049,7 +2049,7 @@ void process_stat_buffer(path_item*      path_buffer,
             while (chunk_curr_offset < work_node.st.st_size) {
                 work_node.chkidx = idx;         // assign the chunk index
                 // non-chunked file or file is a link or metadata compare work - just send the whole file
-                if (work_node.st.st_size < chunk_at || work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+                if (work_node.st.st_size <= chunk_at || work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
                     work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
                     chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
                     PRINT_IO_DEBUG("rank %d: process_stat_buffer() non-chunkable file   chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
