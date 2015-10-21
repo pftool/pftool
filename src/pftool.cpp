@@ -338,19 +338,26 @@ int main(int argc, char *argv[]) {
     // 
     PathFactory::initialize(&o, rank, src_path, dest_path);
 
-    // providing multiple '-v' args on the command line increases the value
-    // of o.verbose.  Any non-zero value turns on verbosity.  However, if
-    // o.verbose > 1, we also sleep for 5 seconds here.  That allows a user
-    // to attach gdb to the running process.  We have a script that can do
-    // this quickly.
-    if (o.verbose > 1) {
-        fprintf(stderr, "sleeping to allow gdb to attach ... ");
-        fflush(stdout);
-        sleep(5);
-        fprintf(stderr, "done.\n");
+    //    // providing multiple '-v' args on the command line increases the value
+    //    // of o.verbose.  Any non-zero value turns on verbosity.  However, if
+    //    // o.verbose > 1, we also sleep for 5 seconds here.  That allows a user
+    //    // to attach gdb to the running process.  We have a script that can do
+    //    // this quickly.
+    //    if (o.verbose > 1) {
+    //        fprintf(stderr, "sleeping to allow gdb to attach ... ");
+    //        fflush(stdout);
+    //        sleep(5);
+    //        fprintf(stderr, "done.\n");
+    //
+    //        MPI_Barrier(MPI_COMM_WORLD);
+    //    }
 
-        MPI_Barrier(MPI_COMM_WORLD);
+#ifdef MARFS
+    if (o.verbose >= 3) {
+        aws_set_debug(1);
     }
+#endif
+
 
     //freopen( "/dev/null", "w", stderr );
     //Modifies the path based on recursion/wildcards

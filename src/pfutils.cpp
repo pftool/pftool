@@ -800,7 +800,8 @@ int copy_file(path_item*    src_file,
 
 
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %ld bytes instead of %zd", src_file->path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: Read %ld bytes instead of %zd",
+                    src_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -825,7 +826,8 @@ int copy_file(path_item*    src_file,
         bytes_processed = p_dest->write(buf, blocksize, completed+offset);
 
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: wrote %ld bytes instead of %zd", dest_file->path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: wrote %ld bytes instead of %zd (%s)",
+                    dest_file->path, bytes_processed, blocksize, p_dest->strerror());
             errsend(NONFATAL, errormsg);
             return -1;
         }
@@ -858,7 +860,8 @@ int copy_file(path_item*    src_file,
        ////       }
        ////#endif
        if (! p_src->close()) {
-          errsend_fmt(NONFATAL, "Failed to close src file: %s\n", p_src->path());
+          errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
+                      p_src->path(), p_src->strerror());
           return -1;
        }
 
@@ -887,14 +890,16 @@ int copy_file(path_item*    src_file,
     ////    }
     ////#endif
     if (! p_dest->close()) {
-       errsend_fmt(NONFATAL, "Failed to close dest file: %s\n", p_dest->path());
+       errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
+                   p_dest->path(), p_dest->strerror());
        return -1;
     }
     
 
     if(buf) free(buf);
     if (offset == 0 && length == src_file->st.st_size) {
-        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n", rank, dest_file.path);
+        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
+                       rank, dest_file.path);
         if (update_stats(src_file, dest_file) != 0) {
             return -1;
         }
@@ -980,19 +985,22 @@ int compare_file(path_item*  src_file,
             }
             bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", src_file->path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                        src_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
             bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
             if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare", dest_file->path, bytes_processed, blocksize);
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                        dest_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 return -1;
             }
             //compare - if no compare crc=1 if compare crc=0 and get out of loop
             crc = memcmp(ibuf,obuf,blocksize);
-            //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",src_file, dest_file, completed+offset, blocksize, crc);
+            //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",
+            //       src_file, dest_file, completed+offset, blocksize, crc);
             if (crc != 0) {
                 completed=length;
             }
@@ -1000,13 +1008,13 @@ int compare_file(path_item*  src_file,
         }
         rc = close(src_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", src_file->path);
+            sprintf(errormsg, "Failed to close src file: %s (%s)", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         rc = close(dest_fd);
         if (rc != 0) {
-            sprintf(errormsg, "Failed to close file: %s", dest_file->path);
+            sprintf(errormsg, "Failed to close dst file: %s (%s)", dest_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }

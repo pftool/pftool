@@ -588,7 +588,7 @@ public:
    // when subclass operations fail (e.g. mkdir(), they save errno (or
    // whatever), and return false.  Caller can then come back and get the
    // corresponding error-string from here.
-   virtual const char* const strerror()     { NO_IMPL(strerror); }
+   virtual const char* const strerror()     { return ::strerror(_errno); }
 
    // Certain subclasses (MARFS_Path) can do a different open(), which
    // allows more-efficient writing, if they know ahead of time how much
@@ -1682,9 +1682,8 @@ protected:
    typedef SharedPtr<IOBuf>  IOBufPtr;
 
    IOBufPtr         _iobuf;
-   MarFS_DirHandle  ffi_directory;
-   MarFS_FileHandle ffi_file;
-   //const char * dirname;
+   MarFS_FileHandle fh;
+   MarFS_DirHandle  dh;
 
    uint64_t         _expected_write_size;
 
@@ -1692,6 +1691,7 @@ protected:
    //DIR*           _dirp;        // after opendir()
 
    int              _rank;
+   std::string      _err_str;
 
 
    // we expect args from the Factory:
@@ -1717,23 +1717,21 @@ protected:
       unset(IS_OPEN);
    }
 
-   /**
-    * converts the path provided to pftool to the path expected by marfs
-    * This strips off the begining of the path
-    *
-    * @param fs_path The path provided to pftool
-    * @return The path expected by marfs
-    */
-   static const char* fs_to_mar_path(const char* fs_path) {
-      /// return fs_path+6; // adds the number of characters in "/marfs" TODO: make this more robust
-      return marfs_sub_path(fs_path);
+
+   void set_err_string(int err, IOBuf* iob) {
+      _errno = err;
+      _err_str = (std::string(::strerror(errno))
+                  + " '"
+                  + (iob ? (iob->result ? iob->result : "") : "")
+                  + "'");
    }
+   void reset_err_string() { _err_str.clear(); }
 
 
 public:
 
    virtual const char* const strerror() {
-      return ::strerror(_errno);
+      return _err_str.c_str();
    }
 
    // This runs on Pool<S3_Path>::get(), when initting an old instance
@@ -1759,11 +1757,11 @@ public:
 
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
-      rc = marfs_getattr(fs_to_mar_path(path_name), st);
+      rc = marfs_getattr(marfs_sub_path(path_name), st);
       //rc = marfs_getattr(path_name, st);
 
       if (rc) {
-         // errno = errno;
+         // set_err_string(errno, NULL);
          return false;
       }
 
@@ -1790,20 +1788,20 @@ public:
    }
 
    virtual bool    chown(uid_t owner, gid_t group) {
-      if (_rc = marfs_chown(fs_to_mar_path(path()), owner, group))
-         _errno = errno;
+      if (_rc = marfs_chown(marfs_sub_path(path()), owner, group))
+         set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
    virtual bool    chmod(mode_t mode) {
-      if (_rc = marfs_chmod(fs_to_mar_path(path()), mode))
-         _errno = errno;
+      if (_rc = marfs_chmod(marfs_sub_path(path()), mode))
+         set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
    virtual bool    utime(const struct utimbuf* ut) {
-      if (_rc = marfs_utime(fs_to_mar_path(path()), (struct utimbuf*) ut))
-         _errno = errno;
+      if (_rc = marfs_utime(marfs_sub_path(path()), (struct utimbuf*) ut))
+         set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
@@ -1817,32 +1815,32 @@ public:
       int rc;
       const char* marPath;
 
-      marPath = fs_to_mar_path(_item->path);
+      marPath = marfs_sub_path(_item->path);
 
-      // clear the ffi_file structure
-      memset(&ffi_file, 0, sizeof(ffi_file));
+      // clear the fh structure
+      memset(&fh, 0, sizeof(fh));
 
-      // check to see if we are createing. if so we must also truncate
+      // check to see if we are creating. if so we must also truncate
       // TODO: is this now nessary with the new version of marfs_ops.h
       if(O_CREAT & flags) {
          /* we need to create the node */
          if(0 != marfs_mknod(marPath, mode, 0)) {
             fprintf(stderr, "marfs_mknod failed\n");
-            _errno = errno;
+            set_err_string(errno, NULL);
             return false;
          }
          flags = (flags & ~O_CREAT);
       } else {
-         ffi_file.flags = flags;
+         fh.flags = flags;
       }
 
-      // rc = marfs_open(marPath, &ffi_file, flags, OSOF_CTE);
-      rc = marfs_open(marPath, &ffi_file, flags, _expected_write_size);
+      // rc = marfs_open(marPath, &fh, flags, OSOF_CTE);
+      rc = marfs_open(marPath, &fh, flags, _expected_write_size);
       _expected_write_size = 0;
       if (0 != rc) {
          fprintf(stderr, "marfs_open failed\n");
          _rc = rc;
-         _errno = errno;
+         set_err_string(errno, &fh.os.iob);
          return false;
       }
 
@@ -1851,8 +1849,8 @@ public:
       return true;
    }
    virtual bool    opendir() {
-      if(0 != marfs_opendir(fs_to_mar_path(_item->path), &ffi_directory)) {
-         _errno = errno;
+      if(0 != marfs_opendir(marfs_sub_path(_item->path), &dh)) {
+         set_err_string(errno, NULL);
          return false;  // return _rc;
       }
       set(IS_OPEN_DIR);
@@ -1862,7 +1860,7 @@ public:
       //memset((char*)&info, 0, sizeof(PathInfo));
 
       ////EXPAND_PATH_INFO(&info, path);
-      //if(0 != expand_path_info(&info, fs_to_mar_path(_item->path))) {
+      //if(0 != expand_path_info(&info, marfs_sub_path(_item->path))) {
       //   fprintf(stderr, "pftool was unable to expand the path \"%s\" for marfs\n");
       //   return false;
       //}
@@ -1875,7 +1873,7 @@ public:
 
       //_dirp = ::opendir(info.post.md_path);
       //if (! bool(_dirp)) {
-      //   _errno = errno;
+      //   set_err_string(errno, NULL);
       //   return false;  // return _rc;
       //}
       //set(IS_OPEN_DIR);
@@ -1887,9 +1885,9 @@ public:
    virtual bool    close() {
       int rc;
 
-      rc = marfs_release(fs_to_mar_path(_item->path), &ffi_file);
+      rc = marfs_release(marfs_sub_path(_item->path), &fh);
       if (0 != rc) {
-         _errno = errno;
+         set_err_string(errno, &fh.os.iob);
          return false;  // return _rc;
       }
 
@@ -1900,8 +1898,8 @@ public:
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
-      if(0 != marfs_releasedir(fs_to_mar_path(_item->path), &ffi_directory)) {
-         _errno = errno;
+      if(0 != marfs_releasedir(marfs_sub_path(_item->path), &dh)) {
+         set_err_string(errno, NULL);
          return false;
       }
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
@@ -1918,9 +1916,9 @@ public:
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       ssize_t bytes;
 
-      bytes = marfs_read(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
+      bytes = marfs_read(marfs_sub_path(_item->path), buf, count, offset, &fh);
       if (bytes == (ssize_t)-1)
-         _errno = errno;
+         set_err_string(errno, &fh.os.iob);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return bytes;
    }
@@ -1933,7 +1931,7 @@ public:
          path[0] = 0;
 
       marfs_dirp_t d;
-      rc = marfs_readdir_wrapper(&d, fs_to_mar_path(_item->path), &ffi_directory);
+      rc = marfs_readdir_wrapper(&d, marfs_sub_path(_item->path), &dh);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       if (rc > 0) {
          strncpy(path, d.name, size);
@@ -1942,7 +1940,7 @@ public:
          return true;
       } else if (rc < 0) {
          perror("readdir failure");
-         _errno = errno;
+         set_err_string(errno, NULL);
          return bool(_errno == 0);
       }
    }
@@ -1951,9 +1949,9 @@ public:
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
       ssize_t bytes;
-      bytes = marfs_write(fs_to_mar_path(_item->path), buf, count, offset, &ffi_file);
-      if (bytes ==  (ssize_t)-1)
-         _errno = errno;
+      bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, &fh);
+      if (bytes == (ssize_t)-1)
+         set_err_string(errno, &fh.os.iob);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return bytes;
    }
@@ -1963,8 +1961,8 @@ public:
    //       "directories" are handled.  If full path includes an obj, we'll
    //       have to assume you intend it as an empty directory.
    virtual bool    mkdir(mode_t mode) {
-      if (_rc = marfs_mkdir(fs_to_mar_path(_item->path), mode)) {
-         _errno = errno;
+      if (_rc = marfs_mkdir(marfs_sub_path(_item->path), mode)) {
+         set_err_string(errno, NULL);
       }
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
@@ -1976,8 +1974,8 @@ public:
    // continue to be usable until no one is referring to it, or having it
    // open.  S3 don't play that.
    virtual bool    unlink() {
-      if (_rc = marfs_unlink(fs_to_mar_path(_item->path)))
-         _errno = errno;
+      if (_rc = marfs_unlink(marfs_sub_path(_item->path)))
+         set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
