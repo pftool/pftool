@@ -2028,7 +2028,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 reg_buffer_count++;
             }
 
-            if (work_node.st.st_size >= chunk_at) {     // working with a chunkable file
+            if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
                 int ctmExists = hasCTM(out_node.path);
 
                 if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure
