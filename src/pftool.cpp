@@ -51,15 +51,16 @@ int main(int argc, char *argv[]) {
     int        input_queue_count = 0;
 
     //paths
-    char src_path[PATHSIZE_PLUS];
-    char dest_path[PATHSIZE_PLUS];
+    char        src_path[PATHSIZE_PLUS];
+    char        dest_path[PATHSIZE_PLUS];
+
     struct stat dest_stat;
-    int statrc;
+    int         statrc;
 
 #ifdef S3
-    // aws_init() (actually, curl_global_init()) is supposed to be done
-    // before *any* threads are created.  Could MPI_Init() create threads
-    // (or call multi-threaded libraries)?  We'll assume so.
+    // aws_init() -- actually, curl_global_init() -- is supposed to be
+    // called before *any* threads are created.  Could MPI_Init() create
+    // threads (or call multi-threaded libraries)?  We'll assume so.
     AWS4C_CHECK( aws_init() );
     s3_enable_EMC_extensions(1);
 #endif
@@ -71,19 +72,15 @@ int main(int argc, char *argv[]) {
     AWS4C_CHECK( aws_init() );
     //s3_enable_EMC_extensions(1); TODO: Where does this need to be set
 
-# if (DEBUG > 1)
-    aws_set_debug(1);
-# endif
-
     char* const user_name = (getenv("USER"));
     // TODO: is this nessary. I am not sure that it is
     if (aws_read_config(user_name)) {
-          exit(1);
+        fprintf(stderr, "unable to load AWS4C config\n");
+        exit(1);
     } 
-
     if (read_configuration()) {
-        fprintf(stderr, "unable to load marfs config\n");
-        // TODO: should some sort of error be thrown here?
+        fprintf(stderr, "unable to load MarFS config\n");
+        exit(1);
     }
 
     init_xattr_specs();
@@ -139,6 +136,10 @@ int main(int argc, char *argv[]) {
         o.blocksize = (1024 * 1024);
         o.chunk_at  = (100ULL * 1024 * 1024 * 1024); // 107374182400
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
+
+        // marfs can't default these until we see the destination
+        bool chunk_at_defaulted = true;
+        bool chunk_sz_defaulted = true;
 
 #ifdef FUSE_CHUNKER
         //so we don't make fuse files not on archive
@@ -514,14 +515,14 @@ void manager(int             rank,
 
 
                 // NOTE: If we errsend anything here, we'll deadlock on the
-                //       other procs that are waiting at the Bcast().
-                //       That's because there's a problem witht he way
-                //       OUTPUT_PROC is used.  Either the errsend()
+                //       other procs that are waiting at the Bcast(),
+                //       below.  That's because there's a problem with the
+                //       way OUTPUT_PROC is used.  Either the errsend()
                 //       functions should send asynchronously, or
                 //       OUTPUT_PROC should run a special process (other
                 //       than worker()), so that it does nothing but
-                //       synchronous recevs of diagnostic messages OUTCMD
-                //       and LOGCMD.
+                //       synchronous recvs of the diagnostic messages
+                //       OUTCMD and LOGCMD.
 
                 //                errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
                 //                            dest_node.path, dest_path);
@@ -1605,6 +1606,16 @@ void worker_readdir(int         rank,
  * the source file. If it does, then it assumes that there was 
  * an aborted transfer, and the files are NOT the same!
  *
+ * check size, mtime, mode, and owners
+ * 
+ * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
+ *    their metadata is initialized with ctime=mtime, and atime=mtime.
+ *    Therefore, if you compare a POSIX file having values for ctime,
+ *    atime, and mtime that are not all the same, with any S3 object, the
+ *    two sets of metadata will *always* differ in these values, even if
+ *    you freshly create them and set all these values to match the
+ *    original.  Therefore, it might make sense to reconsider this test.
+ *
  * @param src        a path_item structure containing
  *           the metadata for the souce file
  * @param dst        a path_item structure containing
@@ -1615,6 +1626,8 @@ void worker_readdir(int         rank,
  * @return 1 (TRUE) if the metadata matches and no CTM
  *   exists for a chunkable file. 0 (FALSE) otherwise.
  */
+
+#if 0
 int samefile(path_item src, path_item dst, struct options o) {
     int rc = 0;                         // return code of function
 
@@ -1627,6 +1640,26 @@ int samefile(path_item src, path_item dst, struct options o) {
         rc = !(hasCTM(src.path));                 // if CTM exists -> two file are NOT the same
     return(rc);
 }
+#else
+// TBD: Use Path methods to avoid over-reliance on struct stat
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
+    const path_item& src = p_src->node();
+    const path_item& dst = p_dst->node();
+
+    if (src.st.st_size == dst.st.st_size          // compare metadata - check size, mtime, mode, and owners
+        && (src.st.st_mtime == dst.st.st_mtime
+            || S_ISLNK(src.st.st_mode))
+        && src.st.st_mode == dst.st.st_mode
+        && src.st.st_uid == dst.st.st_uid
+        && src.st.st_gid == dst.st.st_gid) {
+
+        if (src.st.st_size >= o.chunk_at)             // a chunkable file that looks the same - does it have a CTM?
+            return !(hasCTM(src.path));                 // if CTM exists -> two file are NOT the same
+        return 1;
+    }
+    return 0;
+}
+#endif
 
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
@@ -1701,7 +1734,7 @@ void process_stat_buffer(path_item*      path_buffer,
     int         i;
 
     //chunks
-    //place_holder fo current chunk_size
+    //place_holder for current chunk_size
     size_t      chunk_size = 0;
     size_t      chunk_at = 0;
     size_t      num_bytes_seen = 0;
@@ -1744,7 +1777,6 @@ void process_stat_buffer(path_item*      path_buffer,
 
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
-
         process = 0;
 
         ////        work_node = path_buffer[i];
@@ -1765,17 +1797,14 @@ void process_stat_buffer(path_item*      path_buffer,
         ////            write_count--;
         ////            continue;
         ////        }
-        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n", rank, i, work_node.path);
-        process = FALSE;
-
         path_item&  work_node = path_buffer[i]; // avoid a copy
         PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
         PathPtr p_out;
 
+        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n", rank, i, work_node.path);
 
-        // TBD: This should test for *identical* items (e.g. same POSIX
-        //      inode num)
+        // Are these items *identical* ? (e.g. same POSIX inode)
         if (p_work->identical(p_dest)) {
             write_count--;
             continue;
@@ -1783,8 +1812,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
         //check if the work is a directory
         ////        else if (S_ISDIR(st.st_mode))
-        else if (p_work->is_dir())
-        {
+        else if (p_work->is_dir()) {
             dirbuffer[dir_buffer_count] = p_work->node();  //// work_node;
             dir_buffer_count++;
             if (dir_buffer_count % DIRBUFFER == 0) {
@@ -1802,7 +1830,7 @@ void process_stat_buffer(path_item*      path_buffer,
             memset(&out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
             get_output_path(out_node.path, base_path, &work_node, dest_node, o);
 
-            ////            rc = stat_item(&out_node, o);
+            //// rc = stat_item(&out_node, o);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
 
@@ -1810,13 +1838,13 @@ void process_stat_buffer(path_item*      path_buffer,
                 process = 1;
 
                 ////#ifdef PLFS
-                ////                if(out_node.ftype == PLFSFILE) {
-                ////                    parallel_dest = 1;
-                ////                    work_node.dest_ftype = PLFSFILE;
-                ////                }
-                ////                else {
-                ////                    parallel_dest = o.parallel_dest;
-                ////                }
+                ////       if(out_node.ftype == PLFSFILE) {
+                ////           parallel_dest = 1;
+                ////           work_node.dest_ftype = PLFSFILE;
+                ////       }
+                ////       else {
+                ////           parallel_dest = o.parallel_dest;
+                ////       }
                 ////#endif
                 p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
                 if (p_out->supports_n_to_1())
@@ -1826,38 +1854,11 @@ void process_stat_buffer(path_item*      path_buffer,
                 ////                if (rc == 0)
                 if (p_out->exists()) {
 
-                    if (o.different == 1) {
-                        // user only wants to operate on source-files that
-                        // are "different" from the corresponding
-                        // dest-files.
-
-
-                        //check size, mtime, mode, and owners
-                        //
-                        // NOTE: S3 objects DO NOT HAVE create-time or
-                        //       access-time.  Therefore, their metadata is
-                        //       initialized with ctime=mtime, and
-                        //       atime=mtime.  Therefore, if you compare a
-                        //       POSIX file having values for ctime, atime,
-                        //       and mtime that are not all the same, with
-                        //       any S3 object, the two sets of metadata
-                        //       will *always* differ in these values, even
-                        //       if you freshly create them and set all
-                        //       these values to match the original.
-                        //       Therefore, it might make sense to
-                        //       reconsider this test.
-                        if (work_node.st.st_size == out_node.st.st_size &&
-                                (work_node.st.st_mtime == out_node.st.st_mtime  ||
-                                 S_ISLNK(work_node.st.st_mode)) &&
-                                work_node.st.st_mode == out_node.st.st_mode &&
-                                work_node.st.st_uid == out_node.st.st_uid &&
-                                work_node.st.st_gid == out_node.st.st_gid) {
-
-                            process = 0; // source/dest are the same, so skip
-                        }
-                    }
-
-
+                    // Maybe user only wants to operate on source-files
+                    // that are "different" from the corresponding
+                    // dest-files.
+                    if ((o.different == 1) && samefile(p_work, p_out, o))
+                        process = 0; // source/dest are the same, so skip
 
                     if (process == 1) {
 
@@ -1865,8 +1866,9 @@ void process_stat_buffer(path_item*      path_buffer,
                         if (out_node.ftype == FUSEFILE) {
 
                             //it's a fuse file: delete the link-dest, and the link itself
-                            if (o.different == 0 ||
-                                    (o.different == 1 && out_node.st.st_size > work_node.st.st_size)) {
+                            if (o.different == 0
+                                || (o.different == 1
+                                    && out_node.st.st_size > work_node.st.st_size)) {
 
                                 // <linkname> = name of the link-destination
                                 numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
@@ -1896,45 +1898,41 @@ void process_stat_buffer(path_item*      path_buffer,
                         }
                         else {
 #endif
+                            // it's not fuse, unlink
 
-                            //it's not fuse, unlink
                             ////#ifdef PLFS
                             ////                            if (out_node.ftype == PLFSFILE){
                             ////                                rc = plfs_unlink(out_node.path);
                             ////                            }
-                            ////                            else{
+                            ////                            else {
                             ////#endif
-                            ////                                rc = unlink(out_node.path);
+                            ////                                if (!o.different || work_node.st.st_size < o.chunk_at)
+                            ////                                    // remove the destination file only if
+                            ////                                    // not doing a conditional transfer, or
+                            ////                                    // source file size <= chunk_at size
+                            ////                                     rc = unlink(out_node.path);
                             ////#ifdef PLFS
                             ////                            }
                             ////#endif
-                            ////
                             ////                            if (rc < 0) {
-                            ////                                snprintf(errmsg, MESSAGESIZE, "Failed to unlink (2) %s -- ftype==%d", out_node.path, out_node.ftype);
+                            ////                                snprintf(errmsg, MESSAGESIZE,
+                            ////                                         "Failed to unlink %s",
+                            ////                                         out_node.path);
                             ////                                errsend(FATAL, errmsg);
                             ////                            }
-                            ////
-#if 0
-                            // COMMENTED OUT.  See NOTE, below.
-                            if (! p_out->unlink()) {
-                                errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
-                                        p_out->path(), p_out->strerror());
+                            ////                            out_node.ftype = NONE;
+                            ////#ifdef FUSE_CHUNKER
+
+                            // remove the destination file only if not
+                            // doing a conditional transfer, or source file
+                            // size <= chunk_at size
+                            //
+                            if (!o.different || work_node.st.st_size < o.chunk_at) {
+                                if (! p_out->unlink()) {
+                                    errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
+                                                p_out->path(), p_out->strerror());
+                                }
                             }
-#else
-                            // NOTE: the old code considered
-                            //       (return-code<0) to be an error.  But
-                            //       plfs_unlink() and unlink() both always
-                            //       return >= 0.  (Errors are small
-                            //       positive integers.)  Therefore, the
-                            //       old code never actually tested for
-                            //       errors, and, if I do so now, I
-                            //       discover that plfs_unlink() is
-                            //       returning ENOENT when unlinking, even
-                            //       though the unlink is apparently
-                            //       successful.  Therefore, I'm stifling
-                            //       this test.
-                            p_out->unlink();
-#endif
 
                             p_out.reset(); // p_out was created shallow, and we're going to change ftype
                             out_node.ftype = NONE;
@@ -2009,173 +2007,219 @@ void process_stat_buffer(path_item*      path_buffer,
                             }
                         }
                     }
-                }
-            }
 #endif
 
 
 
 #ifdef PLFS
-            if (work_node.desttype == PLFSFILE) {
-                chunk_size = o.plfs_chunksize;
-                chunk_at = 0;
-            }
-#endif
-            if (work_node.st.st_size == 0) {        // handle zero-length source file - because it will not be processed through chunk/file loop below.
-                work_node.chkidx = 0;
-                work_node.chksz = 0;
-                regbuffer[reg_buffer_count] = work_node;
-                reg_buffer_count++;
-            }
-
-            if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
-                int ctmExists = hasCTM(out_node.path);
-
-                if (o.different && ctmExists && dest_exists) {// we are doing a conditional transfer & CTM exists -> populate CTM structure
-                    ctm = getCTM(out_node.path,((long)ceil(work_node.st.st_size/((double)chunk_size))),chunk_size);
-                    if(IO_DEBUG_ON) {
-                        char ctm_flags[2048];
-                        char *ctmstr = ctm_flags;
-                        int ctmlen = 2048;
-
-                        PRINT_IO_DEBUG("rank %d: process_stat_buffer() Reading persistenr store of CTM: %s\n", rank, tostringCTM(ctm,&ctmstr,&ctmlen));
+                    if (work_node.desttype == PLFSFILE) {
+                        chunk_size = o.plfs_chunksize;
+                        chunk_at = 0;
                     }
-                }
-                else if (ctmExists)               // get rid of the CTM on the file if we are NOT doing a conditional transfer
-                    purgeCTM(out_node.path);   
-            }
-            chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
-            idx = 0;                    // keeps track of the chunk index
-            while (chunk_curr_offset < work_node.st.st_size) {
-                work_node.chkidx = idx;         // assign the chunk index
-                // non-chunked file or file is a link or metadata compare work - just send the whole file
-                if (work_node.st.st_size <= chunk_at || work_node.ftype == LINKFILE || (o.work_type == COMPAREWORK && o.meta_data_only)) {
-                    work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
-                    chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
-                    PRINT_IO_DEBUG("rank %d: process_stat_buffer() non-chunkable file   chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
-                }
-                else {                  // having to chunk the file
-                    work_node.chksz = (ctm)?ctm->chnksz:chunk_size;
-                    chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)?(work_node.st.st_size-chunk_curr_offset):work_node.chksz);
-                    idx++;
-                }
-#ifdef TAPE
-                if (work_node.ftype == MIGRATEFILE
-#ifdef FUSE_CHUNKER
-                        || (work_node.st.st_size > 0 && work_node.st.st_blocks == 0 && work_node.ftype == FUSEFILE)
 #endif
-                   ) {
-                    tapebuffer[tape_buffer_count] = work_node;
-                    tape_buffer_count++;
-                    if (tape_buffer_count % TAPEBUFFER == 0) {
-                        send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
-                    }
-                }
-                else {
-#endif
-                    if (!o.different || !chunktransferredCTM(ctm,work_node.chkidx)) { // if a non-conditional transfer or if the chunk did not make on the first one ...
-                        num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
-                        regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
+                    // handle zero-length source file - because it will not
+                    // be processed through chunk/file loop below.
+                    if (work_node.st.st_size == 0) {
+                        work_node.chkidx = 0;
+                        work_node.chksz = 0;
+                        regbuffer[reg_buffer_count] = work_node;
                         reg_buffer_count++;
-                        PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk index: %d   chunk size: %ld\n", rank, work_node.chkidx, work_node.chksz);
-                        if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
-                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination - sending %d reg buffers to manager.\n", rank, reg_buffer_count);
-                            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                            num_bytes_seen = 0;
-                        }
-                    } // end send test
-#ifdef TAPE
-                }
-#endif
-            } // end file/chunking loop
-            if (ctm) freeCTM(&ctm);           // if CTM structure allocated it -> free the memory now
-        } // end Parallel destination
-        else {                      // non-parallel destination
-            work_node.chkidx = 0;           // for non-chunked files, index is always 0
-            work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
+                    }
 
-            num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
-            regbuffer[reg_buffer_count] = work_node;
-            reg_buffer_count++;
-            if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
-                PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination - sending %d reg buffers to manager.\n", rank, reg_buffer_count);
-                send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                num_bytes_seen = 0;
+                    if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
+                        int ctmExists = hasCTM(out_node.path);
+
+                        // we are doing a conditional transfer & CTM exists
+                        // -> populate CTM structure
+                        if (o.different && ctmExists && dest_exists) {
+                            ctm = getCTM(out_node.path,
+                                         ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
+                                         chunk_size);
+                            if(IO_DEBUG_ON) {
+                                char ctm_flags[2048];
+                                char *ctmstr = ctm_flags;
+                                int ctmlen = 2048;
+
+                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
+                                               "Reading persistent store of CTM: %s\n",
+                                               rank, tostringCTM(ctm,&ctmstr,&ctmlen));
+                            }
+                        }
+                        else if (ctmExists)
+                            // get rid of the CTM on the file if we are NOT
+                            // doing a conditional transfer
+                            purgeCTM(out_node.path);   
+                    }
+
+                    chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
+                    idx = 0;                    // keeps track of the chunk index
+                    while (chunk_curr_offset < work_node.st.st_size) {
+                        work_node.chkidx = idx;         // assign the chunk index
+
+                        // non-chunked file or file is a link or metadata
+                        // compare work - just send the whole file
+                        if ((work_node.st.st_size <= chunk_at)
+                            || (work_node.ftype == LINKFILE)
+                            || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+
+                            work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
+                            chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
+                            PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
+                                           "non-chunkable file   chunk index: %d   chunk size: %ld\n",
+                                           rank, work_node.chkidx, work_node.chksz);
+                        }
+                        else {                  // having to chunk the file
+                            work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
+                            chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
+
+                                                  // should this be (work_node.chksz - chunk_curr_offset)?
+                                                  ? (work_node.st.st_size - chunk_curr_offset)
+
+                                                  : work_node.chksz);
+                            idx++;
+                        }
+#ifdef TAPE
+                        if (work_node.ftype == MIGRATEFILE
+#  ifdef FUSE_CHUNKER
+                            || (work_node.st.st_size > 0
+                                && work_node.st.st_blocks == 0
+                                && work_node.ftype == FUSEFILE)
+#  endif
+                            ) {
+                            tapebuffer[tape_buffer_count] = work_node;
+                            tape_buffer_count++;
+                            if (tape_buffer_count % TAPEBUFFER == 0) {
+                                send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+                            }
+                        }
+                        else {
+#endif
+                            // if a non-conditional transfer or if the
+                            // chunk did not make on the first one ...
+                            if (!o.different
+                                || !chunktransferredCTM(ctm,work_node.chkidx)) {
+
+                                num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
+                                regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
+                                reg_buffer_count++;
+                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk "
+                                               "index: %d   chunk size: %ld\n",
+                                               rank, work_node.chkidx, work_node.chksz);
+                                if (((reg_buffer_count % COPYBUFFER) == 0)
+                                    || num_bytes_seen >= ship_off) {
+                                    PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
+                                                    "- sending %d reg buffers to manager.\n",
+                                                    rank, reg_buffer_count);
+                                    send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                                    num_bytes_seen = 0;
+                                }
+                            } // end send test
+#ifdef TAPE
+                        }
+#endif
+                    } // end file/chunking loop
+
+                    // if CTM structure allocated it -> free the memory now
+                    if (ctm)
+                        freeCTM(&ctm);
+                } // end Parallel destination
+
+                else {  // non-parallel destination
+                    work_node.chkidx = 0;           // for non-chunked files, index is always 0
+                    work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
+
+                    num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
+                    regbuffer[reg_buffer_count] = work_node;
+                    reg_buffer_count++;
+                    if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+                        PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
+                                        "- sending %d reg buffers to manager.\n",
+                                        rank, reg_buffer_count);
+                        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                        num_bytes_seen = 0;
+                    }
+                }
             }
         }
-    }
-}
 
-
-////        if (! S_ISDIR(st.st_mode))
-if (! S_ISDIR(work_node.st.st_mode)) {
-    num_examined_files++;
-    num_examined_bytes += work_node.st.st_size;
+        ////        if (! S_ISDIR(st.st_mode))
+        if (! S_ISDIR(work_node.st.st_mode)) {
+            num_examined_files++;
+            num_examined_bytes += work_node.st.st_size;
 #ifdef TAPE
-    if (work_node.ftype == MIGRATEFILE) {
-        num_examined_tapes++;
-        num_examined_tape_bytes += work_node.st.st_size;
-    }
+            if (work_node.ftype == MIGRATEFILE) {
+                num_examined_tapes++;
+                num_examined_tape_bytes += work_node.st.st_size;
+            }
 #endif
-}
-printmode(work_node.st.st_mode, modebuf);
-memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
-strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
-//if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
-if (o.verbose) {
-    if (work_node.ftype == MIGRATEFILE) {
-        sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n",
-                modebuf, (long unsigned int) work_node.st.st_blocks,
-                work_node.st.st_uid, work_node.st.st_gid,
-                (size_t) work_node.st.st_size, timebuf, work_node.path);
-    }
-    else if (work_node.ftype == PREMIGRATEFILE) {
-        sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n",
-                modebuf, (long unsigned int) work_node.st.st_blocks,
-                work_node.st.st_uid, work_node.st.st_gid,
-                (size_t) work_node.st.st_size, timebuf, work_node.path);
-    }
-    else {
-        sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
-                modebuf, (long unsigned int) work_node.st.st_blocks,
-                work_node.st.st_uid, work_node.st.st_gid,
-                (size_t) work_node.st.st_size, timebuf, work_node.path);
-    }
-    MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
-    write_count++;
-    if (write_count % MESSAGEBUFFER == 0) {
+        }
+        printmode(work_node.st.st_mode, modebuf);
+        memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
+        strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
+
+        //if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
+        if (o.verbose) {
+            if (work_node.ftype == MIGRATEFILE) {
+                sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n",
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
+            }
+            else if (work_node.ftype == PREMIGRATEFILE) {
+                sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n",
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
+            }
+            else {
+                sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
+                        modebuf, (long unsigned int) work_node.st.st_blocks,
+                        work_node.st.st_uid, work_node.st.st_gid,
+                        (size_t) work_node.st.st_size, timebuf, work_node.path);
+            }
+            MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+            write_count++;
+            if (write_count % MESSAGEBUFFER == 0) {
+                write_buffer_output(writebuf, writesize, write_count);
+                out_position = 0;
+                write_count = 0;
+            }
+        }
+
+        // regbuffer is full (probably with zero-length files) -> send it
+        // off to manager. - cds 8/2015
+        if (reg_buffer_count >= COPYBUFFER) {
+            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg "
+                            "buffers to manager.\n", rank, reg_buffer_count);
+            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+        }
+    } //end of stat processing loop
+
+
+    //incase we tried to copy a file into itself
+    if (o.verbose) {
+        writesize = MESSAGESIZE * write_count;
+        writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
         write_buffer_output(writebuf, writesize, write_count);
-        out_position = 0;
-        write_count = 0;
     }
-}
-}
+    while(dir_buffer_count != 0) {
+        send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
+    }
+    while (reg_buffer_count != 0) {
+        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+    }
 
-
-//incase we tried to copy a file into itself
-if (o.verbose) {
-    writesize = MESSAGESIZE * write_count;
-    writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
-    write_buffer_output(writebuf, writesize, write_count);
-}
-while(dir_buffer_count != 0) {
-    send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
-}
-while (reg_buffer_count != 0) {
-    send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-}
 #ifdef TAPE
-while (tape_buffer_count != 0) {
-    send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
-}
-send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
+    while (tape_buffer_count != 0) {
+        send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+    }
+    send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
 #endif
-send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
+    send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
 
-
-//free malloc buffers
-free(writebuf);
-*stat_count = 0;
+    //free malloc buffers
+    free(writebuf);
+    *stat_count = 0;
 }
 
 
@@ -2247,10 +2291,10 @@ void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct 
 
 //When a worker is told to copy, it comes here
 void worker_copylist(int             rank,
-        int             sending_rank,
-        const char*     base_path,
-        path_item*      dest_node,
-        struct options& o) {
+                     int             sending_rank,
+                     const char*     base_path,
+                     path_item*      dest_node,
+                     struct options& o) {
 
     MPI_Status     status;
     char*          workbuf;
@@ -2285,7 +2329,8 @@ void worker_copylist(int             rank,
     gid_t          chunk_groupid;
 #endif
 
-    PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n", rank, sending_rank);
+    PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n",
+                    rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive read_count\n");
     }
@@ -2295,7 +2340,8 @@ void worker_copylist(int             rank,
     writebuf = (char *) malloc(writesize * sizeof(char));
 
     //gather the path to stat
-    PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n", rank, sending_rank);
+    PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n",
+                    rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive workbuf\n");
     }
@@ -2314,13 +2360,19 @@ void worker_copylist(int             rank,
     out_position = 0;
     for (i = 0; i < read_count; i++) {
 
-        PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
+        PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n",
+                        rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
         offset = work_node.chkidx*work_node.chksz;
-        length = ((offset+work_node.chksz)>work_node.st.st_size)?(work_node.st.st_size-offset):work_node.chksz;
-        PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. offset = %ld   length = %ld\n", rank, work_node.chkidx, offset, length);
+        length = (((offset + work_node.chksz) > work_node.st.st_size)
+                  ? (work_node.st.st_size - offset)
+                  : work_node.chksz);
+        PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. "
+                        "offset = %ld   length = %ld\n",
+                        rank, work_node.chkidx, offset, length);
         get_output_path(out_node.path, base_path, &work_node, dest_node, o);
-        out_node.fstype = o.dest_fstype;
+        out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
+
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
 #endif
@@ -2334,25 +2386,29 @@ void worker_copylist(int             rank,
             ut.actime = work_node.st.st_atime;
             ut.modtime = work_node.st.st_mtime;
             rc = get_fuse_chunk_attr(out_node.path, offset, length, &chunk_ut, &chunk_userid, &chunk_groupid);
-            if ( rc == -1 ||
-                    chunk_userid != userid ||
-                    chunk_groupid != groupid ||
-                    chunk_ut.actime != ut.actime||
-                    chunk_ut.modtime != ut.modtime) { //not a match
+            if ( rc == -1
+                 || chunk_userid != userid
+                 || chunk_groupid != groupid
+                 || chunk_ut.actime != ut.actime
+                 || chunk_ut.modtime != ut.modtime) { //not a match
 
                 rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
+            else
+                rc = 0;
         }
 #endif
 
         if (rc >= 0) {
             if (o.verbose) {
                 if (S_ISLNK(work_node.st.st_mode)) {
-                    sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n", out_node.path, work_node.path);
+                    sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n",
+                            out_node.path, work_node.path);
                 }
                 else {
-                    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", work_node.path, (long long)offset, (long long)length, out_node.path);
+                    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n",
+                            work_node.path, (long long)offset, (long long)length, out_node.path);
                 }
                 //MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
                 //write_buffer_output(copymsg, MESSAGESIZE, 1);

@@ -1164,10 +1164,12 @@ public:
    virtual bool    remove() {
       return unlink();
    }
+   // NOTE: plfs_unlink() is returning ENOENT when unlinking, even though
+   //       the unlink is apparently successful.
    virtual bool    unlink() {
       _plfs_rc = plfs_unlink(_item->path);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
-      return (_plfs_rc == PLFS_SUCCESS);
+      return true; // return (_plfs_rc == PLFS_SUCCESS);
    }
    virtual bool    symlink(const char* link_name) {
       _plfs_rc = plfs_symlink(_item->path, link_name);
