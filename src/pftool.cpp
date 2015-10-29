@@ -1587,14 +1587,12 @@ void worker_readdir(int         rank,
             fclose(fp);
         }
     }
+    // process any remaining partially-filled workbuffer contents
     while(buffer_count != 0) {
-        // process any remaining partially-filled workbuffer contents
-        while(buffer_count != 0) {
-            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
-        }
-        free(workbuf);
-        send_manager_work_done(rank);
+        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
     }
+    free(workbuf);
+    send_manager_work_done(rank);
 }
 
 
