@@ -602,8 +602,12 @@ int copy_file(path_item*    src_file,
     //MPI_File dest_fd;
     ////    int         src_fd;
     ////    int         dest_fd = -1;
-    off_t       offset = src_file->offset;
-    size_t      length = src_file->length;
+    //    off_t       offset = src_file->offset;
+    //    size_t      length = src_file->length;
+    off_t offset = (src_file->chkidx * src_file->chksz);
+    off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
+                    ? (src_file->st.st_size - offset)
+                    : src_file->chksz);
 
     ////#ifdef PLFS
     ////    int         pid = getpid();
@@ -693,7 +697,9 @@ int copy_file(path_item*    src_file,
 #ifdef GEN_SYNDATA
     }
 #endif
-   PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk index %d. offset = %ld   length = %ld   blocksize = %ld\n", rank, src_file.chkidx, offset, length, blocksize);
+    PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk "
+                   "index %d. offset = %ld   length = %ld   blocksize = %ld\n",
+                   rank, src_file.chkidx, offset, length, blocksize);
     // OPEN destination for writing
     //
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
@@ -730,13 +736,10 @@ int copy_file(path_item*    src_file,
     ////        return -1;
     ////    }
 
-    p_dest->expected_write_size(p_src->st().st_size); // broken in libcurl 7.19.7 ?
-    //    fprintf(stderr, "opening %s with expected-size %lu\n",
-    //            p_dest->node().path,
-    //            p_src->st().st_size);
-    // aws_set_debug(1);
-
-    if (! p_dest->open(flags, 0600)) {
+    // p_dest->expected_write_size(length); 
+    //    fprintf(stderr, "opening %s with offset=%ld, length=%lu\n",
+    //            p_dest->node().path, offset, length);
+    if (! p_dest->open(flags, 0600, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
        return -1;
@@ -923,8 +926,11 @@ int compare_file(path_item*  src_file,
     char         errormsg[MESSAGESIZE];
     int          rc;
     int          crc;
-    off_t        offset = src_file->offset;
-    size_t       length = src_file->length;
+    //    off_t        offset = src_file->offset;
+    //    size_t       length = src_file->length;
+    off_t offset = (src_file->chkidx * src_file->chksz);
+    off_t length = src_file->st.st_size;
+
 
     // assure dest exists
 #ifdef FUSE_CHUNKER
@@ -1141,6 +1147,10 @@ int update_stats(path_item*  src_file,
                    p_dest->path(), p_dest->strerror());
     }
 
+
+    // perform any final adjustments on destination, given source
+    PathPtr p_src(PathFactory::create_shallow(src_file));
+    p_dest->post_process(p_src);
 
     return 0;
 }
@@ -1488,8 +1498,10 @@ void set_fuse_chunk_data(path_item *work_node) {
     free(current);
 
     // assign to <work_node>
-    work_node->offset = 0;
-    work_node->length = length;
+    //    work_node->offset = 0;
+    //    work_node->length = length;
+    work_node->chkidx = 0;
+    work_node->chksz = length;
 }
 
 

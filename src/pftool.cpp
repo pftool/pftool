@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:vrlPMnh")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:vrlPMnh")) != -1) {
             switch(c) {
                 case 'p':
                     //Get the source/beginning path
@@ -260,7 +260,8 @@ int main(int argc, char *argv[]) {
                     // each '-v' increases verbosity, as follows
                     //  >= 1  means normal diagnostics
                     //  >= 2  means ...
-                    //  >= 3  means also show S3 client/server interaction
+                    //  == 3  means also show S3 client/server interaction
+                    //  == 4  means also make a runtime infinite loop, for gdb
                     o.verbose += 1;
                     break;
 
@@ -273,18 +274,20 @@ int main(int argc, char *argv[]) {
                 default:
                     break;
             }
-
-#if 0
-        // EXPERIMENT:  allow me to attach gdb, before proceeding
-        int gdb = 0;
-        while (!gdb) {
-            fprintf(stderr, "spinning waiting for gdb attach\n");
-            sleep(5);
         }
-#elif 0
-        fprintf(stderr, "sleeping to give you time for gdb attach\n");
-        sleep(20);
-#endif
+
+
+        // DEBUGGING:  maybe wait for me to attach gdb, before proceeding
+        if (o.verbose == 4) {
+            //        fprintf(stderr, "sleeping to give you time for gdb attach\n");
+            //        sleep(20);
+
+            volatile int gdb = 0; // don't optimize me, bro!
+            while (!gdb) {
+                fprintf(stderr, "spinning waiting for gdb attach\n");
+                sleep(5);
+            }
+        }
 
     }
     MPI_Barrier(MPI_COMM_WORLD);
@@ -339,6 +342,7 @@ int main(int argc, char *argv[]) {
     // 
     PathFactory::initialize(&o, rank, src_path, dest_path);
 
+
     //    // providing multiple '-v' args on the command line increases the value
     //    // of o.verbose.  Any non-zero value turns on verbosity.  However, if
     //    // o.verbose > 1, we also sleep for 5 seconds here.  That allows a user
@@ -354,7 +358,7 @@ int main(int argc, char *argv[]) {
     //    }
 
 #ifdef MARFS
-    if (o.verbose >= 3) {
+    if (o.verbose == 3) {
         aws_set_debug(1);
     }
 #endif
@@ -1173,7 +1177,7 @@ void worker_update_chunk(int            rank,
 
 
         hash_value = hashtbl_get(*chunk_hash, out_node.path);             // get the value 
-        chunk_size = work_node.length;
+        // chunk_size = work_node.length;
         if (hash_value == (HASHDATA *)NULL) {
 
             //resize the hashtable if needed
@@ -1193,14 +1197,18 @@ void worker_update_chunk(int            rank,
                 char *ctmstr = ctm_flags;
                 int ctmlen = 2048;
 
-                PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n", rank, work_node.chkidx, work_node.path,tostringCTM((CTM *)hash_value,&ctmstr,&ctmlen));
+                PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n",
+                               rank, work_node.chkidx, work_node.path,
+                               tostringCTM((CTM *)hash_value, &ctmstr, &ctmlen));
             }
         }
 
         if (hash_value == (HASHDATA *)NULL) {                            // if no hash_value at this point, we have a problem!
             errsend(NONFATAL, "Do not have a hashed data structure for a chunked file!\n");
         } else if (hashdata_filedone(hash_value)) {                       // --- File is done transferring
-            PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. CTM should be removed. (chunk %d of file %s)\n", rank, work_node.chkidx, work_node.path);
+            PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. "
+                           "CTM should be removed. (chunk %d of file %s)\n",
+                           rank, work_node.chkidx, work_node.path);
             hash_value = hashtbl_remove(*chunk_hash, work_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
             get_output_path(out_node.path, base_path, &work_node, dest_node, o);
@@ -1640,8 +1648,9 @@ int samefile(path_item src, path_item dst, struct options o) {
         rc = !(hasCTM(src.path));                 // if CTM exists -> two file are NOT the same
     return(rc);
 }
+
 #else
-// TBD: Use Path methods to avoid over-reliance on struct stat
+// TBD: Use Path methods to avoid over-reliance on POSIX same-ness
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
@@ -1686,27 +1695,40 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 // alter dest_ftype, and you can read ftype, but do not alter ftype and
 // continue to use a Path object that was constructed with a
 // shallow-pointer to that path_item.
+//
+// QUESTION: the C++ classes can't support setting path_item.ftype to NONE,
+//     for a path_item that has any further use, unless it is going to be
+//     passed through stat_item() again.  It appears to me that setting
+//     path_item.ftype=NONE was used here for the sole purpose of
+//     indicating that a file had been unlinked, and needed no further
+//     treatment.  However, I actually did need to use that path_item again
+//     later.  So, instead of setting ftype=NONE, I coined a new variable
+//     ('out_unlinked') to indicate when the path_item had been unlinked.
+//     Am I missing anything?  (For example, is someone ever going to look
+//     at the path_item somewhere else, and do the wrong thing, because
+//     it's ftype is not NONE?)
+//
 /**
  * This routine processes a buffer of path_items that represent files
- * that have been stated, and are ready to put on the work list.
+ * that have been stat'ed, and are ready to put on the work list.
  *
  * @param *path_buffer   the buffer to process
  * @param *stat_count    the number of path_items (files) in
- *           the given path_buffer
- * @param base_path  the base or parent directory of the
- *           files being processed
- * @param dest_node  a path_item structure that is a template
- *           for the destination of the transfer
- * @param o      the PFTOOL global options structure
- * @param rank       the process MPI rank of the process
- *           doing the buffer processing
+ *                         the given path_buffer
+ * @param base_path      the base or parent directory of the
+ *                         files being processed
+ * @param dest_node      a path_item structure that is a template
+ *                         for the destination of the transfer
+ * @param o              the PFTOOL global options structure
+ * @param rank           the process MPI rank of the process
+ *                         doing the buffer processing
  */
 void process_stat_buffer(path_item*      path_buffer,
-        int*            stat_count,
-        const char*     base_path,
-        path_item*      dest_node,
-        struct options& o,
-        int             rank) {
+                         int*            stat_count,
+                         const char*     base_path,
+                         path_item*      dest_node,
+                         struct options& o,
+                         int             rank) {
 
     //When a worker is told to stat, it comes here
     int         out_position;
@@ -1720,9 +1742,11 @@ void process_stat_buffer(path_item*      path_buffer,
     char        statrecord[MESSAGESIZE];
     ////    path_item   work_node;
     path_item   out_node;
+    int         out_unlinked = 0;
+
     int         process = 0;
     int         parallel_dest = 0;
-    int dest_exists = FALSE;                    // flag to indicate that the destination for file already exists.
+    int         dest_exists = FALSE; // the destination already exists?
 
     //stat
     ////    struct stat st;
@@ -1739,8 +1763,11 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      chunk_at = 0;
     size_t      num_bytes_seen = 0;
 
-    //500 MB
-    size_t      ship_off = 524288000;
+    // when chunking, we ship the list of chunks off as soon as they
+    // represent more than <ship_off> bytes, in total.  For Marfs, that
+    // means every single chunk is likely to be shipped off individually.
+    // Maybe this should be bigger.
+    size_t      ship_off = 524288000;     //500 MB
 
     //int chunk_size = 1024;
     off_t       chunk_curr_offset = 0;
@@ -1798,6 +1825,7 @@ void process_stat_buffer(path_item*      path_buffer,
         ////            continue;
         ////        }
         path_item&  work_node = path_buffer[i]; // avoid a copy
+
         PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
         PathPtr p_out;
@@ -1833,6 +1861,8 @@ void process_stat_buffer(path_item*      path_buffer,
             //// rc = stat_item(&out_node, o);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
+
+            dest_exists = p_out->exists();
 
             if (o.work_type == COPYWORK) {
                 process = 1;
@@ -1892,8 +1922,9 @@ void process_stat_buffer(path_item*      path_buffer,
                                     errsend(NONFATAL, errmsg);
                                 }
 
-                                p_out.reset(); // p_out was created shallow, and we're going to change ftype
-                                out_node.ftype = NONE;
+                                // p_out.reset(); // p_out was created shallow, and we're going to change ftype
+                                // out_node.ftype = NONE;
+                                out_unlinked = 1; // don't unset the ftype to communicate
                             }
                         }
                         else {
@@ -1934,8 +1965,9 @@ void process_stat_buffer(path_item*      path_buffer,
                                 }
                             }
 
-                            p_out.reset(); // p_out was created shallow, and we're going to change ftype
-                            out_node.ftype = NONE;
+                            // p_out.reset(); // p_out was created shallow, and we're going to change ftype
+                            // out_node.ftype = NONE;
+                            out_unlinked = 1; // don't unset the ftype to communicate
 
 #ifdef FUSE_CHUNKER
                         }
@@ -1943,8 +1975,9 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
                 }
                 else {
-                    p_out.reset(); // p_out was created shallow, and we're going to change ftype
-                    out_node.ftype = NONE;
+                    // p_out.reset(); // p_out was created shallow, and we're going to change ftype
+                    // out_node.ftype = NONE;
+                    out_unlinked = 1; // don't unset the ftype to communicate
                 }
             } // end COPYWORK
             else if (o.work_type == COMPAREWORK) {      // preping for COMPAREWORK, which means we simply assign the destination type to the source file info
@@ -1956,9 +1989,34 @@ void process_stat_buffer(path_item*      path_buffer,
 
             if (process == 1) {
 
+                fprintf(stderr, "jti: processing %s (parallel: %d)\n", p_out->path(), parallel_dest);
+
+                // This gives MarFS a chance to initialize xattrs.  This
+                // allows us to choose the repo to use, based on the full
+                // input-file-size, rather than the size given to movers
+                // for individual chunks.
+                //
+                // NOTE: Maybe not necessary?  Maybe movers can just look
+                //     at path_item.st.st_size, when moving chunks, if they
+                //     want to know the full file size?  (Yeah, but then
+                //     they'd still have to look up the repo, which would
+                //     require getting xattrs, or at least marfs-expanding
+                //     the path.  ... so, what?)
+
+                //     fprintf(stderr, "jti: calling pre_process() on %s '%s'\n",
+                //              p_out->class_name().get(), p_out->path());
+                if (! p_out->pre_process(p_work)) {
+                   errsend_fmt(NONFATAL,
+                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                               rank, p_out->path(), ::strerror(errno));
+                   continue;
+                }
+
+
                 //parallel filesystem can do n-to-1
                 if (parallel_dest) {
                     CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
+
 
 #ifdef FUSE_CHUNKER
                     //non_archive files need to not be
@@ -1972,9 +2030,13 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
 #endif
 
-                    chunk_size = o.chunksize;
-                    chunk_at = o.chunk_at;
-
+                    // MarFS will adjust a given chunksize to match (some
+                    // multiple of) the chunksize of the underlying repo
+                    // (the repo matching the file-size), adjusting for the
+                    // size of hidden recovery-info that must be written
+                    // into each object.
+                    chunk_size = p_out->chunksize(o.chunksize);
+                    chunk_at   = o.chunk_at;
 
 
 #ifdef FUSE_CHUNKER
@@ -1985,11 +2047,12 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
                     else if (work_node.ftype == FUSEFILE) {
                         set_fuse_chunk_data(&work_node);
-                        chunk_size = work_node.length;
+                        // chunk_size = work_node.length;
+                        chunk_size = work_node.chksz;
                     }
                     if (work_node.dest_ftype == FUSEFILE) {
                         if (o.work_type == COPYWORK) {
-                            if (out_node.ftype == NONE) {
+                            if (out_unlinked) {
                                 gettimeofday(&tv, NULL);
                                 srand(tv.tv_sec);
                                 gethostname(myhost, sizeof(myhost));
@@ -2027,11 +2090,12 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
 
                     if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
-                        int ctmExists = hasCTM(out_node.path);
+                        // int ctmExists = hasCTM(out_node.path);
+                        int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
 
                         // we are doing a conditional transfer & CTM exists
                         // -> populate CTM structure
-                        if (o.different && ctmExists && dest_exists) {
+                        if (o.different && ctmExists) {
                             ctm = getCTM(out_node.path,
                                          ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
                                          chunk_size);
@@ -2051,6 +2115,8 @@ void process_stat_buffer(path_item*      path_buffer,
                             purgeCTM(out_node.path);   
                     }
 
+                    // --- CHUNKING-LOOP
+                    fprintf(stderr, "jti: before chunk-loop %s\n", p_out->path());
                     chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
                     idx = 0;                    // keeps track of the chunk index
                     while (chunk_curr_offset < work_node.st.st_size) {
@@ -2071,10 +2137,8 @@ void process_stat_buffer(path_item*      path_buffer,
                         else {                  // having to chunk the file
                             work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
                             chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
-
                                                   // should this be (work_node.chksz - chunk_curr_offset)?
                                                   ? (work_node.st.st_size - chunk_curr_offset)
-
                                                   : work_node.chksz);
                             idx++;
                         }
@@ -2097,7 +2161,7 @@ void process_stat_buffer(path_item*      path_buffer,
                             // if a non-conditional transfer or if the
                             // chunk did not make on the first one ...
                             if (!o.different
-                                || !chunktransferredCTM(ctm,work_node.chkidx)) {
+                                || !chunktransferredCTM(ctm, work_node.chkidx)) {
 
                                 num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
                                 regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer

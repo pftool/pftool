@@ -149,7 +149,7 @@ void freeCTM(CTM **pctmptr) {
 
 /**
 * This function returns a CTM (Chunk Transfer Metadata) structure. 
-* This structure holds infromation as to what chunks of a file have 
+* This structure holds information as to what chunks of a file have 
 * been transferred.
 *
 * @param transfilename	the name of the file to transfer

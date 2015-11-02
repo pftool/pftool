@@ -270,14 +270,16 @@ struct options {
 typedef struct path_item {
     FileType      ftype;
     FileType      dest_ftype;
-    FSType        fstype;
+    FSType        fstype;       // the file system type of the source file
     struct stat   st;
-    off_t chksz;					// the tranfer chunk size of the file. For non-chunked file, this is the tranfer length or file length
-    int chkidx;						// the chunk index or number of the chunk being processed
-    off_t         offset;
-    size_t        length;       // (remaining) data in the file
+
+   // the transfer chunk size of the file. For non-chunked file, this is the
+   // tranfer length or file length
+    off_t         chksz;
+    int           chkidx;              // the chunk index or number of the chunk being processed
+   //    off_t         offset;
+   //    size_t        length;              // (remaining) data in the file
     char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
-//    char fstype[128];					// the file system type of the source file
 } path_item;
 
 

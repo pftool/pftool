@@ -394,6 +394,28 @@ protected:
       return *this;
    }
 
+   // see factory_install_list()
+   void factory_install(int count, ...) {
+      va_list list;
+      va_start(list, count);
+
+      factory_install_list(count, list);
+
+      va_end(list);
+   }
+
+   // easy generic way for subclasses to have a private method, with custom
+   // signiture, accessible by the factory, without having to explicitly
+   // make the factory a friend of every subclass.  NO_IMPL() informs us at
+   // compile time, if the factory thinks a subclass wants initialization,
+   // but subclass forgot to implement it.  If you get such a message, your
+   // subclass needed to implement this method, and pull out the
+   // subclass-specific arguments provided by the factory.
+   virtual void factory_install_list(int count, va_list list) {
+      NO_IMPL(factory_install_list);
+   }
+
+
 
    // *** IMPORTANT: because we use Pools, objects are re-used without
    //     being destructed.  That means they must override this method, to
@@ -456,30 +478,9 @@ protected:
       if (stat_succeeded) {
          _flags |= STAT_OK;
 
-         _item->offset = 0;
-         _item->length = _item->st.st_size;
+         //         _item->offset = 0;
+         //         _item->length = _item->st.st_size;
       }
-   }
-
-
-   void factory_install(int count, ...) {
-      va_list list;
-      va_start(list, count);
-
-      factory_install_list(count, list);
-
-      va_end(list);
-   }
-
-   // easy generic way for subclasses to have a private method, with custom
-   // signiture, accessible by the factory, without having to explicitly
-   // make the factory a friend of every subclass.  NO_IMPL() informs us at
-   // compile time, if the factory thinks a subclass wants initialization,
-   // but subclass forgot to implement it.  If you get such a message, your
-   // subclass needed to implement this method, and pull out the
-   // subclass-specific arguments provided by the factory.
-   virtual void factory_install_list(int count, va_list list) {
-      NO_IMPL(factory_install_list);
    }
 
    virtual void    set  (FlagType flag)  { _flags |= flag; }
@@ -499,6 +500,21 @@ public:
       int status;
       char* name = abi::__cxa_demangle(typeid(*this).name(), 0, 0, &status);
       return CharPtr(name);
+   }
+
+   //   // some command-line options might need adjustment, or rejection, by
+   //   // some subclasses.  Make changes, if you want.  Return false if you
+   //   // reject these options.  [This will be called on the destination
+   //   // path only!]
+   //   virtual bool adjust_options(struct options& o) {
+   //      return true;
+   //   }
+
+   // opportunity to adjust the chunk-size that pftool is going to use,
+   // with a given destination file, having size <file_size>.
+   // Return negative for errors.
+   virtual ssize_t chunksize(size_t default_chunk_size) {
+      return default_chunk_size;
    }
 
    // This replaces the obsolete approach of comparing inode-numbers.  That
@@ -584,16 +600,22 @@ public:
    // These are per-class qualities, that pftool may want to know
    virtual bool    supports_n_to_1() const   = 0; // can support N:1, via chunks?
 
+   // This allows MARFS_Path to select the proper repo, based on total
+   // file-size, so individual chunk-mover tasks can get info form teh
+   // xattrs.  It is called single-threaded from pftool, when before
+   // copying a file.
+   virtual bool    pre_process(PathPtr src) { } // default is no-op
+
+   // perform any class-specific initializations, after pftool copy has
+   // finished.  For example, MARFS_Path can truncate to size It is called
+   // single-threaded from pftool, when after all parallel activity is
+   // done.
+   virtual bool    post_process(PathPtr src) { } // default is no-op
 
    // when subclass operations fail (e.g. mkdir(), they save errno (or
    // whatever), and return false.  Caller can then come back and get the
    // corresponding error-string from here.
    virtual const char* const strerror()     { return ::strerror(_errno); }
-
-   // Certain subclasses (MARFS_Path) can do a different open(), which
-   // allows more-efficient writing, if they know ahead of time how much
-   // data is going to be written.  For everyone else, this is a no-op.
-   virtual void    expected_write_size(uint64_t size) { }
 
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
@@ -604,6 +626,12 @@ public:
    // 
    virtual bool    open(int flags, mode_t mode)   = 0; // non-POSIX will have to interpret
    virtual bool    close()                        = 0;
+
+   // This allows MARFS_Path to support N-to-1, for pftool.
+   virtual bool    open(int flags, mode_t mode, size_t offset, size_t length) {
+      open(flags, mode);        // default is to ignore <offset> and <length>
+   }
+
 
    // read/write to/from caller's buffer
    virtual ssize_t read( char* buf, size_t count, off_t offset)   = 0; // e.g. pread()
@@ -636,7 +664,7 @@ public:
    virtual void    copy_metadata(Path* example) = 0; // FKA update_stats()
 
    // return {-1, 0, 1} for <this> being {earlier, same, later} than <Path>.
-   virtual int     compare_date(Path*) { NO_IMPL(compare_access); }
+   virtual int     compare_date(Path*) { NO_IMPL(compare_date); }
 #endif
 
 
@@ -1658,7 +1686,11 @@ public:
 // ---------------------------------------------------------------------------
 // MARFS
 //
-//
+// TBD: This should eventually have a PathInfo member.  Then we can
+///    expand_path_info(&_info, marfs_sub_path(_item->path))
+//     whenever we need to ask questions like "does this path live in the
+//     same namespace (and namespace shard) as that other one?" (e.g. to
+//     provide a response from MARFS_Path::identical().
 //
 // ---------------------------------------------------------------------------
 
@@ -1686,19 +1718,20 @@ protected:
    IOBufPtr         _iobuf;
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
+   //DIR*           _dirp;        // after opendir()  [obsolete?]
 
-   uint64_t         _expected_write_size;
-
-   //int            _fd;          // after open()
-   //DIR*           _dirp;        // after opendir()
+   size_t           _total_size;
+   MarFS_Repo*      _batch_repo;
 
    int              _rank;
    std::string      _err_str;
 
+   uint64_t         _open_offset;
+   uint64_t         _open_size;
 
    // we expect args from the Factory:
    //
-   // (0) int               [pid]
+   // (0) int               [rank]
    //
    virtual void factory_install_list(int count, va_list list) {
       _rank = va_arg(list, int);
@@ -1712,7 +1745,11 @@ protected:
 
    MARFS_Path()
       : Path(),
-        _expected_write_size(0)
+        _total_size(0),
+        _batch_repo(NULL),
+        _rank(-1),
+        _open_offset(0),
+        _open_size(0)
    { 
       unset(DID_STAT);
       unset(IS_OPEN_DIR);
@@ -1742,15 +1779,27 @@ public:
       //aws_iobuf_reset(_iobuf.get()); TODO: fix
    }
 
-   // TBD: Save our object ID somehow.  Maybe give fake_stat() an extra
-   //      arg, and have the factory call a factory_install_list() method
-   //      to install it.  Then two S3_Path objects are identical if they
-   //      have the same ID.  For now, the NO_IMPL() will help me remember
-   //      that this needs doing.
+
+   // pftool has a chunksize from the user.  They don't understand about
+   // recovery-info.  Return the marfs chunk-size for the repo matching
+   // this filesize.  (Return -1 for errors.)
+   //
+   // TBD: Return something near what they gave us, which will produce an
+   //     integral number of MarFS chunks, when that much user-data is
+   //     written.
+   virtual ssize_t chunksize(size_t default_chunk_size) {
+      const char* marPath = marfs_sub_path(_item->path);
+      return get_chunksize(marPath, st().st_size, 1);
+   }
+
+   // Two MarFS files are "the exact same file" if they have the same
+   // inode, in the same namespace-shard, of the same namespace.  For now,
+   // we're just going to say it depends on whether they have identical
+   // inodes.
    //
    //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
-   virtual bool identical(const MARFS_Path& p) {
-      NO_IMPL(identical);
+   virtual bool identical(MARFS_Path& p) {
+      return (st().st_ino == p.st().st_ino);
    }
 
    // Fill out a struct stat, using metadata from gpfs backend
@@ -1770,23 +1819,58 @@ public:
       return true;
    }
 
+   // pftool calls this when it knows the total size of the source-file
+   // that is going to be copied to a MarFS destination (i.e. to us), and
+   // knows the file is going to be treated as N:1.  The individual opens
+   // and writes may use smaller sizes (because we now support N:1 writes).
+   // So, this is our chance to pick the appropriate batch repo.
+   virtual bool    pre_process(PathPtr src) {
+      const char* marPath   = marfs_sub_path(_item->path);
+      size_t      file_size = src->st().st_size;
+
+      // pftool should only call this from single-threaded code, after
+      // unlinking, before chunking.  We'll change access later.
+      if (marfs_mknod(marPath, 0600, 0)) {
+         fprintf(stderr, "couldn't create file '%s': %s\n",
+                 _item->path, ::strerror(errno));
+         return false;
+      }
+
+      if (batch_pre_process(marPath, file_size))
+         return false;
+
+      return true;
+   }
+
+   // If opened N:1, this is our chance to reconcile things that parallel
+   // writers couldn't do without locking, such as xattrs, and file-size.
+   // This is an opportunity to do single-threaded reconciliation of
+   // all these details, after close().
+   virtual bool    post_process(PathPtr src) {
+      const char* marPath   = marfs_sub_path(_item->path);
+      size_t      file_size = src->st().st_size;
+
+      if (batch_post_process(marPath, file_size))
+         return false;
+
+      return true;
+   }
+
    // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
    // "filejoin" operator, which resembles MPU.  EMC extensions also
    // support writing to object+offset.
+   //
    //virtual bool    supports_n_to_1() const  { return true; }
 
 
    // Fill out a struct stat, using S3 metadata from an object filesystem.
    // PathFactory can use this (via stat_item()) when determining what
    // subclass to allocate.  Return true for success, false for error.
+   //
    //static bool fake_stat(const char* path_name, struct stat* st);
 
-
-   // TODO: fix
-   //virtual const char* const strerror() { return _iobuf->result; }
-
    virtual bool    supports_n_to_1() const  {
-      return false;
+      return true;  // using "risky" MarFS support
    }
 
    virtual bool    chown(uid_t owner, gid_t group) {
@@ -1808,37 +1892,52 @@ public:
       return (_rc == 0);
    }
 
-
-   virtual void    expected_write_size(uint64_t size) {
-      _expected_write_size = size;
+   // This is what allows N:1 writes (i.e. concurrent writers to the same
+   // MarFS file).  Caller takes responsibility to assure that all writes
+   // will be at object-boundaries.  The offset is the logical-offset in
+   // the user's data-stream (e.g. not accounting for recovery-info).
+   // Thus, caller must know the "logical chunksize", which we provide via
+   // chunksize().
+   //
+   // marfs_close() can not properly synchronize the xattrs, without some
+   // kind of locking, which we don't want to impose.  Instead, caller can
+   // reconcile xattrs, MD file-size, etc, by calling
+   // e.g. MARFS_Path::utime(), which is called single-threaded, after
+   // individual writers have all called marfs_close()
+   virtual bool    open(int flags, mode_t mode, size_t offset, size_t length) {
+      _open_offset = offset;
+      _open_size   = length;
+      return open(flags, mode);
    }
 
    virtual bool    open(int flags, mode_t mode) {
       int rc;
-      const char* marPath;
-
-      marPath = marfs_sub_path(_item->path);
+      const char* marPath = marfs_sub_path(_item->path);
 
       // clear the fh structure
       memset(&fh, 0, sizeof(fh));
 
       // check to see if we are creating. if so we must also truncate
-      // TODO: is this now nessary with the new version of marfs_ops.h
-      if(O_CREAT & flags) {
+      // TODO: is this now necessary, with the new version of marfs_ops.h
+      // NOTE: for chunked files, pftool should call total_size() first,
+      //    which does a mknod in order to be able to install xattrs.
+      if (O_CREAT & flags) {
          /* we need to create the node */
-         if(0 != marfs_mknod(marPath, mode, 0)) {
-            fprintf(stderr, "marfs_mknod failed\n");
+         if (marfs_mknod(marPath, mode, 0)) {
             set_err_string(errno, NULL);
-            return false;
+            if (errno != EEXIST) {
+               fprintf(stderr, "marfs_mknod failed: %s\n", this->strerror());
+               return false;
+            }
          }
          flags = (flags & ~O_CREAT);
-      } else {
-         fh.flags = flags;
       }
 
       // rc = marfs_open(marPath, &fh, flags, OSOF_CTE);
-      rc = marfs_open(marPath, &fh, flags, _expected_write_size);
-      _expected_write_size = 0;
+      // rc = marfs_open(marPath, &fh, flags, _open_size);
+      rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
+      _open_offset = 0;
+      _open_size   = 0;
       if (0 != rc) {
          fprintf(stderr, "marfs_open failed\n");
          _rc = rc;
@@ -1850,6 +1949,7 @@ public:
       unset(DID_STAT);
       return true;
    }
+
    virtual bool    opendir() {
       if(0 != marfs_opendir(marfs_sub_path(_item->path), &dh)) {
          set_err_string(errno, NULL);
@@ -1897,6 +1997,7 @@ public:
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return true;
    }
+
    // TBD: See opendir().  For the closedir case, be need to deallocate
    //      whatever is still hanging around from the opendir.
    virtual bool    closedir() {
@@ -2092,7 +2193,7 @@ public:
 
    // --- these 2 methods assume the path_item either (a) has ftype
    //     correctly initialized (e.g. via stat_item()), or, (b) has ftype
-   //     set to TBD.
+   //     set to NONE/TBD.
 
    // deep copy
    static PathPtr create(const path_item* item) {
