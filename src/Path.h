@@ -1933,6 +1933,9 @@ public:
          flags = (flags & ~O_CREAT);
       }
 
+      // clear the marfs file handle
+      memset(&fh, 0, sizeof(MarFS_FileHandle));
+
       // rc = marfs_open(marPath, &fh, flags, OSOF_CTE);
       // rc = marfs_open(marPath, &fh, flags, _open_size);
       rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
@@ -1951,6 +1954,9 @@ public:
    }
 
    virtual bool    opendir() {
+      // clear the marfs directory handle
+      memset(&dh, 0, sizeof(MarFS_DirHandle));
+
       if(0 != marfs_opendir(marfs_sub_path(_item->path), &dh)) {
          set_err_string(errno, NULL);
          return false;  // return _rc;
