@@ -1118,7 +1118,7 @@ int update_stats(path_item*  src_file,
     ////        errsend(NONFATAL, errormsg);
     ////    }
     if (! p_dest->chmod(mode)) {
-       errsend_fmt(NONFATAL, "update_stats -- Failed to chown fuse chunked file %s: %s\n",
+       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
 

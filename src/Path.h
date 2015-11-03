@@ -1759,12 +1759,20 @@ protected:
 
    void set_err_string(int err, IOBuf* iob) {
       _errno = err;
-      _err_str = (std::string(::strerror(errno))
-                  + " '"
-                  + (iob ? (iob->result ? iob->result : "") : "")
-                  + "'");
+
+      if (errno)
+         _err_str += (std::string(::strerror(errno)));
+
+      if (iob && iob->result) {
+         _err_str +=  (std::string(" curl: '")
+                       + iob->result
+                       + "'");
+      }
    }
-   void reset_err_string() { _err_str.clear(); }
+
+   void reset_err_string() {
+      _err_str.clear();
+   }
 
 
 public:

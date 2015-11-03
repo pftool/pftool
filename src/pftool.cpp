@@ -54,9 +54,6 @@ int main(int argc, char *argv[]) {
     char        src_path[PATHSIZE_PLUS];
     char        dest_path[PATHSIZE_PLUS];
 
-    struct stat dest_stat;
-    int         statrc;
-
 #ifdef S3
     // aws_init() -- actually, curl_global_init() -- is supposed to be
     // called before *any* threads are created.  Could MPI_Init() create
@@ -370,8 +367,14 @@ int main(int argc, char *argv[]) {
     if (rank == MANAGER_PROC) {
 
         if (optind < argc && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
-            statrc = lstat(dest_path, &dest_stat);
-            if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)) {
+            //// struct stat dest_stat;
+            //// int         statrc = lstat(dest_path, &dest_stat);
+            //// if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)) {
+            ////     printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
+            ////     MPI_Abort(MPI_COMM_WORLD, -1);
+            //// }
+            PathPtr p_dest(PathFactory::create(dest_path));
+            if (!p_dest->exists() || !p_dest->is_dir()) {
                 printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
@@ -1987,8 +1990,6 @@ void process_stat_buffer(path_item*      path_buffer,
 
             if (process == 1) {
 
-                fprintf(stderr, "jti: processing %s (parallel: %d)\n", p_out->path(), parallel_dest);
-
                 // This gives MarFS a chance to initialize xattrs.  This
                 // allows us to choose the repo to use, based on the full
                 // input-file-size, rather than the size given to movers
@@ -2114,7 +2115,6 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
 
                     // --- CHUNKING-LOOP
-                    fprintf(stderr, "jti: before chunk-loop %s\n", p_out->path());
                     chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
                     idx = 0;                    // keeps track of the chunk index
                     while (chunk_curr_offset < work_node.st.st_size) {
