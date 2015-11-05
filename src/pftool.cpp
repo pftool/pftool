@@ -1319,6 +1319,8 @@ void worker_readdir(int         rank,
     DIR*           dip;
     struct dirent* dit;
 
+    start = 1;
+
 #ifdef PLFS
     char        dname[PATHSIZE_PLUS];
     Plfs_dirp * pdirp;
