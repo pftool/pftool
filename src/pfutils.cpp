@@ -1879,6 +1879,7 @@ int processing_complete(int *proc_status, int nproc) {
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
+    new_node->data.start = 1;
     new_node->data.ftype = TBD;
     new_node->next = NULL;
     if (*head == NULL) {

@@ -619,8 +619,8 @@ void manager(int             rank,
     gettimeofday(&in, NULL);
 
     //this is how we start the whole thing
-    proc_status[START_PROC] = 1;
-    send_worker_readdir(START_PROC, &dir_buf_list, &dir_buf_list_size);
+    //proc_status[START_PROC] = 1;
+    //send_worker_readdir(START_PROC, &dir_buf_list, &dir_buf_list_size);
 
     // process responses from workers
     while (1) {
@@ -1030,15 +1030,15 @@ void worker(int rank, struct options& o) {
     }
 
     //This should only be done once and by one proc to get everything started
-    if (rank == START_PROC) {
-        if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-            errsend(FATAL, "Failed to receive type_cmd\n");
-        }
-        sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: worker() Receiving the command %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
-        worker_readdir(rank, sending_rank, base_path, &dest_node, 1, makedir, o);
-        //TODO: Check worker_readdir(rank, sending_rank, base_path, dest_node, 1, makedir, o);
-    }
+    //if (rank == START_PROC) {
+    //    if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+    //        errsend(FATAL, "Failed to receive type_cmd\n");
+    //    }
+    //    sending_rank = status.MPI_SOURCE;
+    //    PRINT_MPI_DEBUG("rank %d: worker() Receiving the command %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
+    //    worker_readdir(rank, sending_rank, base_path, &dest_node, 1, makedir, o);
+    //    //TODO: Check worker_readdir(rank, sending_rank, base_path, dest_node, 1, makedir, o);
+    //}
 
     //change this to get request first, process, then get work
     while ( all_done == 0) {
@@ -1355,8 +1355,8 @@ void worker_readdir(int         rank,
         // an _item member that points to <work_node>
         PRINT_MPI_DEBUG("rank %d: worker_readdir() PathFactory::cast(%d)\n", rank, (unsigned)work_node.ftype);
         PathPtr p_work = PathFactory::create_shallow(&work_node);
-
-        if (start == 1 && o.use_file_list == 0) {
+        
+        if (work_node.start == 1 && o.use_file_list == 0) {
 
             //first time through, not using a filelist
 
@@ -1828,6 +1828,8 @@ void process_stat_buffer(path_item*      path_buffer,
         ////            continue;
         ////        }
         path_item&  work_node = path_buffer[i]; // avoid a copy
+
+        work_node.start = 0;
 
         PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
         PathPtr p_dest(PathFactory::create_shallow(dest_node));

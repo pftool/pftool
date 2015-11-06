@@ -268,6 +268,7 @@ struct options {
 //
 // the basic object used by pftool internals
 typedef struct path_item {
+    int start; // tells us if this path item was created by the inital list provided by the user
     FileType      ftype;
     FileType      dest_ftype;
     FSType        fstype;       // the file system type of the source file
