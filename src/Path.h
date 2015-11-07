@@ -513,7 +513,11 @@ public:
    // opportunity to adjust the chunk-size that pftool is going to use,
    // with a given destination file, having size <file_size>.
    // Return negative for errors.
-   virtual ssize_t chunksize(size_t default_chunk_size) {
+   virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size) {
+      return desired_chunk_size;
+   }
+
+   virtual ssize_t chunk_at(size_t default_chunk_size) {
       return default_chunk_size;
    }
 
@@ -1757,14 +1761,15 @@ protected:
    }
 
 
-   void set_err_string(int err, IOBuf* iob) {
-      _errno = err;
+   void set_err_string(int err_no, IOBuf* iob) {
+      reset_err_string();
 
-      if (errno)
-         _err_str += (std::string(::strerror(errno)));
+      _errno = err_no;
+      if (err_no)
+         _err_str += (std::string(::strerror(err_no)));
 
       if (iob && iob->result) {
-         _err_str +=  (std::string(" curl: '")
+         _err_str +=  (std::string(", curl: '")
                        + iob->result
                        + "'");
       }
@@ -1795,10 +1800,22 @@ public:
    // TBD: Return something near what they gave us, which will produce an
    //     integral number of MarFS chunks, when that much user-data is
    //     written.
-   virtual ssize_t chunksize(size_t default_chunk_size) {
+   virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size) {
       const char* marPath = marfs_sub_path(_item->path);
-      return get_chunksize(marPath, st().st_size, 1);
+      return get_chunksize(marPath, file_size, desired_chunk_size, 1);
    }
+
+#if 0
+   // chunk at the chunksize of the repo?  Not really necessary.  It would
+   // be reasonable to have a single task writing multi-objects with
+   // total-size smaller than the chunk_at size.  On the other hand, if
+   // chunk_at is smaller than the file, our chunksize() method already
+   // assures that the file is not broken up smaller than the appropriate
+   // size for the given repo.
+   virtual ssize_t chunk_at(size_t default_chunk_at) {
+      return chunksize(default_chunk_at);
+   }
+#endif
 
    // Two MarFS files are "the exact same file" if they have the same
    // inode, in the same namespace-shard, of the same namespace.  For now,
@@ -1837,11 +1854,16 @@ public:
       size_t      file_size = src->st().st_size;
 
       // pftool should only call this from single-threaded code, after
-      // unlinking, before chunking.  We'll change access later.
+      // unlinking, before chunking.  However, in some cases, it only
+      // unlinks if the file is smaller than chunk_at.  Thus, the file may
+      // already exist.  should we truncate?  But that would be wrong if
+      // we're restarting with a Multi. (We'll change access-mode later.)
       if (marfs_mknod(marPath, 0600, 0)) {
-         fprintf(stderr, "couldn't create file '%s': %s\n",
-                 _item->path, ::strerror(errno));
-         return false;
+         if (errno != EEXIST) {
+            fprintf(stderr, "couldn't create file '%s': %s\n",
+                    _item->path, ::strerror(errno));
+            return false;
+         }
       }
 
       if (batch_pre_process(marPath, file_size))
@@ -1927,7 +1949,7 @@ public:
 
       // check to see if we are creating. if so we must also truncate
       // TODO: is this now necessary, with the new version of marfs_ops.h
-      // NOTE: for chunked files, pftool should call total_size() first,
+      // NOTE: for chunked files, pftool should call pre_process() first,
       //    which does a mknod in order to be able to install xattrs.
       if (O_CREAT & flags) {
          /* we need to create the node */

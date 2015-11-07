@@ -856,6 +856,10 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     int         position;
     int         i;
 
+    if (! work_node) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for work_node\n", sizeof(path_list));
+    }
+
     //gather the # of files
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving path_count from rank %d\n", rank, sending_rank);
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -863,6 +867,9 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     }
     worksize =  path_count * sizeof(path_list);
     workbuf  = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", sizeof(worksize));
+    }
 
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
@@ -896,6 +903,9 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
     }
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", sizeof(workbuf));
+    }
 
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: manager_add_buffs() Receiving buff from rank %d\n", rank, sending_rank);
@@ -996,8 +1006,12 @@ void worker(int rank, struct options& o) {
 
 
     if (rank == OUTPUT_PROC) {
-        output_buffer = (char *) malloc(MESSAGEBUFFER * MESSAGESIZE * sizeof(char));
-        memset(output_buffer, '\0', sizeof(MESSAGEBUFFER * MESSAGESIZE));
+        const size_t obuf_size = MESSAGEBUFFER * MESSAGESIZE * sizeof(char);
+        output_buffer = (char *) malloc(obuf_size);
+        if (! output_buffer) {
+            errsend_fmt(FATAL, "Failed to allocate %lu bytes for output_buffer\n", obuf_size);
+        }
+        memset(output_buffer, '\0', obuf_size);
     }
     if (rank == ACCUM_PROC) {
         if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
@@ -1161,6 +1175,10 @@ void worker_update_chunk(int            rank,
     PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Receiving path_count from rank %d (path_count = %d)\n", rank, sending_rank,path_count);
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", sizeof(workbuf));
+    }
+
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
     //get the work nodes
@@ -1267,6 +1285,9 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     }
     buffersize = MESSAGESIZE*message_count;
     buffer = (char *) malloc(buffersize * sizeof(char));
+    if (! buffer) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", buffersize);
+    }
 
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Receiving the buffer from %d\n", rank, sending_rank);
@@ -1335,6 +1356,9 @@ void worker_readdir(int         rank,
     }
     worksize = read_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
+    }
 
     //recv packed path_items
     PRINT_MPI_DEBUG("rank %d: worker_readdir() Receiving the workbuf %d\n", rank, sending_rank);
@@ -1802,6 +1826,9 @@ void process_stat_buffer(path_item*      path_buffer,
     //write_count = stat_count;
     writesize = MESSAGESIZE * MESSAGEBUFFER;
     writebuf = (char *) malloc(writesize * sizeof(char));
+    if (! writebuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
+    }
 
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
@@ -2033,9 +2060,11 @@ void process_stat_buffer(path_item*      path_buffer,
                     // multiple of) the chunksize of the underlying repo
                     // (the repo matching the file-size), adjusting for the
                     // size of hidden recovery-info that must be written
-                    // into each object.
-                    chunk_size = p_out->chunksize(o.chunksize);
-                    chunk_at   = o.chunk_at;
+                    // into each object.  (i.e. chunk_size is smaller than
+                    // the actual amount to be written, leaving enough room
+                    // for recovery-info)
+                    chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
+                    chunk_at   = p_out->chunk_at(o.chunk_at);
 
 
 #ifdef FUSE_CHUNKER
@@ -2262,6 +2291,9 @@ void process_stat_buffer(path_item*      path_buffer,
     if (o.verbose) {
         writesize = MESSAGESIZE * write_count;
         writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+        if (! writebuf) {
+            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf\n", writesize);
+        }
         write_buffer_output(writebuf, writesize, write_count);
     }
     while(dir_buffer_count != 0) {
@@ -2308,8 +2340,16 @@ void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct 
     }
     worksize = read_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", worksize);
+    }
+
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
+    if (! writebuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
+    }
+
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the workbuf from %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -2340,6 +2380,9 @@ void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct 
     if (o.verbose) {
         writesize = MESSAGESIZE * write_count;
         writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
+        if (! writebuf) {
+            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf\n", writesize);
+        }
         write_buffer_output(writebuf, writesize, write_count);
     }
     while (buffer_count != 0) {
@@ -2398,8 +2441,15 @@ void worker_copylist(int             rank,
     }
     worksize = read_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
+    }
+
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
+    if (! writebuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
+    }
 
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n",
@@ -2540,8 +2590,16 @@ void worker_comparelist(int             rank,
     }
     worksize = read_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
+    }
+
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
+    if (! writebuf) {
+        errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
+    }
+
     //gather the path to stat
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the workbuf from %d\n", rank, sending_rank);
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {

@@ -595,6 +595,7 @@ int copy_file(path_item*    src_file,
     size_t      completed = 0;
     char *      buf = NULL;
     char        errormsg[MESSAGESIZE];
+    int         err = 0;        // non-zero -> close src/dest, free buf
     //FILE *src_fd;
     //FILE *dest_fd;
     int         flags;
@@ -661,6 +662,12 @@ int copy_file(path_item*    src_file,
     }
     if (blocksize) {
         buf = (char*)malloc(blocksize * sizeof(char));
+        if (! buf) {
+           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                       blocksize, p_src->path());
+           return -1;
+        }
+
         memset(buf, '\0', blocksize);
     }
 
@@ -691,6 +698,8 @@ int copy_file(path_item*    src_file,
         ////        }
         if (! p_src->open(O_RDONLY, src_file->st.st_mode)) {
            errsend_fmt(NONFATAL, "Failed to open file %s for read\n", p_src->path());
+           if (buf)
+              free(buf);
            return -1;
         }
 
@@ -733,7 +742,7 @@ int copy_file(path_item*    src_file,
     ////    if (dest_fd < 0) {
     ////        sprintf(errormsg, "Failed to open file %s for write (errno = %d)", dest_file->path, errno);
     ////        errsend(NONFATAL, errormsg);
-    ////        return -1;
+    ////        err = 1; // return -1;
     ////    }
 
     // p_dest->expected_write_size(length); 
@@ -742,6 +751,10 @@ int copy_file(path_item*    src_file,
     if (! p_dest->open(flags, 0600, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
+
+       p_src->close();
+       if (buf)
+          free(buf);
        return -1;
     }
 
@@ -773,7 +786,7 @@ int copy_file(path_item*    src_file,
            if(rc = syndataFill(synbuf,buf,buflen)) {
               sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
               errsend(NONFATAL, errormsg);
-              return -1;
+              err = 1; break;  // return -1
            }
 #endif
 
@@ -806,7 +819,7 @@ int copy_file(path_item*    src_file,
             sprintf(errormsg, "%s: Read %ld bytes instead of %zd",
                     src_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
-            return -1;
+            err = 1; break;  // return -1
         }
 
 
@@ -832,7 +845,7 @@ int copy_file(path_item*    src_file,
             sprintf(errormsg, "%s: wrote %ld bytes instead of %zd (%s)",
                     dest_file->path, bytes_processed, blocksize, p_dest->strerror());
             errsend(NONFATAL, errormsg);
-            return -1;
+            err = 1; break;  // return -1;
         }
         completed += blocksize;
     }
@@ -857,7 +870,7 @@ int copy_file(path_item*    src_file,
        ////           if (rc != 0) {
        ////               sprintf(errormsg, "Failed to close file: %s", src_file->path);
        ////               errsend(NONFATAL, errormsg);
-       ////               return -1;
+       ////               err = 1; // return -1;
        ////           }
        ////#ifdef PLFS
        ////       }
@@ -865,7 +878,7 @@ int copy_file(path_item*    src_file,
        if (! p_src->close()) {
           errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
                       p_src->path(), p_src->strerror());
-          return -1;
+          err = 1;
        }
 
 #ifdef GEN_SYNDATA
@@ -895,11 +908,15 @@ int copy_file(path_item*    src_file,
     if (! p_dest->close()) {
        errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
                    p_dest->path(), p_dest->strerror());
-       return -1;
     }
     
+    if(buf)
+       free(buf);
 
-    if(buf) free(buf);
+    // even error-situations have now done clean-up
+    if (err)
+       return -1;
+
     if (offset == 0 && length == src_file->st.st_size) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, dest_file.path);
@@ -954,25 +971,42 @@ int compare_file(path_item*  src_file,
             src_file->st.st_mode == dest_st.st_mode &&
             src_file->st.st_uid == dest_st.st_uid &&
             src_file->st.st_gid == dest_st.st_gid) {
+
         //metadata compare
         if (meta_data_only) {
             return 0;
         }
+
         //byte compare
+        // allocate buffers and open files ...
         ibuf = (char*)malloc(blocksize * sizeof(char));
+        if (! ibuf) {
+           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                       blocksize, src_file->path);
+           return -1;
+        }
+
         obuf = (char*)malloc(blocksize * sizeof(char));
+        if (! obuf) {
+           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                       blocksize, dest_file->path);
+           return -1;
+        }
+
         src_fd = open(src_file->path, O_RDONLY);
         if (src_fd < 0) {
             sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
+
         dest_fd = open(dest_file->path, O_RDONLY);
         if (dest_fd < 0) {
             sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
+
         //incase someone accidently set an offset+length that exceeds the file bounds
         if ((src_file->st.st_size - offset) < length) {
             length = src_file->st.st_size - offset;
@@ -1192,7 +1226,13 @@ void send_path_list(int target_rank, int command, int num_send, path_list **list
         workcount = *list_count;
     }
     worksize = workcount * sizeof(path_item);
+
     char *workbuf = (char*)malloc(worksize * sizeof(char));
+    if (! workbuf) {
+       fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
     while(path_count < workcount) {
         path_count++;
         MPI_Pack(&(*list_head)->data, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
@@ -1222,6 +1262,10 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
 
     worksize = *buffer_count * sizeof(path_item);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    if (! workbuf) {
+       fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
     for (i = 0; i < *buffer_count; i++) {
         work_node_ptr = &buffer[i];
         MPI_Pack(work_node_ptr, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
@@ -1878,6 +1922,10 @@ int processing_complete(int *proc_status, int nproc) {
 // push path onto the tail of the queue
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
+    if (! new_node) {
+       fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
     new_node->data.ftype = TBD;
     new_node->next = NULL;
@@ -1922,6 +1970,10 @@ void delete_queue_path(path_list **head, int *count) {
 // us to pass nodes instead of paths)
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+    if (! temp_node) {
+       fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
     temp_node->data = new_node->data;
     temp_node->next = NULL;
     if (*head == NULL) {
@@ -1951,6 +2003,10 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
     work_buf_list *current_pos = *workbuflist;
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
+    if (! new_buf_item) {
+       fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
     if (*workbufsize < 0) {
         *workbufsize = 0;
     }
@@ -1997,6 +2053,10 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
 
     worksize = MESSAGEBUFFER * sizeof(path_item);
     buffer   = (char *)malloc(worksize);
+    if (! buffer) {
+       fprintf(stderr, "Failed to allocate %lu bytes for buffer\n", sizeof(worksize));
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
     position = 0;
 
     for (iter=head; iter!=NULL; iter=iter->next) {
@@ -2006,6 +2066,10 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
             enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
             buffer_size = 0;
             buffer = (char *)malloc(worksize);
+            if (! buffer) {
+               fprintf(stderr, "Failed to allocate %lu bytes for buffer-elt\n", sizeof(worksize));
+               MPI_Abort(MPI_COMM_WORLD, -1);
+            }
         }
     }
     enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
