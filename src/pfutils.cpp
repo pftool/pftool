@@ -1927,6 +1927,7 @@ void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
        MPI_Abort(MPI_COMM_WORLD, -1);
     }
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
+    new_node->data.start = 1;
     new_node->data.ftype = TBD;
     new_node->next = NULL;
     if (*head == NULL) {
@@ -2062,7 +2063,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
     for (iter=head; iter!=NULL; iter=iter->next) {
         MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
         buffer_size++;
-        if (buffer_size % MESSAGEBUFFER == 0) {
+        if (buffer_size % STATBUFFER == 0 || buffer_size % MESSAGEBUFFER == 0) {
             enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
             buffer_size = 0;
             buffer = (char *)malloc(worksize);
@@ -2070,9 +2071,12 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
                fprintf(stderr, "Failed to allocate %lu bytes for buffer-elt\n", sizeof(worksize));
                MPI_Abort(MPI_COMM_WORLD, -1);
             }
+            position = 0;  // should this be here?
         }
     }
-    enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+    if(buffer_size != 0) {
+       enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+    }
 }
 
 
