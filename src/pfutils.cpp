@@ -403,7 +403,7 @@ void get_base_path(char*            base_path,
     //    item->ftype = TBD;          // so PathFactory knows path hasn't been classified
     PathPtr p(PathFactory::create(item));
     if (! p->stat()) {
-       fprintf(stderr, "Failed to stat path %s\n", path);
+       fprintf(stderr, "get_base_path -- Failed to stat path %s\n", path);
        MPI_Abort(MPI_COMM_WORLD, -1);
     }
     st = p->st();
@@ -696,7 +696,7 @@ int copy_file(path_item*    src_file,
         ////            errsend(NONFATAL, errormsg);
         ////            return -1;
         ////        }
-        if (! p_src->open(O_RDONLY, src_file->st.st_mode)) {
+       if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset, length)) {
            errsend_fmt(NONFATAL, "Failed to open file %s for read\n", p_src->path());
            if (buf)
               free(buf);
@@ -714,7 +714,7 @@ int copy_file(path_item*    src_file,
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
 
     // create appropriate flags
-    if ((src_file->st.st_size == length && offset == 0) || (dest_file->fstype == PAN_FS)) {
+    if ((src_file->st.st_size <= length) || (dest_file->fstype != PAN_FS)) {
        // no chunking or not writing to PANFS - cds 6/2014
        flags = O_WRONLY | O_CREAT;
        PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT",
@@ -745,9 +745,6 @@ int copy_file(path_item*    src_file,
     ////        err = 1; // return -1;
     ////    }
 
-    // p_dest->expected_write_size(length); 
-    //    fprintf(stderr, "opening %s with offset=%ld, length=%lu\n",
-    //            p_dest->node().path, offset, length);
     if (! p_dest->open(flags, 0600, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
@@ -766,7 +763,12 @@ int copy_file(path_item*    src_file,
         if ((length - completed) < blocksize) {
             blocksize = (length - completed);
         }
-        memset(buf, '\0', blocksize);
+
+        // Wasteful?  If we fail to read blocksize, we'll have a problem
+        // anyhow.  And if we succeed, then we'll wipe this all out with
+        // the data, anyhow.  [See also memsets in compare_file()]
+        //
+        //        memset(buf, '\0', blocksize);
 
 
         // READ data from source (or generate it synthetically)
@@ -1017,8 +1019,14 @@ int compare_file(path_item*  src_file,
         }
         crc = 0;
         while (completed != length) {
-            memset(ibuf, 0, blocksize);
-            memset(obuf, 0, blocksize);
+
+           // Wasteful?  If we fail to read blocksize, we'll have a problem
+           // anyhow.  And if we succeed, then we'll wipe this all out with
+           // the data, anyhow.  [See also memsets in copy_file()]
+           //
+           //            memset(ibuf, 0, blocksize);
+           //            memset(obuf, 0, blocksize);
+
             //blocksize is too big
             if ((length - completed) < blocksize) {
                 blocksize = (length - completed);
@@ -1784,7 +1792,7 @@ int stat_item(path_item *work_node, struct options& o) {
             is_fuse_chunk(realpath(work_node->path, NULL), o)) {
 
             if (lstat(linkname, &st) == -1) {
-                snprintf(errmsg, MESSAGESIZE, "Failed to stat path %s", linkname);
+                snprintf(errmsg, MESSAGESIZE, "stat_item -- Failed to stat path %s", linkname);
                 errsend(FATAL, errmsg);
             }
             work_node->st = st;

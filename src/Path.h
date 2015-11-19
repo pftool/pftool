@@ -608,13 +608,13 @@ public:
    // file-size, so individual chunk-mover tasks can get info form teh
    // xattrs.  It is called single-threaded from pftool, when before
    // copying a file.
-   virtual bool    pre_process(PathPtr src) { } // default is no-op
+   virtual bool    pre_process(PathPtr src) { return true; } // default is no-op
 
    // perform any class-specific initializations, after pftool copy has
    // finished.  For example, MARFS_Path can truncate to size It is called
    // single-threaded from pftool, when after all parallel activity is
    // done.
-   virtual bool    post_process(PathPtr src) { } // default is no-op
+   virtual bool    post_process(PathPtr src) { return true; } // default is no-op
 
    // when subclass operations fail (e.g. mkdir(), they save errno (or
    // whatever), and return false.  Caller can then come back and get the
@@ -1951,7 +1951,8 @@ public:
       // TODO: is this now necessary, with the new version of marfs_ops.h
       // NOTE: for chunked files, pftool should call pre_process() first,
       //    which does a mknod in order to be able to install xattrs.
-      if (O_CREAT & flags) {
+      if ((flags & (O_WRONLY | O_RDWR))
+          && (flags & O_CREAT)) {
          /* we need to create the node */
          if (marfs_mknod(marPath, mode, 0)) {
             set_err_string(errno, NULL);
@@ -1962,9 +1963,6 @@ public:
          }
          flags = (flags & ~O_CREAT);
       }
-
-      // clear the marfs file handle
-      memset(&fh, 0, sizeof(MarFS_FileHandle));
 
       // rc = marfs_open(marPath, &fh, flags, OSOF_CTE);
       // rc = marfs_open(marPath, &fh, flags, _open_size);
