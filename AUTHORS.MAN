@@ -1,4 +1,6 @@
-pftool and its wrapper scripts are developed at Los Alamos National Laboratory and are available under LANL LA-CC-2012-072.
+.SH AUTHORS
+pftool and its wrapper scripts are developed at Los Alamos National Laboratory and are
+available under LANL LA-CC-2012-072.
 
 The project is hosted at https://github.com/pftool.
 
