@@ -800,16 +800,57 @@ int copy_file(path_item*    src_file,
            ////#ifdef PLFS
            ////           if (src_file->ftype == PLFSFILE) {
            ////              // ported to PLFS 2.5
-           ////              /// bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, completed+offset);
-           ////              plfs_error_t err = plfs_read(plfs_src_fd, buf, blocksize, completed+offset, &bytes_processed);
+           ////              /// bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, offset+completed);
+           ////              plfs_error_t err = plfs_read(plfs_src_fd, buf, blocksize, offset+completed, &bytes_processed);
            ////           }
            ////           else {
            ////#endif
-           ////              bytes_processed = pread(src_fd, buf, blocksize, completed+offset);
+           ////              bytes_processed = pread(src_fd, buf, blocksize, offset+completed);
            ////#ifdef PLFS
            ////           }
            ////#endif
-           bytes_processed = p_src->read(buf, blocksize, completed+offset);
+           bytes_processed = p_src->read(buf, blocksize, offset+completed);
+
+           // ---------------------------------------------------------------------------
+           // EXPERIMENT.  We are seeing stalls on some streams from
+           // object-servers, in the case of many concurrent requests.  To
+           // deal with that, we'll try sending a new request for the part
+           // of the data we haven't received.
+           //
+           // TBD: In a POSIX context, this is overkill.  You'd rather just
+           // retry the read.  For the case we're seeing with
+           // object-servers, we're skipping straight to what the problem
+           // seems to be, there, which is that we need to issue a fresh
+           // request, which is done implicitly by closing and re-opening.
+           // ---------------------------------------------------------------------------
+           int retry_count = 0;
+           while ((bytes_processed != blocksize) && (retry_count++ < 3)) {
+
+              errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
+                          p_src->path(), offset, completed, blocksize);
+
+              if (! p_src->close()) {
+                 errsend_fmt(NONFATAL, "(RETRY) Failed to close src file: %s (%s)\n",
+                             p_src->path(), p_src->strerror());
+                 err = 1;
+              }
+
+              if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset+completed, length-completed)) {
+                 errsend_fmt(NONFATAL, "(RETRY) Failed to open %s for read, off %lu+%lu\n",
+                             p_src->path(), offset, completed);
+                 if (buf)
+                    free(buf);
+                 return -1;
+              }
+
+              // try again ...
+              bytes_processed = p_src->read(buf, blocksize, offset+completed);
+           }
+           if (retry_count) {
+              errsend_fmt(NONFATAL, "(RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                          p_src->path(), offset, completed, retry_count);
+           }
+           // END of EXPERIMENT
 
 
 #ifdef GEN_SYNDATA
@@ -818,8 +859,8 @@ int copy_file(path_item*    src_file,
 
 
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %ld bytes instead of %zd",
-                    src_file->path, bytes_processed, blocksize);
+            sprintf(errormsg, "%s: Read %ld bytes instead of %zd (%s)",
+                    src_file->path, bytes_processed, blocksize, p_src->strerror());
             errsend(NONFATAL, errormsg);
             err = 1; break;  // return -1
         }
