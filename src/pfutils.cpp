@@ -846,7 +846,7 @@ int copy_file(path_item*    src_file,
               // try again ...
               bytes_processed = p_src->read(buf, blocksize, offset+completed);
            }
-           if (retry_count) {
+           if (retry_count && (bytes_processed == blocksize)) {
               errsend_fmt(NONFATAL, "(RETRY) success for %s, off %lu+%lu (retries = %d)\n",
                           p_src->path(), offset, completed, retry_count);
            }
