@@ -11,10 +11,11 @@ template<typename T> std::vector<T*> Pool<T>::_pool;
 
 
 // defns for static PathFactory members
-uint8_t          PathFactory::_flags = 0;
-struct options*  PathFactory::_opts  = NULL;
-pid_t            PathFactory::_pid   = 0;       // for PLFS
-int              PathFactory::_rank  = 1;
+uint8_t          PathFactory::_flags   = 0;
+struct options*  PathFactory::_opts    = NULL;
+pid_t            PathFactory::_pid     = 0;       // for PLFS
+int              PathFactory::_rank    = 1;
+int              PathFactory::_n_ranks = 1;
 
 
 // NOTE: New path might not be same subclass as us.  For example, we could

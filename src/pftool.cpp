@@ -337,7 +337,7 @@ int main(int argc, char *argv[]) {
     // Path factory might want to use some of these fields.
     // TBD: Maybe we also want the src files processed via enqueue_path(), below.
     // 
-    PathFactory::initialize(&o, rank, src_path, dest_path);
+    PathFactory::initialize(&o, rank, nproc, src_path, dest_path);
 
 
     //    // providing multiple '-v' args on the command line increases the value

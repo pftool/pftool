@@ -815,7 +815,9 @@ int copy_file(path_item*    src_file,
            // EXPERIMENT.  We are seeing stalls on some streams from
            // object-servers, in the case of many concurrent requests.  To
            // deal with that, we'll try sending a new request for the part
-           // of the data we haven't received.
+           // of the data we haven't received.  Large number of retries
+           // allows more-aggressive (i.e. shorter) timeouts waiting for a
+           // blocksize read from the stream.
            //
            // TBD: In a POSIX context, this is overkill.  You'd rather just
            // retry the read.  For the case we're seeing with
@@ -824,7 +826,7 @@ int copy_file(path_item*    src_file,
            // request, which is done implicitly by closing and re-opening.
            // ---------------------------------------------------------------------------
            int retry_count = 0;
-           while ((bytes_processed != blocksize) && (retry_count++ < 3)) {
+           while ((bytes_processed != blocksize) && (retry_count++ < 5)) {
 
               errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
                           p_src->path(), offset, completed, blocksize);

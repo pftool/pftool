@@ -1728,6 +1728,7 @@ protected:
    MarFS_Repo*      _batch_repo;
 
    int              _rank;
+   int              _n_ranks;
    std::string      _err_str;
 
    uint64_t         _open_offset;
@@ -1738,7 +1739,8 @@ protected:
    // (0) int               [rank]
    //
    virtual void factory_install_list(int count, va_list list) {
-      _rank = va_arg(list, int);
+      _rank    = va_arg(list, int);
+      _n_ranks = va_arg(list, int);
    }
 
 
@@ -1752,6 +1754,7 @@ protected:
         _total_size(0),
         _batch_repo(NULL),
         _rank(-1),
+        _n_ranks(-1),
         _open_offset(0),
         _open_size(0)
    { 
@@ -1932,8 +1935,8 @@ public:
    // marfs_close() can not properly synchronize the xattrs, without some
    // kind of locking, which we don't want to impose.  Instead, caller can
    // reconcile xattrs, MD file-size, etc, by calling
-   // e.g. MARFS_Path::utime(), which is called single-threaded, after
-   // individual writers have all called marfs_close()
+   // e.g. MARFS_Path::post_process(), which is called single-threaded,
+   // after individual writers have all called marfs_close()
    virtual bool    open(int flags, mode_t mode, size_t offset, size_t length) {
       _open_offset = offset;
       _open_size   = length;
@@ -1964,8 +1967,8 @@ public:
          flags = (flags & ~O_CREAT);
       }
 
-      // rc = marfs_open(marPath, &fh, flags, OSOF_CTE);
-      // rc = marfs_open(marPath, &fh, flags, _open_size);
+      // providing open_size allows internals to create request with appropriate
+      // byte range, which is faster than chunked-transfer-encoding (for sproxyd).
       rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
       _open_offset = 0;
       _open_size   = 0;
@@ -2135,7 +2138,7 @@ public:
 // ---------------------------------------------------------------------------
 // PathFactory
 //
-// If you giveus a raw path-name, we'll parse it, and run a series of
+// If you give us a raw path-name, we'll parse it, and run a series of
 // attempts to guess what it is, then return an appropriate Path sub-class.
 //
 // What if you just have a path_item (e.g. because the user gave you that),
@@ -2165,6 +2168,7 @@ protected:
    static struct options*  _opts;
    static pid_t            _pid;       // for PLFS
    static int              _rank;      // for PLFS, MARFS
+   static int              _n_ranks;   // MARFS (maybe)
 
 
 public:
@@ -2178,12 +2182,14 @@ public:
    // here.
    static void initialize(struct options* opts,
                           int             rank,
+                          int             n_ranks,
                           const char*     src_path,
                           const char*     dest_path) {
-      _flags = 0;
-      _opts  = opts;
-      _pid   = getpid();
-      _rank  = rank;
+      _flags   = 0;
+      _opts    = opts;
+      _pid     = getpid();
+      _rank    = rank;
+      _n_ranks = n_ranks;
 
 #ifdef S3
       if (! _flags & INIT) {
@@ -2248,14 +2254,13 @@ public:
 
    // --- these 2 methods assume the path_item either (a) has ftype
    //     correctly initialized (e.g. via stat_item()), or, (b) has ftype
-   //     set to TBD.
+   //     set to TBD or NONE.
 
    // deep copy
    static PathPtr create(const PathItemPtr& item) {
       return create(item.get());
    }
-   // shallow copy.  If you want a deep copy, and you have a PathItemPtr
-   // named item_ptr, then use create(item_ptr.get())
+   // shallow copy.
    static PathPtr create_shallow(const PathItemPtr& item) {
       PathPtr p;
 
@@ -2303,7 +2308,7 @@ public:
 #ifdef MARFS
       case MARFSFILE:
          p = Pool<MARFS_Path>::get();
-         p->factory_install(1, _rank);
+         p->factory_install(1, _rank, _n_ranks);
          break;
 #endif
 
