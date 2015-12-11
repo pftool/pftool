@@ -1712,8 +1712,6 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a MARFS path?
     if(! got_type) {
        fflush(stdout);
-        // TODO: replace with code that checks file system stuff
-       // if ( (! strncmp(work_node->path, "/marfs/",  7)) ) {
        if ( (! strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len))
             && ((   work_node->path[marfs_config->mnt_top_len] == 0)
                 || (work_node->path[marfs_config->mnt_top_len] == '/'))) {
@@ -1751,6 +1749,35 @@ int stat_item(path_item *work_node, struct options& o) {
         }
     }
 #endif
+
+
+    // --- is it '/dev/null' or '/dev/null/[...]'?
+    if (! got_type) {
+       if ( (! strncmp(work_node->path, "/dev/null", 9)) ) {
+          if (work_node->path[9] == 0) {
+            work_node->ftype = NULLFILE;
+            got_type = true;
+
+            rc = lstat("/dev/null", &st);
+          }
+          else if (work_node->path[9] == '/') {
+             size_t len = strlen(work_node->path);
+             if (work_node->path[len -1] == '/') {
+                work_node->ftype = NULLDIR;
+                got_type = true;
+
+                char* homedir = getenv("HOME");
+                rc = lstat(homedir, &st);
+             }
+             else {
+                work_node->ftype = NULLFILE;
+                got_type = true;
+
+                rc = lstat("/dev/null", &st);
+             }
+          }
+       }
+    }
 
     // --- is it a POSIX path?
     if (! got_type) {
@@ -1899,9 +1926,14 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
     st = p->st();
 
 
-    //if the thing we're looking at isn't link, run statfs() on it.
+    // if the thing we're looking at isn't link, maybe run statfs() on it.
     if (!S_ISLNK(st.st_mode)) {
-       if (p->node().ftype == S3FILE) {
+       if ((   p->node().ftype == NULLFILE)
+           || (p->node().ftype == NULLDIR)) {
+          *fs = NULLFS;
+          return;
+       }
+       else if (p->node().ftype == S3FILE) {
           *fs = S3FS;
           return;
        }

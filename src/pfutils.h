@@ -126,11 +126,13 @@
 // rid of get_stat_fs_info().
 enum SrcDstFSType {
    ANYFS      = 0,
-   PANASASFS  = 1,
+
+   PANASASFS  = 1,   // everything after here supports N:1 (see PARALLEL_DESTFS)
    GPFSFS     = 2,
-   NULLFS     = 3,     /* unused? */
+   NULLFS     = 3,
    FUSEFS     = 4,
-   S3FS       = 5,
+
+   S3FS       = 5,   // everything after here is REST-ful (see REST_FS)
    PLFSFS     = 6,
    MARFSFS    = 7
 };
@@ -199,7 +201,10 @@ enum FileType {
    PLFSFILE,
    S3FILE,
    SYNDATA,                     // synthetic data (no file)
-   MARFSFILE
+   MARFSFILE,
+
+   NULLFILE,
+   NULLDIR                      // no-cost writes
 };
 
 // this is currently only used in three places:

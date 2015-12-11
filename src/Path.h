@@ -163,7 +163,7 @@ class Pool {
 public:
 
    // put an object of type T back into the pool.
-   // This is the "deleter" method used by the share_ptrs returned from get().
+   // This is the "deleter" method used by the shared_ptrs returned from get().
    static void put(T* t) {
       //      std::cout << "Pool<T>::put(" << t << ")" << std::endl;
       _pool.push_back(t);
@@ -371,6 +371,8 @@ protected:
    // what it is.
    virtual Path& operator=(const PathItemPtr& item) {
 
+      // Make sure we're not replacing _item with an item that
+      // should be owned by a different Path subclass
       if ((_item->ftype > TBD) &&
           (_item->ftype != item->ftype)) {
          errsend_fmt(FATAL, "Attempt to change ftype during assignment '%s' = '%s'\n",
@@ -385,6 +387,7 @@ protected:
       _rc    = 0;
       _errno = 0;
 
+      // if it already has stat info, we'll take it for granted
       if (item->path[0] &&
           (item->st.st_ino || item->st.st_mode || item->st.st_uid || item->st.st_ctime))
          did_stat(true);
@@ -1018,6 +1021,155 @@ public:
    }
 };
 
+
+
+
+// ---------------------------------------------------------------------------
+// NULL file/dir
+//
+// This is being introduced to serve a simple purpose.  We want to give the
+// appearance of a sort of "dev/null directory tree", to allow pftool to
+// show read BW in the case where the only available destination
+// file-system is slow (GPFS), and there is insufficient tempfs space to
+// allow that to be used instead.  In this case, this NULL class treats all
+// writes (and mkdir, etc) as no-ops, so pftool should only be constrained
+// by read BW.
+//
+// TBD: It looks like you could also use this in the opposite case, as a
+// sort of super-fast "/dev/zero directory tree", for reads.  But that's
+// harder, because you don't actually have a file-tree here.  What we could
+// do is wrap an existing directory tree, return stats, and readdir(), etc,
+// from that tree, and have zero-cost reads.
+// ---------------------------------------------------------------------------
+
+class NULL_Path: public Path {
+protected:
+
+   friend class Pool<NULL_Path>;
+
+   bool  _is_dir;
+
+   // should we figure out _is_dir here?  [Impossible]
+   // virtual void path_change_post() { }
+
+   // pftool is going to expect a real stat struct (becuase we haven't
+   // converted it to use Path::is_dir(), etc, everywhere).  We'll stat
+   // either /dev/null, or /dev, depending on whether pftool thinks this is
+   // a directory or not.  The only reason it would think this is a
+   // directory is if it just called NULL_Path::mkdir() on it.
+   virtual bool do_stat_internal() {
+      _errno = 0;
+
+      // run appropriate POSIX stat function
+      if (_is_dir)
+         _rc = lstat("/dev",      &_item->st);
+      else
+         _rc = lstat("/dev/null", &_item->st);
+
+      if (_rc) {
+         _errno = errno;
+         return false;
+      }
+
+      // couldn't we just look at S_ISLNK(_item->st.st_mode), when we want to know?
+      if (_is_dir)
+         _item->ftype = NULLDIR;
+      else
+         _item->ftype = NULLFILE;
+
+      return true;
+   }
+
+   // private.  Use PathFactory to create paths.
+   NULL_Path()
+      : Path(),
+        _is_dir(0)
+   { 
+   }
+
+
+
+public:
+
+   // This runs on Pool<NULL_Path>::get(), when initting an old instance
+   virtual ~NULL_Path() {
+   }
+
+
+   //   virtual bool operator==(NULL_Path& p) { return (st().st_ino == p.st().st_ino); }
+   virtual bool identical(NULL_Path& p) { 
+      return (st().st_ino == p.st().st_ino);
+   }
+
+
+   virtual bool    supports_n_to_1() const  {
+      return true;
+   }
+
+
+
+   //   virtual int    mpi_pack() { NO_IMPL(mpi_pack); } // TBD
+
+   virtual const char* const strerror() {
+      return ::strerror(_errno);
+   }
+
+   virtual bool    chown(uid_t owner, gid_t group) {
+      return true;
+   }
+   virtual bool    chmod(mode_t mode) {
+      return true;
+   }
+   virtual bool    utime(const struct utimbuf* ut) {
+      return true;
+   }
+
+   virtual bool    open(int flags, mode_t mode) {
+      return true;
+   }
+   virtual bool    opendir() {
+      return true;
+   }
+
+   virtual bool    close() {
+      return true;
+   }
+   virtual bool    closedir() {
+      return true;
+   }
+
+
+   virtual ssize_t read( char* buf, size_t count, off_t offset) {
+      return count;
+   }
+   virtual bool    readdir(char* path, size_t size) {
+      if (size)
+         path[0] = 0;
+      return true;
+   }
+
+
+   virtual ssize_t write(char* buf, size_t count, off_t offset) {
+      return count;
+   }
+   virtual bool    mkdir(mode_t mode) {
+      _is_dir = true;
+      return true;
+   }
+
+
+
+   virtual bool    remove() {
+      return true;
+   }
+   virtual bool    unlink() {
+      return true;
+   }
+   
+   virtual bool    symlink(const char* link_name) {
+      return false;
+   }
+};
 
 
 
@@ -2277,6 +2429,11 @@ public:
          p->did_stat(rc == 0);          // avoid future repeats of failed stat
          return p;
       }
+
+      case NULLFILE:
+      case NULLDIR:
+         p = Pool<NULL_Path>::get();
+         break;
 
       case REGULARFILE:
       case LINKFILE:
