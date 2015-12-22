@@ -1207,7 +1207,9 @@ int update_stats(path_item*  src_file,
                    p_dest->path(), p_dest->strerror());
     }
 
-
+    // perform any final adjustments on destination, before we set atime/mtime
+    PathPtr p_src(PathFactory::create_shallow(src_file));
+    p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
     ut.actime = src_file->st.st_atime;
@@ -1232,10 +1234,6 @@ int update_stats(path_item*  src_file,
                    p_dest->path(), p_dest->strerror());
     }
 
-
-    // perform any final adjustments on destination, given source
-    PathPtr p_src(PathFactory::create_shallow(src_file));
-    p_dest->post_process(p_src);
 
     return 0;
 }

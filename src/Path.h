@@ -2061,21 +2061,34 @@ public:
    virtual bool    chown(uid_t owner, gid_t group) {
       if (_rc = marfs_chown(marfs_sub_path(path()), owner, group))
          set_err_string(errno, NULL);
-      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      else {
+         // unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+         _item->st.st_uid = owner;
+         _item->st.st_gid = group;
+      }
       return (_rc == 0);
    }
    virtual bool    chmod(mode_t mode) {
       if (_rc = marfs_chmod(marfs_sub_path(path()), mode))
          set_err_string(errno, NULL);
-      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      else {
+         // unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+         _item->st.st_mode = mode;
+      }
       return (_rc == 0);
    }
    virtual bool    utime(const struct utimbuf* ut) {
       if (_rc = marfs_utime(marfs_sub_path(path()), (struct utimbuf*) ut))
          set_err_string(errno, NULL);
-      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      else {
+         // unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+         _item->st.st_atime = ut->actime;
+         _item->st.st_mtime = ut->modtime;
+      }
       return (_rc == 0);
    }
+
+
 
    // This is what allows N:1 writes (i.e. concurrent writers to the same
    // MarFS file).  Caller takes responsibility to assure that all writes
