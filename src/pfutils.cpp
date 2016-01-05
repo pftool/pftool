@@ -745,6 +745,13 @@ int copy_file(path_item*    src_file,
     ////        err = 1; // return -1;
     ////    }
 
+    // EXPERIMENT: For N:N, with all files the same size, all workers trying to open files
+    //             at the same time means there are periods where nothing is happening for
+    //             ~4 sec, while we wait for the server.  What if tasks stagger the opens?
+    //             [Single thread works at ~200 MB/s, so w/~48 workers, on 3 FTAs, this will
+    //             give each FTA two alternating sets of workers offset by ~5 sec.]
+    sleep((rank % 2) * 2);
+
     if (! p_dest->open(flags, 0600, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
@@ -923,7 +930,9 @@ int copy_file(path_item*    src_file,
        if (! p_src->close()) {
           errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
                       p_src->path(), p_src->strerror());
-          err = 1;
+
+          // // This failure doesn't mean the copy failed.
+          // err = 1;
        }
 
 #ifdef GEN_SYNDATA
@@ -953,9 +962,10 @@ int copy_file(path_item*    src_file,
     if (! p_dest->close()) {
        errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
                    p_dest->path(), p_dest->strerror());
+       err = 1;
     }
-    
-    if(buf)
+
+    if (buf)
        free(buf);
 
     // even error-situations have now done clean-up
