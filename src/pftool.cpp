@@ -74,10 +74,10 @@ int main(int argc, char *argv[]) {
    
    {
       int rootEscalation;
-      rootEsclation = 0;
+      rootEscalation = 0;
 
       if(0 == geteuid()) {
-         rootEsclation = 1;
+         rootEscalation = 1;
       }
 
       char* const user_name = "root";
@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
           exit(1);
       } 
 
-      if(1 == rootEsclation) {
+      if(1 == rootEscalation) {
          if(0 != seteuid(getuid())) {
             perror("unablbe to set euid back to user");
             exit(1);
