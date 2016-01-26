@@ -20,6 +20,8 @@
 #include <fcntl.h>
 #include <time.h>
 #include <syslog.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #include "pftool.h"
 #include "ctm.h"
@@ -68,17 +70,35 @@ int main(int argc, char *argv[]) {
     // (or call multi-threaded libraries)?  We'll assume so.
     AWS4C_CHECK( aws_init() );
     //s3_enable_EMC_extensions(1); TODO: Where does this need to be set
+    //
+   
+   {
+      int rootEscalation;
+      rootEsclation = 0;
 
-    char* const user_name = (getenv("USER"));
-    // TODO: is this nessary. I am not sure that it is
-    if (aws_read_config(user_name)) {
-        fprintf(stderr, "unable to load AWS4C config\n");
-        exit(1);
-    } 
-    if (read_configuration()) {
-        fprintf(stderr, "unable to load MarFS config\n");
-        exit(1);
-    }
+      if(0 == geteuid()) {
+         rootEsclation = 1;
+      }
+
+      char* const user_name = "root";
+      if (aws_read_config(user_name)) {
+          fprintf(stderr, "unable to load AWS4C config\n");
+          exit(1);
+      } 
+
+      if(1 == rootEsclation) {
+         if(0 != seteuid(getuid())) {
+            perror("unablbe to set euid back to user");
+            exit(1);
+         }
+      }
+   }
+
+   if (read_configuration()) {
+       fprintf(stderr, "unable to load MarFS config\n");
+       exit(1);
+   }
+
 
     init_xattr_specs();
 
