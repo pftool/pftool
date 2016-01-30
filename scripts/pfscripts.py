@@ -156,6 +156,21 @@ def get_nodeallocation():
 
   return(nodelist,numprocs)
 
+def add_darshan(pfconfig, mpicmd):
+    # If darshan is specified in the environment and valid, add it to the mpi command line
+    try:
+      darshanlib = pfconfig.get("environment", "darshanlib");
+      if os.access(darshanlib, os.R_OK):
+        new_preload = darshanlib
+        orig_preload = os.environ.get("LD_PRELOAD")
+        if orig_preload:
+           new_preload +=  ":" + orig_preload
+        darshan_preload = "LD_PRELOAD=" + new_preload
+        mpicmd.add("-x", darshan_preload)
+    except:
+      pass
+
+
 def busy(): 
     print"""
 *******************************************************************
