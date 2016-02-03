@@ -616,6 +616,7 @@ int copy_file(path_item*    src_file,
     ////    Plfs_fd *   plfs_dest_fd = NULL;
     ////#endif
     ssize_t     bytes_processed = 0;
+    int         retry_count;
 
     //symlink
     char        link_path[PATHSIZE_PLUS];
@@ -819,12 +820,17 @@ int copy_file(path_item*    src_file,
            bytes_processed = p_src->read(buf, blocksize, offset+completed);
 
            // ---------------------------------------------------------------------------
-           // EXPERIMENT.  We are seeing stalls on some streams from
+           // MARFS EXPERIMENT.  We are seeing stalls on some reads from
            // object-servers, in the case of many concurrent requests.  To
            // deal with that, we'll try sending a new request for the part
            // of the data we haven't received.  Large number of retries
            // allows more-aggressive (i.e. shorter) timeouts waiting for a
            // blocksize read from the stream.
+           //
+           // This problem could also be a single object-server that is
+           // unresponsive.  In the case of a MarFS configuration using
+           // host-randomization, retrying the read will also have the
+           // chance of targeting a different server.
            //
            // TBD: In a POSIX context, this is overkill.  You'd rather just
            // retry the read.  For the case we're seeing with
@@ -832,7 +838,7 @@ int copy_file(path_item*    src_file,
            // seems to be, there, which is that we need to issue a fresh
            // request, which is done implicitly by closing and re-opening.
            // ---------------------------------------------------------------------------
-           int retry_count = 0;
+           retry_count = 0;
            while ((bytes_processed != blocksize) && (retry_count++ < 5)) {
 
               errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
@@ -841,7 +847,7 @@ int copy_file(path_item*    src_file,
               if (! p_src->close()) {
                  errsend_fmt(NONFATAL, "(RETRY) Failed to close src file: %s (%s)\n",
                              p_src->path(), p_src->strerror());
-                 err = 1;
+                 // err = 1;
               }
 
               if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset+completed, length-completed)) {
@@ -891,7 +897,59 @@ int copy_file(path_item*    src_file,
         ////#ifdef PLFS
         ////        }
         ////#endif
-        bytes_processed = p_dest->write(buf, blocksize, completed+offset);
+        bytes_processed = p_dest->write(buf, blocksize, offset+completed);
+
+        // ---------------------------------------------------------------------------
+        // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
+        // object-servers.  However, in the case of writes, we can't assume
+        // that a retry is even feasible.  For example, if some data was
+        // successfully written, then we can't necessarily resume writing
+        // after that.  pftool arranges with MarFS that N:1 writes will all
+        // start on object boundaries.  Therefore, *IFF* we are on the very
+        // first write, we can conceivably close, re-open, and retry.
+        //
+        // This approach will at least allow host-randomization to make us
+        // robust against unresponsive individual servers, provided they
+        // are unresponsive when we first try to write to them.
+        //
+        // TBD: In a POSIX context, this is overkill.  You'd rather just
+        // retry the write.  For the case we're seeing with object-servers,
+        // we're skipping straight to what the problem seems to be, there,
+        // which is that we need to issue a fresh request, which is done
+        // implicitly by closing and re-opening.
+        // ---------------------------------------------------------------------------
+        while ((bytes_processed != blocksize) && (retry_count++ < 5)
+               && (completed == 0)) {
+
+           errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
+                       p_dest->path(), offset, completed, blocksize);
+
+           if (! p_dest->close()) {
+              errsend_fmt(NONFATAL, "(RETRY) Failed to close dest file: %s (%s)\n",
+                          p_dest->path(), p_dest->strerror());
+              // err = 1;
+           }
+
+           if (! p_dest->open(flags, 0600, offset, length)) {
+              errsend_fmt(NONFATAL, "(RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
+                          p_dest->path(), offset, completed, p_dest->strerror());
+
+              p_src->close();
+              if (buf)
+                 free(buf);
+              return -1;
+           }
+
+           // try again ...
+           bytes_processed = p_dest->write(buf, blocksize, offset+completed);
+        }
+        if (retry_count && (bytes_processed == blocksize)) {
+           errsend_fmt(NONFATAL, "(RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                       p_dest->path(), offset, completed, retry_count);
+        }
+        // END of EXPERIMENT
+
+
 
         if (bytes_processed != blocksize) {
             sprintf(errormsg, "%s: wrote %ld bytes instead of %zd (%s)",
