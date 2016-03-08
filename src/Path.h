@@ -1014,7 +1014,7 @@ public:
    }
    
    virtual bool    symlink(const char* link_name) {
-      if (_rc = ::symlink(_item->path, link_name)) {
+      if (_rc = ::symlink(link_name, _item->path)) {
          _errno = errno;
       }
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
@@ -2033,11 +2033,13 @@ public:
    // This is an opportunity to do single-threaded reconciliation of
    // all these details, after close().
    virtual bool    post_process(PathPtr src) {
-      const char* marPath   = marfs_sub_path(_item->path);
-      size_t      file_size = src->st().st_size;
+//      if(!src->is_link()) {
+         const char* marPath   = marfs_sub_path(_item->path);
+         size_t      file_size = src->st().st_size;
 
-      if (batch_post_process(marPath, file_size))
-         return false;
+         if (batch_post_process(marPath, file_size))
+            return false;
+ //     }
 
       return true;
    }
@@ -2288,6 +2290,24 @@ public:
 
    virtual bool    remove() {
       return unlink();
+   }
+
+   // symlinking is taken care of in the pre process
+   virtual bool    symlink(const char* link_name) {
+
+      // delete the file that was created
+      unlink();
+
+      // we do the symlinking here because it does not work otherwise
+      if (_rc = marfs_symlink(link_name, marfs_sub_path(_item->path))) {
+         _errno = errno;
+      }
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      if (_rc != 0) {
+          return false;
+      }
+
+      return true;
    }
 };
 
