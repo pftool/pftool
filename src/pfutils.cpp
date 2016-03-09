@@ -635,7 +635,7 @@ int copy_file(path_item*    src_file,
     if (S_ISLNK(src_file->st.st_mode)) {
 
         // <link_path> = name of link-destination
-        numchars = readlink(src_file->path, link_path, PATHSIZE_PLUS);
+        numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
             sprintf(errormsg, "Failed to read link %s", src_file->path);
             errsend(NONFATAL, errormsg);
@@ -1638,9 +1638,10 @@ void set_fuse_chunk_data(path_item *work_node) {
     char*      current;
     char       errormsg[MESSAGESIZE];
     size_t     length;
+    PathPtr p(PathFactory::create_shallow(work_node));
 
     // memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
-    numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
+    numchars = p->readlink(linkname, PATHSIZE_PLUS);
     if (numchars < 0) {
         sprintf(errormsg, "Failed to read link %s", work_node->path);
         errsend(NONFATAL, errormsg);
@@ -1903,17 +1904,16 @@ int stat_item(path_item *work_node, struct options& o) {
 
     //special cases for links
     if (S_ISLNK(work_node->st.st_mode)) {
+        PathPtr p(PathFactory::create_shallow(work_node));
 
         // <linkname> = name of the link-destination
-        numchars = readlink(work_node->path, linkname, PATHSIZE_PLUS);
+        numchars = p->readlink(linkname, PATHSIZE_PLUS);
         if (numchars < 0) {
             snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", work_node->path);
             errsend(NONFATAL, errmsg);
-            work_node->ftype = LINKFILE;
             return -1;
         }
         linkname[numchars] = '\0';
-        work_node->ftype = LINKFILE;
 
 
 #ifdef FUSE_CHUNKER

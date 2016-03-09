@@ -195,7 +195,6 @@ enum FileType {
 
    REGULARFILE,
    FUSEFILE,
-   LINKFILE,
    PREMIGRATEFILE,              // for TAPE
    MIGRATEFILE,                 // for TAPE
    PLFSFILE,

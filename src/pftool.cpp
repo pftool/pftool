@@ -1953,7 +1953,7 @@ void process_stat_buffer(path_item*      path_buffer,
                                     && out_node.st.st_size > work_node.st.st_size)) {
 
                                 // <linkname> = name of the link-destination
-                                numchars = readlink(out_node.path, linkname, PATHSIZE_PLUS);
+                                numchars = p_out->readlink(linkname, PATHSIZE_PLUS);
                                 if (numchars < 0) {
                                     snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", out_node.path);
                                     errsend(FATAL, errmsg);
@@ -2176,7 +2176,7 @@ void process_stat_buffer(path_item*      path_buffer,
                         // non-chunked file or file is a link or metadata
                         // compare work - just send the whole file
                         if ((work_node.st.st_size <= chunk_at)
-                            || (work_node.ftype == LINKFILE)
+                            || (S_ISLNK(work_node.st.st_mode))
                             || (o.work_type == COMPAREWORK && o.meta_data_only)) {
 
                             work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
@@ -2640,7 +2640,7 @@ void worker_comparelist(int             rank,
         offset = work_node.chkidx*work_node.chksz;
         length = work_node.chksz;
         rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only);
-        if (o.meta_data_only || work_node.ftype == LINKFILE) {
+        if (o.meta_data_only || S_ISLNK(work_node.st.st_mode)) {
             sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
         }
         else {

@@ -656,6 +656,7 @@ public:
    virtual bool    remove()                       = 0;
    virtual bool    unlink()                       = 0;
 
+   virtual ssize_t readlink(char *buf, size_t bufsiz) { _errno=0; return -1; }
    virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
 
@@ -850,10 +851,7 @@ protected:
       }
 
       // couldn't we just look at S_ISLNK(_item->st.st_mode), when we want to know?
-      if (S_ISLNK(_item->st.st_mode))
-         _item->ftype = LINKFILE;
-      else
-         _item->ftype = REGULARFILE;
+      _item->ftype = REGULARFILE;
 
       return true;
    }
@@ -1011,6 +1009,14 @@ public:
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
+   }
+
+   virtual ssize_t readlink(char *buf, size_t bufsiz) {
+      _rc = ::readlink(_item->path, buf, bufsiz);
+      if(-1 == _rc) {
+         _errno = errno;
+      }
+      return _rc;
    }
    
    virtual bool    symlink(const char* link_name) {
@@ -2292,7 +2298,14 @@ public:
       return unlink();
    }
 
-   // symlinking is taken care of in the pre process
+   virtual ssize_t readlink(char *buf, size_t bufsiz) {
+      _rc = marfs_readlink(marfs_sub_path(_item->path), buf, bufsiz);
+      if(-1 == _rc) {
+         _errno = errno;
+      }
+      return _rc;
+   }
+ 
    virtual bool    symlink(const char* link_name) {
 
       // delete the file that was created
@@ -2470,7 +2483,6 @@ public:
          break;
 
       case REGULARFILE:
-      case LINKFILE:
          p = Pool<POSIX_Path>::get();
          break;
 
