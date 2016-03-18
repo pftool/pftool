@@ -1224,9 +1224,16 @@ int update_stats(path_item*  src_file,
     ////                dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
     ////        errsend(NONFATAL, errormsg);
     ////    }
-    if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
-       errsend_fmt(FATAL, "update_stats -- Failed to chown %s: %s\n",
-                   p_dest->path(), p_dest->strerror());
+    if(0 == geteuid()) {
+        if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
+           errsend_fmt(FATAL, "update_stats -- Failed to chown %s: %s\n",
+                       p_dest->path(), p_dest->strerror());
+        }
+    } else {
+        if (! p_dest->chown(geteuid(), src_file->st.st_gid)) {
+           errsend_fmt(FATAL, "update_stats -- Failed to chgrp %s: %s\n",
+                       p_dest->path(), p_dest->strerror());
+        }
     }
 
 
