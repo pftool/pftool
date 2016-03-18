@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
          rootEscalation = 1;
       }
 
-      char* const user_name = "root";
+      char* const user_name = (char*)"root";
       if (aws_read_config(user_name)) {
           fprintf(stderr, "unable to load AWS4C config\n");
           exit(1);
