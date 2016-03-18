@@ -1225,7 +1225,7 @@ int update_stats(path_item*  src_file,
     ////        errsend(NONFATAL, errormsg);
     ////    }
     if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
-       errsend_fmt(FATAL, "update_stats -- Failed to chown %s: %s\n",
+       errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
 
