@@ -1255,6 +1255,15 @@ void worker_update_chunk(int            rank,
             get_output_path(out_node.path, base_path, &work_node, dest_node, o);
             update_stats(&work_node, &out_node);
         }
+#if 1
+        // once CTM is functional we think this code can be removed -- Chris DeJager
+        // The problem is related to copying from sorce files that do not support
+        // xattrs.
+        else if (i == path_count-1) {
+            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+            update_stats(&work_node, &out_node);
+        }
+#endif
     }
     free(workbuf);
     send_manager_work_done(rank);

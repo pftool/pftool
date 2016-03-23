@@ -751,7 +751,7 @@ int copy_file(path_item*    src_file,
     //             ~4 sec, while we wait for the server.  What if tasks stagger the opens?
     //             [Single thread works at ~200 MB/s, so w/~48 workers, on 3 FTAs, this will
     //             give each FTA two alternating sets of workers offset by ~5 sec.]
-    sleep((rank % 2) * 2);
+    //sleep((rank % 2) * 2);
 
     if (! p_dest->open(flags, 0600, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
