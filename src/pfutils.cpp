@@ -526,6 +526,7 @@ void get_output_path(char*             output_path, // fill this in
     //remove trailing slash(es)
     strncpy(output_path, dest_node->path, PATHSIZE_PLUS);
     trim_trailing('/', output_path);
+    size_t remain = PATHSIZE_PLUS - strlen(output_path) -1;
 
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
@@ -548,8 +549,9 @@ void get_output_path(char*             output_path, // fill this in
     }
 
     if (S_ISDIR(dest_node->st.st_mode)) {
-        strncat(output_path, "/", PATHSIZE_PLUS);
-        strncat(output_path, path_slice, PATHSIZE_PLUS - strlen(output_path) - 1);
+        strncat(output_path, "/", remain);
+        remain -= 1;
+        strncat(output_path, path_slice, remain);
     }
     if (path_slice_duped) {
        free((void*)path_slice);
