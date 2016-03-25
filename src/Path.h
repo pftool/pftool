@@ -2021,7 +2021,13 @@ public:
       // already exist.  should we truncate?  But that would be wrong if
       // we're restarting with a Multi. (We'll change access-mode later.)
       if (marfs_mknod(marPath, 0600, 0)) {
-         if (errno != EEXIST) {
+         if (errno == EEXIST) {
+            // TODO: replace this with something more versitle for restarts
+           if(0 != marfs_truncate (marPath, 0)) {
+                fprintf(stderr, "couldn't truncate file '%s': %s\n",
+                        _item->path, ::strerror(errno));
+           }
+         } else {
             fprintf(stderr, "couldn't create file '%s': %s\n",
                     _item->path, ::strerror(errno));
             return false;

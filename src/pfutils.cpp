@@ -445,6 +445,7 @@ void get_dest_path(path_item*        dest_node, // fill this in
 
     memset(dest_node, 0, sizeof(path_item) - PATHSIZE_PLUS + 1); // zero-out header-fields
     strncpy(result, dest_path, PATHSIZE_PLUS);                // install dest_path
+    dest_node->ftype = TBD;                     // we will figure out the file type later
 
     strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
     trim_trailing('/', temp_path);
