@@ -142,6 +142,9 @@ int main(int argc, char *argv[]) {
     //Process using getopt
     //initialize options
     if (rank == MANAGER_PROC) {
+        
+        memset((void*)&o, 0, sizeof(struct options));
+
         o.verbose = 0;
         o.use_file_list = 0;
         o.recurse = 0;
