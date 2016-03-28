@@ -41,7 +41,21 @@ def main():
     if options.recurse:
       commands.add("-r")
 
-    commands.add("-p", *src)
+#    commands.add("-p", *src)
+#    print "src before = %s"%(src)
+    src_full = []
+    for i in src:
+      src_full.append(os.path.abspath(i))
+    src_fixed = []
+    for i in src_full:
+      if i.find("/var/lib/perceus/vnfs") != "-1":
+        src_fixed.append(i.split('rootfs', 1)[-1])
+      else:
+        src_fixed.append(i)
+#     print "src_full after = %s"%(src_full)
+#     print "src_fixed after = %s"%(src_fixed)
+    commands.add("-p", *src_fixed)
+
   else:
     parser.error("please include a source path or input list")
 
