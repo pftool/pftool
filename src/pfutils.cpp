@@ -788,7 +788,7 @@ int copy_file(path_item*    src_file,
         PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n", rank, bytes_processed, dest_file.path);
 #ifdef GEN_SYNDATA
         if (syndataExists(synbuf)) {
-           int buflen = blocksize * sizeof(char);		// Make sure buffer length is the right size!
+           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
 
 #if 0
            // Don't waste time filling the buffer.  We just want a fast
@@ -802,7 +802,7 @@ int copy_file(path_item*    src_file,
            }
 #endif
 
-           bytes_processed = buflen;				// On a successful call to syndataFill(), bytes_processed equals 0
+           bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
         }
         else {
 #endif
@@ -1042,157 +1042,196 @@ int copy_file(path_item*    src_file,
     return 0;
 }
 
-
 int compare_file(path_item*  src_file,
                  path_item*  dest_file,
                  size_t      blocksize,
                  int         meta_data_only) {
 
-    struct stat  dest_st;
-    size_t       completed = 0;
-    char*        ibuf;
-    char*        obuf;
-    int          src_fd;
-    int          dest_fd;
-    size_t       bytes_processed;
-    char         errormsg[MESSAGESIZE];
-    int          rc;
-    int          crc;
-    //    off_t        offset = src_file->offset;
-    //    size_t       length = src_file->length;
-    off_t offset = (src_file->chkidx * src_file->chksz);
-    off_t length = src_file->st.st_size;
+   ////    struct stat  dest_st;
+   size_t       completed = 0;
+   char*        ibuf;
+   char*        obuf;
+   size_t       bytes_processed;
+   char         errormsg[MESSAGESIZE];
+   int          rc;
+   int          crc;
+   //    off_t        offset = src_file->offset;
+   //    size_t       length = src_file->length;
+   ////    off_t offset = (src_file->chkidx * src_file->chksz);
+   ////    off_t length = src_file->st.st_size;
+   off_t offset = (src_file->chkidx * src_file->chksz);
+   off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
+                   ? (src_file->st.st_size - offset)
+                   : src_file->chksz);
+
+   PathPtr p_src( PathFactory::create_shallow(src_file));
+   PathPtr p_dest(PathFactory::create_shallow(dest_file));
 
 
-    // assure dest exists
-#ifdef FUSE_CHUNKER
-    if (dest_file->ftype == FUSEFILE){
-      if (stat(dest_file->path, &dest_st) == -1){
-        return 2;
+   // assure dest exists
+   ////#ifdef FUSE_CHUNKER
+   ////    if (dest_file->ftype == FUSEFILE){
+   ////      if (stat(dest_file->path, &dest_st) == -1){
+   ////         return 2;
+   ////      }
+   ////    }
+   ////    else{
+   ////#endif
+   ////      // WHY NO PLFS CASE HERE?
+   ////      if (lstat(dest_file->path, &dest_st) == -1) {
+   ////        return 2;
+   ////      }
+   ////#ifdef FUSE_CHUNKER
+   ////    }
+   ////#endif
+   if (! p_dest->stat())
+      return 2;
+
+   ////    if (src_file->st.st_size == dest_st.st_size &&
+   ////            (src_file->st.st_mtime == dest_st.st_mtime  ||
+   ////             S_ISLNK(src_file->st.st_mode))&&
+   ////            src_file->st.st_mode == dest_st.st_mode &&
+   ////            src_file->st.st_uid == dest_st.st_uid &&
+   ////            src_file->st.st_gid == dest_st.st_gid) {
+   if (src_file->st.st_size == dest_file->st.st_size &&
+       (src_file->st.st_mtime == dest_file->st.st_mtime  ||
+        S_ISLNK(src_file->st.st_mode))&&
+       src_file->st.st_mode == dest_file->st.st_mode &&
+       src_file->st.st_uid == dest_file->st.st_uid &&
+       src_file->st.st_gid == dest_file->st.st_gid) {
+
+      //metadata compare
+      if (meta_data_only) {
+         return 0;
       }
-    }
-    else{
-#endif
-      // WHY NO PLFS CASE HERE?
-      if (lstat(dest_file->path, &dest_st) == -1) {
-          return 2;
+
+      //byte compare
+      // allocate buffers and open files ...
+      ibuf = (char*)malloc(blocksize * sizeof(char));
+      if (! ibuf) {
+         errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                     blocksize, src_file->path);
+         return -1;
       }
-#ifdef FUSE_CHUNKER
-    }
-#endif
-    if (src_file->st.st_size == dest_st.st_size &&
-            (src_file->st.st_mtime == dest_st.st_mtime  ||
-             S_ISLNK(src_file->st.st_mode))&&
-            src_file->st.st_mode == dest_st.st_mode &&
-            src_file->st.st_uid == dest_st.st_uid &&
-            src_file->st.st_gid == dest_st.st_gid) {
 
-        //metadata compare
-        if (meta_data_only) {
-            return 0;
-        }
+      obuf = (char*)malloc(blocksize * sizeof(char));
+      if (! obuf) {
+         errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                     blocksize, dest_file->path);
+         free(ibuf);
+         return -1;
+      }
 
-        //byte compare
-        // allocate buffers and open files ...
-        ibuf = (char*)malloc(blocksize * sizeof(char));
-        if (! ibuf) {
-           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                       blocksize, src_file->path);
-           return -1;
-        }
+      ////        src_fd = open(src_file->path, O_RDONLY);
+      ////        if (src_fd < 0) {
+      ////            sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
+      ////            errsend(NONFATAL, errormsg);
+      ////            return -1;
+      ////        }
+      if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset, length)) {
+         errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
+         free(ibuf);
+         free(obuf);
+         return -1;
+      }
 
-        obuf = (char*)malloc(blocksize * sizeof(char));
-        if (! obuf) {
-           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                       blocksize, dest_file->path);
-           return -1;
-        }
+      ////        dest_fd = open(dest_file->path, O_RDONLY);
+      ////        if (dest_fd < 0) {
+      ////            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
+      ////            errsend(NONFATAL, errormsg);
+      ////            return -1;
+      ////        }
+      if (! p_dest->open(O_RDONLY, dest_file->st.st_mode, offset, length)) {
+         errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
+         free(ibuf);
+         free(obuf);
+         return -1;
+      }
 
-        src_fd = open(src_file->path, O_RDONLY);
-        if (src_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
+      //incase someone accidently set an offset+length that exceeds the file bounds
+      if ((src_file->st.st_size - offset) < length) {
+         length = src_file->st.st_size - offset;
+      }
+      //a file less than blocksize
+      if (length < blocksize) {
+         blocksize = length;
+      }
+      crc = 0;
+      while (completed != length) {
+
+         // Wasteful?  If we fail to read blocksize, we'll have a problem
+         // anyhow.  And if we succeed, then we'll wipe this all out with
+         // the data, anyhow.  [See also memsets in copy_file()]
+         //
+         //            memset(ibuf, 0, blocksize);
+         //            memset(obuf, 0, blocksize);
+
+         //blocksize is too big
+         if ((length - completed) < blocksize) {
+            blocksize = (length - completed);
+         }
+         ////            bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
+         bytes_processed = p_src->read(ibuf, blocksize, completed+offset);
+         if (bytes_processed != blocksize) {
+            sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                    src_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
+            free(ibuf);
+            free(obuf);
             return -1;
-        }
-
-        dest_fd = open(dest_file->path, O_RDONLY);
-        if (dest_fd < 0) {
-            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
+         }
+         ////            bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
+         bytes_processed = p_dest->read(obuf, blocksize, completed+offset);
+         if (bytes_processed != blocksize) {
+            sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                    dest_file->path, bytes_processed, blocksize);
             errsend(NONFATAL, errormsg);
+            free(ibuf);
+            free(obuf);
             return -1;
-        }
+         }
+         //compare - if no compare crc=1 if compare crc=0 and get out of loop
+         crc = memcmp(ibuf,obuf,blocksize);
+         //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",
+         //       src_file, dest_file, completed+offset, blocksize, crc);
+         if (crc != 0) {
+            completed=length;
+         }
+         completed += blocksize;
+      }
+      ////        rc = close(src_fd);
+      ////        if (rc != 0) {
+      if (! p_src->close()) {
+         sprintf(errormsg, "Failed to close src file: %s", src_file->path);
+         errsend(NONFATAL, errormsg);
+         free(ibuf);
+         free(obuf);
+         return -1;
+      }
+      ////        rc = close(dest_fd);
+      ////        if (rc != 0) {
+      if (! p_dest->close()) {
+         sprintf(errormsg, "Failed to close dst file: %s", dest_file->path);
+         errsend(NONFATAL, errormsg);
+         free(ibuf);
+         free(obuf);
+         return -1;
+      }
+      free(ibuf);
+      free(obuf);
+      if (crc != 0)
+         return 1;
+      else
+         return 0;
+   }
+   else
+      return 1;
 
-        //incase someone accidently set an offset+length that exceeds the file bounds
-        if ((src_file->st.st_size - offset) < length) {
-            length = src_file->st.st_size - offset;
-        }
-        //a file less than blocksize
-        if (length < blocksize) {
-            blocksize = length;
-        }
-        crc = 0;
-        while (completed != length) {
-
-           // Wasteful?  If we fail to read blocksize, we'll have a problem
-           // anyhow.  And if we succeed, then we'll wipe this all out with
-           // the data, anyhow.  [See also memsets in copy_file()]
-           //
-           //            memset(ibuf, 0, blocksize);
-           //            memset(obuf, 0, blocksize);
-
-            //blocksize is too big
-            if ((length - completed) < blocksize) {
-                blocksize = (length - completed);
-            }
-            bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
-            if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
-                        src_file->path, bytes_processed, blocksize);
-                errsend(NONFATAL, errormsg);
-                return -1;
-            }
-            bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
-            if (bytes_processed != blocksize) {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
-                        dest_file->path, bytes_processed, blocksize);
-                errsend(NONFATAL, errormsg);
-                return -1;
-            }
-            //compare - if no compare crc=1 if compare crc=0 and get out of loop
-            crc = memcmp(ibuf,obuf,blocksize);
-            //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",
-            //       src_file, dest_file, completed+offset, blocksize, crc);
-            if (crc != 0) {
-                completed=length;
-            }
-            completed += blocksize;
-        }
-        rc = close(src_fd);
-        if (rc != 0) {
-            sprintf(errormsg, "Failed to close src file: %s (%s)", src_file->path);
-            errsend(NONFATAL, errormsg);
-            return -1;
-        }
-        rc = close(dest_fd);
-        if (rc != 0) {
-            sprintf(errormsg, "Failed to close dst file: %s (%s)", dest_file->path);
-            errsend(NONFATAL, errormsg);
-            return -1;
-        }
-        free(ibuf);
-        free(obuf);
-        if (crc != 0) {
-            return 1;
-        }
-        else {
-            return 0;
-        }
-    }
-    else {
-        return 1;
-    }
-    return 0;
+   return 0;
 }
+
+
+
 
 // make <dest_file> have the same meta-data as <src_file>
 // We assume that <src_file>.dest_ftype applies to <dest_file>
