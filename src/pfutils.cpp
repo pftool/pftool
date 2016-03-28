@@ -756,7 +756,7 @@ int copy_file(path_item*    src_file,
     //             give each FTA two alternating sets of workers offset by ~5 sec.]
     //sleep((rank % 2) * 2);
 
-    if (! p_dest->open(flags, 0600, offset, length)) {
+    if (! p_dest->open(flags, src_file->st.st_mode, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
 
