@@ -600,10 +600,10 @@ public:
    }
 
    // try to adapt these POSIX calls
-   virtual bool    chown(uid_t owner, gid_t group)  = 0;
-   virtual bool    chmod(mode_t mode)               = 0;
-   virtual bool    utime(const struct utimbuf* ut)  = 0;
-
+   virtual bool    chown(uid_t owner, gid_t group)       = 0;
+   virtual bool    chmod(mode_t mode)                    = 0;
+   virtual bool    utime(const struct utimbuf* ut)       = 0;
+   virtual bool    utimensat(const struct timespec times[2], int flags) =0;
 
    // These are per-class qualities, that pftool may want to know
    virtual bool    supports_n_to_1() const   = 0; // can support N:1, via chunks?
@@ -752,10 +752,10 @@ public:
    virtual bool    supports_n_to_1() const  { return false; }
 
 
-   virtual bool    chown(uid_t owner, gid_t group) { NO_IMPL(chown); }
-   virtual bool    chmod(mode_t mode)              { NO_IMPL(chmod); }
-   virtual bool    utime(const struct utimbuf* ut) { NO_IMPL(utime); }
-
+   virtual bool    chown(uid_t owner, gid_t group)       { NO_IMPL(chown); }
+   virtual bool    chmod(mode_t mode)                    { NO_IMPL(chmod); }
+   virtual bool    utime(const struct utimbuf* ut)       { NO_IMPL(utime); }
+   virtual bool    utimensat(const struct timespec times[2], flags) { NO_IMPL(utime); }
 
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
@@ -906,6 +906,12 @@ public:
    }
    virtual bool    utime(const struct utimbuf* ut) {
       if (_rc = ::utime(path(), ut))
+         _errno = errno;
+      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+   virtual bool    utimensat(const struct timespec times[2], int flags) {
+      if (_rc = ::utimensat(AT_FDCWD, path(), times, flags))
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
@@ -1130,6 +1136,9 @@ public:
    virtual bool    utime(const struct utimbuf* ut) {
       return true;
    }
+   virtual bool    utimensat(const struct timespec times[2], int flags) {
+      return true;
+   }
 
    virtual bool    open(int flags, mode_t mode) {
       return true;
@@ -1279,6 +1288,19 @@ public:
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
+   }
+   virtual bool    utimensat(const struct timespec times[2], int flags) {
+      // PLFS doesn't support utimensat().  This means pftool will lose the
+      // nanoseconds component of the source mtime, when updating the
+      // destination-mtime on plfs destination.  pftool metadata comparison
+      // just looks at seconds, so files will continue to appear identical
+      // for the purposes of 'pftool -n', but if you look closely at the
+      // destination, you'll wonder where that nsecs went.
+      struct utimbuf ut;
+      ut.actime  = times[0].tv_sec;
+      ut.modtime = times[1].tv_sec;
+
+      return utime(&ut);
    }
 
    // see comments at Path::open()
@@ -1649,6 +1671,14 @@ public:
    virtual bool    utime(const struct utimbuf* ut) {
       //      _item->st.st_atime = ut->actime;
       //      _item->st.st_mtime = ut->modtime;
+      //      return apply_stat();
+      return true;              // [ see NOTE above S3_Path::chown() ]
+   }
+   virtual bool    utimensat(const struct timespec times[2], int flags) {
+      //      _item->st.st_atim.tv_sec  = times[0].tv_sec;
+      //      _item->st.st_atim.tv_nsec = times[0].tv_nsec;
+      //      _item->st.st_mtim.tv_sec  = times[1].tv_sec;
+      //      _item->st.st_mtim.tv_nsec = times[1].tv_nsec;
       //      return apply_stat();
       return true;              // [ see NOTE above S3_Path::chown() ]
    }
@@ -2099,6 +2129,19 @@ public:
          // unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
          _item->st.st_atime = ut->actime;
          _item->st.st_mtime = ut->modtime;
+      }
+      return (_rc == 0);
+   }
+   virtual bool    utimensat(const struct timespec times[2], int flags) {
+      if (_rc = marfs_utimensat(marfs_sub_path(path()), times, flags))
+         set_err_string(errno, NULL);
+      else {
+         // unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+         _item->st.st_atim.tv_sec  = times[0].tv_sec;
+         _item->st.st_atim.tv_nsec = times[0].tv_nsec;
+
+         _item->st.st_mtim.tv_sec  = times[1].tv_sec;
+         _item->st.st_mtim.tv_nsec = times[1].tv_nsec;
       }
       return (_rc == 0);
    }

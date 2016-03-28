@@ -1244,7 +1244,6 @@ int update_stats(path_item*  src_file,
     int            rc;
     char           errormsg[MESSAGESIZE];
     int            mode;
-    struct utimbuf ut;
 
     // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
     // NOTE: Path::follow() is false, by default
@@ -1331,9 +1330,7 @@ int update_stats(path_item*  src_file,
     p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
-    ut.actime = src_file->st.st_atime;
-    ut.modtime = src_file->st.st_mtime;
-
+    //
     ////#ifdef PLFS
     ////    if (src_file->dest_ftype == PLFSFILE){
     ////        rc = plfs_utime(dest_file->path, &ut);
@@ -1348,7 +1345,14 @@ int update_stats(path_item*  src_file,
     ////        sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file->path);
     ////        errsend(NONFATAL, errormsg);
     ////    }
-    if (! p_dest->utime(&ut)) {
+    struct timespec times[2];
+    times[0].tv_sec  = p_src->st().st_atim.tv_sec;
+    times[0].tv_nsec = p_src->st().st_atim.tv_nsec;
+
+    times[1].tv_sec  = p_src->st().st_mtim.tv_sec;
+    times[1].tv_nsec = p_src->st().st_mtim.tv_nsec;
+
+    if (! p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
