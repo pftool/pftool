@@ -2064,10 +2064,14 @@ void process_stat_buffer(path_item*      path_buffer,
                 //     they'd still have to look up the repo, which would
                 //     require getting xattrs, or at least marfs-expanding
                 //     the path.  ... so, what?)
+                //
+                // NOTE: pre_process initializes the destination-file as
+                //     though it will be written.  We only want that for
+                //     COPYWORK.
+                //
+                if ((o.work_type == COPYWORK) &&
+                    ! p_out->pre_process(p_work)) {
 
-                //     fprintf(stderr, "jti: calling pre_process() on %s '%s'\n",
-                //              p_out->class_name().get(), p_out->path());
-                if (! p_out->pre_process(p_work)) {
                    errsend_fmt(NONFATAL,
                                "Rank %d: couldn't prepare destination-file '%s': %s\n",
                                rank, p_out->path(), ::strerror(errno));
