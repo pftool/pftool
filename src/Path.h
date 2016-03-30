@@ -94,6 +94,7 @@
 
 #ifdef MARFS
 #  include <aws4c.h>             // must have version >= 5.2 !
+#  include <common.h>
 #  include <marfs_ops.h>
 #endif
 
@@ -540,7 +541,8 @@ public:
    virtual bool identical(PathPtr& p)  { return identical(*p); } // same item, same FS
    //   virtual bool equivalent(Path& p) { return false; } // same size, perms, etc
 
-
+   // allow subclasses to extend comparisons in pftool's samefile()
+   virtual bool incomplete()           { return false; }
 
    // Create a new Path with our path-name plus <suffix>.  Local object is
    // unchanged.  Result (via the factory) might be a different subclass
@@ -1923,6 +1925,8 @@ protected:
    uint64_t         _open_offset;
    uint64_t         _open_size;
 
+   PathInfo         _info;
+
    // we expect args from the Factory:
    //
    // (0) int               [rank]
@@ -2018,6 +2022,21 @@ public:
    virtual bool identical(MARFS_Path& p) {
       return (st().st_ino == p.st().st_ino);
    }
+
+   virtual bool incomplete()           {
+      expand_path_info(&_info, marfs_sub_path(_item->path));
+#if 0
+      stat_xattrs(&_info);
+      return (has_any_xattrs(&_info, XVT_RESTART));
+#else
+      // cheaper ...
+      char    xattr_value_str[MARFS_MAX_XATTR_SIZE];
+      ssize_t val_size = lgetxattr(info->post.md_path, "user.marfs_restart",
+                                   &xattr_value_str, MARFS_MAX_XATTR_SIZE);
+      return (val_size > 0);
+#endif
+   }
+
 
    // Fill out a struct stat, using metadata from gpfs backend
    static bool mar_stat(const char* path_name, struct stat* st) {

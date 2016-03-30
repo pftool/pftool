@@ -1721,8 +1721,13 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
         && src.st.st_uid == dst.st.st_uid
         && src.st.st_gid == dst.st.st_gid) {
 
-        if (src.st.st_size >= o.chunk_at)             // a chunkable file that looks the same - does it have a CTM?
-            return !(hasCTM(src.path));                 // if CTM exists -> two file are NOT the same
+        if ((src.st.st_size >= o.chunk_at)   // a chunkable file that looks the same - does it have a CTM?
+            && (hasCTM(src.path)))           // if CTM exists -> two file are NOT the same
+            return 0;
+
+        if (p_dst->incomplete()) // class-specific techniques (e.g. MarFS ahs RESTART)
+            return 0;
+
         return 1;
     }
     return 0;

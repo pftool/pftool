@@ -61,7 +61,7 @@
 
 //fuse
 #ifdef FUSE_CHUNKER
-#  include <sys/xattr.h>
+#  include <attr/xattr.h>
 #endif
 
 #ifdef PLFS
