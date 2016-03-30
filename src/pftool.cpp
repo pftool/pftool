@@ -1465,7 +1465,7 @@ void worker_readdir(int         rank,
             ////#endif
             if (! p_work->opendir()) {
                 errsend_fmt(NONFATAL, "Failed to open (%s) dir %s\n", 
-                        p_work->class_name().get(), p_work->path());
+                            p_work->class_name().get(), p_work->path());
             }
 
 

@@ -107,7 +107,7 @@ class PathFactory;
 
 typedef SharedPtr<path_item>   PathItemPtr;
 typedef SharedPtr<Path>        PathPtr;
-typedef SharedPtr<char>        CharPtr;
+//typedef SharedPtr<char>        CharPtr;
 
 
 
@@ -143,6 +143,26 @@ public:
 
 
 
+// ---------------------------------------------------------------------------
+// MallocSharedPtr
+//
+// This is a shared ptr to wrap around things that are allocated with
+// malloc(), instead of new.  Thus, the deleter should call free().
+// ---------------------------------------------------------------------------
+
+template <typename T>
+class MallocSharedPtr : public std::tr1::shared_ptr<T> {
+public:
+  typedef std::tr1::shared_ptr<T>			BaseType;
+
+  MallocSharedPtr(T* ptr)
+    : std::tr1::shared_ptr<T>(ptr, free) {
+  }
+  operator BaseType& ()  { return *this; } // cast to std::tr1::shared_ptr<T>
+};
+
+
+typedef MallocSharedPtr<char>        CharPtr;
 
 // ---------------------------------------------------------------------------
 // POOL
@@ -499,8 +519,14 @@ public:
    }
 
    // demangled name of any subclass
+   //
    // NOTE: abi::__cxa_demangle() returns a dynamically-allocated string,
    //       so we use a smart-pointer to make things easier on the caller.
+   //
+   // NOTE: This is allocated with malloc(), so we use a
+   //       MallocSharedPtr<char> to invoke free(), rather than delete, at
+   //       clean-up time.
+   //
    virtual CharPtr  class_name() const {
       int status;
       char* name = abi::__cxa_demangle(typeid(*this).name(), 0, 0, &status);
@@ -2031,7 +2057,7 @@ public:
 #else
       // cheaper ...
       char    xattr_value_str[MARFS_MAX_XATTR_SIZE];
-      ssize_t val_size = lgetxattr(info->post.md_path, "user.marfs_restart",
+      ssize_t val_size = lgetxattr(_info.post.md_path, "user.marfs_restart",
                                    &xattr_value_str, MARFS_MAX_XATTR_SIZE);
       return (val_size > 0);
 #endif
