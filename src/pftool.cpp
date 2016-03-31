@@ -87,8 +87,13 @@ int main(int argc, char *argv[]) {
       } 
 
       if(1 == rootEscalation) {
-         if(0 != seteuid(getuid())) {
-            perror("unablbe to set euid back to user");
+         if (0 != seteuid(getuid())) {
+            perror("unable to set euid back to user");
+            exit(1);
+         }
+         // probably a no-op, unless someone accidentally sets SGID on pftool.
+         if (0 != setegid(getgid())) {
+            perror("unable to set egid back to user");
             exit(1);
          }
       }
