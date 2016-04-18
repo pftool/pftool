@@ -380,7 +380,7 @@ protected:
         _errno(0)
    {
       if (item->path[0] &&
-          (item->st.st_ino || item->st.st_mode || item->st.st_uid || item->st.st_ctime))
+          (item->st.st_ino || item->st.st_mode || item->st.st_ctime))
          did_stat(true);
    }
 
@@ -411,7 +411,7 @@ protected:
 
       // if it already has stat info, we'll take it for granted
       if (item->path[0] &&
-          (item->st.st_ino || item->st.st_mode || item->st.st_uid || item->st.st_ctime))
+          (item->st.st_ino || item->st.st_mode || item->st.st_ctime))
          did_stat(true);
 
       path_change_post();       // subclasses may want to be informed
@@ -485,6 +485,19 @@ protected:
 
          // maybe flag success
          if (! success) {
+#if 0
+            // The stat member of <out_node>, in worker_comparelist() or
+            // worker_copylist(), may have crap from earlier iterations.
+            // This can fool Path::Path(const PathItemPtr&) or
+            // Path::operator=() into thinking we've done a successful
+            // stat, unless we wipe it here.
+            //
+            // COMMENTED OUT: Maybe better than this is to make sure that
+            // pftool never calls with an uninitialized stat struct.  We did
+            // that by fixing get_output_path() to zero out path_item->st.
+            //
+            memset(&_item->st, 0, sizeof(struct stat));
+#endif
             if (err_on_failure) {
                errsend_fmt(NONFATAL, "Failed to stat path %s", _item->path);
             }
@@ -652,6 +665,8 @@ public:
    // whatever), and return false.  Caller can then come back and get the
    // corresponding error-string from here.
    virtual const char* const strerror()     { return ::strerror(_errno); }
+   virtual int     get_errno()     { return _errno; }
+   virtual int     get_rc()        { return _rc; }
 
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
@@ -2071,8 +2086,6 @@ public:
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
       rc = marfs_getattr(marfs_sub_path(path_name), st);
-      //rc = marfs_getattr(path_name, st);
-
       if (rc) {
          // set_err_string(errno, NULL);
          return false;

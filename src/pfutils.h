@@ -314,6 +314,8 @@ void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item
                     int makedir, int num_paths, struct options& o);
 //char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
+void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
+
 //int one_byte_read(const char *path);
 int   one_byte_read(const char *path);
 ssize_t write_field(int fd, void *start, size_t len);

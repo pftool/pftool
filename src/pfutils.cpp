@@ -515,7 +515,7 @@ void get_dest_path(path_item*        dest_node, // fill this in
 // src_node, use the part of src_node that extends beyond <base_path>.
 //
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
-void get_output_path(char*             output_path, // fill this in
+void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
                      const path_item*  dest_node,
@@ -524,10 +524,15 @@ void get_output_path(char*             output_path, // fill this in
     const char*  path_slice;
     int          path_slice_duped = 0;
 
+    // clear out possibly-uninitialized stat-field
+    //    memset(&out_node->st, 0, sizeof(struct stat));
+    //    out_node->path[0] = 0;
+    memset(out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
+
     //remove trailing slash(es)
-    strncpy(output_path, dest_node->path, PATHSIZE_PLUS);
-    trim_trailing('/', output_path);
-    size_t remain = PATHSIZE_PLUS - strlen(output_path) -1;
+    strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
+    trim_trailing('/', out_node->path);
+    size_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
 
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
@@ -550,9 +555,9 @@ void get_output_path(char*             output_path, // fill this in
     }
 
     if (S_ISDIR(dest_node->st.st_mode)) {
-        strncat(output_path, "/", remain);
+        strncat(out_node->path, "/", remain);
         remain -= 1;
-        strncat(output_path, path_slice, remain);
+        strncat(out_node->path, path_slice, remain);
     }
     if (path_slice_duped) {
        free((void*)path_slice);

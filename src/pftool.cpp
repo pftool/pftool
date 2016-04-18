@@ -1219,7 +1219,7 @@ void worker_update_chunk(int            rank,
 
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
-        get_output_path(out_node.path, base_path, &work_node, dest_node, o);     // CTM is based off of destination file. Populate out_node
+        get_output_path(&out_node, base_path, &work_node, dest_node, o);     // CTM is based off of destination file. Populate out_node
         out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
         out_node.chksz = work_node.chksz;
         out_node.st.st_size = work_node.st.st_size;
@@ -1260,7 +1260,7 @@ void worker_update_chunk(int            rank,
                            rank, work_node.chkidx, work_node.path);
             hash_value = hashtbl_remove(*chunk_hash, work_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
-            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+            get_output_path(&out_node, base_path, &work_node, dest_node, o);
             update_stats(&work_node, &out_node);
         }
 #if 1
@@ -1268,7 +1268,7 @@ void worker_update_chunk(int            rank,
         // The problem is related to copying from sorce files that do not support
         // xattrs.
         else if (i == path_count-1) {
-            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+            get_output_path(&out_node, base_path, &work_node, dest_node, o);
             update_stats(&work_node, &out_node);
         }
 #endif
@@ -1369,7 +1369,7 @@ void worker_readdir(int         rank,
     char        path[PATHSIZE_PLUS];
     char        full_path[PATHSIZE_PLUS];
     char        errmsg[MESSAGESIZE];
-    char        mkdir_path[PATHSIZE_PLUS];
+    path_item   mkdir_node;
     path_item   work_node;
     path_item   workbuffer[STATBUFFER];
     int         buffer_count = 0;
@@ -1475,8 +1475,8 @@ void worker_readdir(int         rank,
 
 
             if (makedir == 1) {
-                //get_output_path(mkdir_path, base_path, &work_node, dest_node, o);
-                get_output_path(mkdir_path, base_path, &p_work->node(), dest_node, o);
+                //get_output_path(mkdir_node, base_path, &work_node, dest_node, o);
+                get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o);
 
                 ////#ifdef PLFS
                 ////                struct stat st_temp;
@@ -1492,8 +1492,12 @@ void worker_readdir(int         rank,
                 ////#ifdef PLFS
                 ////                }
                 ////#endif
-                PathPtr p_dir(PathFactory::create(mkdir_path));
-                p_dir->mkdir(S_IRWXU);
+                PathPtr p_dir(PathFactory::create_shallow(&mkdir_node));
+                if (! p_dir->mkdir(S_IRWXU)
+                    && (p_dir->get_errno() != EEXIST)) {
+                    errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n", 
+                                p_dir->class_name().get(), p_dir->path());
+                }
             }
             // strncpy(path, work_node.path, PATHSIZE_PLUS);
             strncpy(path, p_work->path(), PATHSIZE_PLUS);
@@ -1929,8 +1933,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
             //do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
-            memset(&out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
-            get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+            get_output_path(&out_node, base_path, &work_node, dest_node, o);
 
             //// rc = stat_item(&out_node, o);
             p_out = PathFactory::create_shallow(&out_node);
@@ -2532,7 +2535,8 @@ void worker_copylist(int             rank,
         PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. "
                         "offset = %ld   length = %ld\n",
                         rank, work_node.chkidx, offset, length);
-        get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+
+        get_output_path(&out_node, base_path, &work_node, dest_node, o);
         out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
 
 #ifdef FUSE_CHUNKER
@@ -2660,7 +2664,8 @@ void worker_comparelist(int             rank,
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
-        get_output_path(out_node.path, base_path, &work_node, dest_node, o);
+
+        get_output_path(&out_node, base_path, &work_node, dest_node, o);
         stat_item(&out_node, o);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.chkidx*work_node.chksz;
