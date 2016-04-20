@@ -1262,16 +1262,6 @@ void worker_update_chunk(int            rank,
             hashdata_destroy(&hash_value);                          // we are done with the data
             update_stats(&work_node, &out_node);
         }
-#if 0
-        // once CTM is functional we think this code can be removed -- Chris DeJager
-        // The problem is related to copying from sorce files that do not support
-        // xattrs.
-        //
-        // [BUG: <path_count> doesn't necessarily match the total number of chunks]
-        else if (i == path_count-1) {
-            update_stats(&work_node, &out_node);
-        }
-#endif
     }
     free(workbuf);
     send_manager_work_done(rank);

@@ -19,8 +19,15 @@
 #ifndef      __CTM_H
 #define      __CTM_H
 
+#include "config.h"
 #include <xfs/xfs.h>					// include because of BITS_PER_LONG define
 
+// configuration (via config.h) will define CTM_MODE to one of these values.
+// Use './configure --enable-ctm=value', where <value> is { xattrs | files | no }
+// The default is CTM_PREFER_FILES.
+#define CTM_PREFER_NONE   0
+#define CTM_PREFER_XATTRS 1
+#define CTM_PREFER_FILES  2
 
 // Typedefs that define the functions to access Chunk Transfer Metadata (CTM) from a persistant store
 typedef struct ctm_struct CTM;				// declaration of the CTM type. Defined below

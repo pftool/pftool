@@ -49,8 +49,12 @@ const char *_impl2str(CTM_ITYPE implidx) {
 *  file.
 */
 CTM_ITYPE _whichCTM(const char *transfilename) {
-   CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
 
+#if CTM_MODE == CTM_PREFER_FILES
+   return CTM_FILE;
+
+#elif CTM_MODE == CTM_PREFER_XATTRS
+   CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
    if(!strIsBlank(transfilename)) {    // non-blank filename -> test if tranferred file supports xattrs
      if(!setxattr(transfilename,CTM_TEST_XATTR,"novalue",strlen("novalue")+1,0)) {
        removexattr(transfilename,CTM_TEST_XATTR);  // done with test -> remove it.
@@ -68,6 +72,11 @@ CTM_ITYPE _whichCTM(const char *transfilename) {
      } // end setxattr() else
    }
    return(itype);
+
+#else
+   return CTM_NONE;
+
+#endif
 }
 
 /**

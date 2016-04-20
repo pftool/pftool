@@ -38,6 +38,8 @@ AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 
+AC_ARG_ENABLE(CTM, [  --enable-ctm]  [choose CTM mode = {xattrs | files | no}, default=files])
+
 AC_CONFIG_HEADER([config.h])
 
 
@@ -80,6 +82,24 @@ AS_IF([test x$enable_threads != xyes],
 
 #AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
 #AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
+
+# chunk-transfer metadata can be stored to allow incremental restarts for
+# large N:1 destination-files.  use '--enable-CTM=' to specify how (or
+# whether) to store this info.
+AS_IF([test x$enable_CTM == xxattrs],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_XATTRS], [prefer to store CTM in xattrs])],
+
+      [test x$enable_CTM == xfiles],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_FILES], [prefer to store CTM in files])],
+
+      [test x$enable_CTM == xno],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_NONE], [Do not store CTM])],
+
+      [test x$enable_CTM == x],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_FILES], [prefer to store CTM in files])],
+
+      [AC_MSG_ERROR([Usage: --enable-CTM=@<:@ {xattrs|files|no| }@:>@ ]) ])
+
 
 ### AM_PROG_CC_C_O
 AC_PROG_CXX_C_O
