@@ -1313,7 +1313,7 @@ int samefile(path_item src, path_item dst, struct options o) {
           src.st.st_uid == dst.st.st_uid &&
           src.st.st_gid == dst.st.st_gid);
     if (rc && src.st.st_size >= o.chunk_at) 			// a chunkable file that looks the same - does it have a CTM?
-      rc = !(hasCTM(src.path));					// if CTM exists -> two file are NOT the same
+      rc = !(hasCTM(dst.path));					// if CTM exists on destination -> two file are NOT the same
     return(rc);
 }
 
