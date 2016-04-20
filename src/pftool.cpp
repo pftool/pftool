@@ -1179,12 +1179,12 @@ void worker(int rank, struct options& o) {
  */
 // TODO: Check void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item dest_node, struct options o) {
 void worker_update_chunk(int            rank,
-        int            sending_rank,
-        HASHTBL**      chunk_hash,
-        int*           hash_count,
-        const char*    base_path,
-        path_item*     dest_node,
-        struct options& o) {
+                         int            sending_rank,
+                         HASHTBL**      chunk_hash,
+                         int*           hash_count,
+                         const char*    base_path,
+                         path_item*     dest_node,
+                         struct options& o) {
     MPI_Status  status;
     int         path_count;
     path_item   work_node;
@@ -1192,10 +1192,10 @@ void worker_update_chunk(int            rank,
     char*       workbuf;
     int         worksize;
     int         position;
-    HASHDATA      *hash_value;
-    size_t      chunk_size;
+    HASHDATA*   hash_value;
     int         i;
 
+    //    PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking data from rank %d\n", rank, sending_rank);
     //gather the # of files
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive path_count\n");
@@ -1207,8 +1207,6 @@ void worker_update_chunk(int            rank,
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", sizeof(workbuf));
     }
 
-    //gather the path to stat
-    PRINT_MPI_DEBUG("rank %d: manager_add_paths() Receiving worksize from rank %d\n", rank, sending_rank);
     //get the work nodes
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
@@ -1226,7 +1224,6 @@ void worker_update_chunk(int            rank,
 
 
         hash_value = hashtbl_get(*chunk_hash, out_node.path);             // get the value 
-        // chunk_size = work_node.length;
         if (hash_value == (HASHDATA *)NULL) {
 
             //resize the hashtable if needed
@@ -1235,40 +1232,43 @@ void worker_update_chunk(int            rank,
             }
             *hash_count += 1;
 
-            if(hash_value = hashdata_create(work_node)) {
-                hashtbl_insert(*chunk_hash, work_node.path, hash_value);
-                hashdata_update(hash_value,work_node);                        // make sure the new structure has recorded this chunk!
+            if(hash_value = hashdata_create(out_node)) {
+                hashtbl_insert(*chunk_hash, out_node.path, hash_value);
+                hashdata_update(hash_value,out_node);                        // make sure the new structure has recorded this chunk!
             }
-        } else {                                          // --- Structure for File needs to be updated
-            hashdata_update(hash_value,work_node);                      // this will update the data in the table
+        }
+        else {                                          // --- Structure for File needs to be updated
+            hashdata_update(hash_value,out_node);                      // this will update the data in the table
             if(IO_DEBUG_ON) {
                 char ctm_flags[2048];
                 char *ctmstr = ctm_flags;
                 int ctmlen = 2048;
 
-                PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM (chunk %d of file %s)\n%s\n",
-                               rank, work_node.chkidx, work_node.path,
+                PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM "
+                               "(chunk %d of file %s)\n%s\n",
+                               rank, out_node.chkidx, out_node.path,
                                tostringCTM((CTM *)hash_value, &ctmstr, &ctmlen));
             }
         }
 
         if (hash_value == (HASHDATA *)NULL) {                            // if no hash_value at this point, we have a problem!
             errsend(NONFATAL, "Do not have a hashed data structure for a chunked file!\n");
-        } else if (hashdata_filedone(hash_value)) {                       // --- File is done transferring
+        }
+        else if (hashdata_filedone(hash_value)) {                       // --- File is done transferring
             PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. "
                            "CTM should be removed. (chunk %d of file %s)\n",
-                           rank, work_node.chkidx, work_node.path);
-            hash_value = hashtbl_remove(*chunk_hash, work_node.path);               // remove structure for File from hash table
+                           rank, out_node.chkidx, out_node.path);
+            hash_value = hashtbl_remove(*chunk_hash, out_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
-            get_output_path(&out_node, base_path, &work_node, dest_node, o);
             update_stats(&work_node, &out_node);
         }
-#if 1
+#if 0
         // once CTM is functional we think this code can be removed -- Chris DeJager
         // The problem is related to copying from sorce files that do not support
         // xattrs.
+        //
+        // [BUG: <path_count> doesn't necessarily match the total number of chunks]
         else if (i == path_count-1) {
-            get_output_path(&out_node, base_path, &work_node, dest_node, o);
             update_stats(&work_node, &out_node);
         }
 #endif
