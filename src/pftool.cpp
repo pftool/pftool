@@ -1733,6 +1733,44 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 }
 #endif
 
+
+// helper for process_stat_buffer avoids duplicated code
+//
+// This is called once only, before any copies are started from a given
+// source-file.  This allows any one-time initializations that might be
+// needed by the destination Path-subclass.
+//
+// For example, this gives MarFS a chance to initialize xattrs.  This
+// allows us to choose the repo to use, based on the full input-file-size,
+// rather than the size given to movers for individual chunks.
+//
+// This should not be called on files that already exist (e.g. N:1 files
+// that already have received some writes and are being restarted).  This
+// should always be called on files that are being written for the first
+// time (e.g. never written, or previous version was unlinked).
+// process_stat_buffer() attempts to assure these conditions, when calling.
+//
+// NOTE: This should be called before any file-copy ops (regbuffer) are
+//     sent to the manager (for a given work-file).
+//
+// NOTE: pre_process initializes the destination-file as though it will be
+//     written.  We only want that for COPYWORK.
+//
+
+int maybe_pre_process(int&         pre_process,
+                      const struct options& o,
+                      PathPtr&     p_out,
+                      PathPtr&     p_work) {
+    if (pre_process &&
+        (o.work_type == COPYWORK) &&
+        ! p_out->pre_process(p_work)) {
+
+        return -1;
+    }
+
+    return 0;
+}
+
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
 // that have been reset to NONE are being built into path_buffers and sent
@@ -1808,6 +1846,7 @@ void process_stat_buffer(path_item*      path_buffer,
     int         out_unlinked = 0;
 
     int         process = 0;
+    int         pre_process = 0;
     int         parallel_dest = 0;
     int         dest_exists = FALSE; // the destination already exists?
 
@@ -1871,6 +1910,7 @@ void process_stat_buffer(path_item*      path_buffer,
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
         process = 0;
+        pre_process = 0;
 
         ////        work_node = path_buffer[i];
         ////        st = work_node.st;
@@ -1898,7 +1938,8 @@ void process_stat_buffer(path_item*      path_buffer,
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
         PathPtr p_out;
 
-        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n", rank, i, work_node.path);
+        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
+                       rank, i, work_node.path);
 
         // Are these items *identical* ? (e.g. same POSIX inode)
         if (p_work->identical(p_dest)) {
@@ -1989,9 +2030,10 @@ void process_stat_buffer(path_item*      path_buffer,
                                     errsend(NONFATAL, errmsg);
                                 }
 
-                                // p_out.reset(); // p_out was created shallow, and we're going to change ftype
+                                // p_out.reset(); // p_out is shallow, and we're going to change ftype
                                 // out_node.ftype = NONE;
                                 out_unlinked = 1; // don't unset the ftype to communicate
+                                pre_process = 1;
                             }
                         }
                         else {
@@ -2019,22 +2061,23 @@ void process_stat_buffer(path_item*      path_buffer,
                             ////                                errsend(FATAL, errmsg);
                             ////                            }
                             ////                            out_node.ftype = NONE;
-                            ////#ifdef FUSE_CHUNKER
+
 
                             // remove the destination file only if not
                             // doing a conditional transfer, or source file
                             // size <= chunk_at size
                             //
                             if (!o.different || work_node.st.st_size < o.chunk_at) {
-                                if (! p_out->unlink()) {
+                                if (! p_out->unlink() && (errno != ENOENT)) {
                                     errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
                                                 p_out->path(), p_out->strerror());
                                 }
-                            }
 
-                            // p_out.reset(); // p_out was created shallow, and we're going to change ftype
-                            // out_node.ftype = NONE;
-                            out_unlinked = 1; // don't unset the ftype to communicate
+                                // p_out.reset(); // p_out is shallow, and we're going to change ftype
+                                // out_node.ftype = NONE;
+                                out_unlinked = 1; // don't unset the ftype to communicate
+                                pre_process = 1;
+                            }
 
 #ifdef FUSE_CHUNKER
                         }
@@ -2042,45 +2085,26 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
                 }
                 else {
+                    // destination doesn't already exist
+
                     // p_out.reset(); // p_out was created shallow, and we're going to change ftype
                     // out_node.ftype = NONE;
                     out_unlinked = 1; // don't unset the ftype to communicate
+                    pre_process = 1;
                 }
             } // end COPYWORK
-            else if (o.work_type == COMPAREWORK) {      // preping for COMPAREWORK, which means we simply assign the destination type to the source file info
+
+            // preping for COMPAREWORK, which means we simply assign the
+            // destination type to the source file info
+            else if (o.work_type == COMPAREWORK) {
                 process = 1;
                 work_node.dest_ftype = out_node.ftype;
             }
 
 
 
+
             if (process == 1) {
-
-                // This gives MarFS a chance to initialize xattrs.  This
-                // allows us to choose the repo to use, based on the full
-                // input-file-size, rather than the size given to movers
-                // for individual chunks.
-                //
-                // NOTE: Maybe not necessary?  Maybe movers can just look
-                //     at path_item.st.st_size, when moving chunks, if they
-                //     want to know the full file size?  (Yeah, but then
-                //     they'd still have to look up the repo, which would
-                //     require getting xattrs, or at least marfs-expanding
-                //     the path.  ... so, what?)
-                //
-                // NOTE: pre_process initializes the destination-file as
-                //     though it will be written.  We only want that for
-                //     COPYWORK.
-                //
-                if ((o.work_type == COPYWORK) &&
-                    ! p_out->pre_process(p_work)) {
-
-                   errsend_fmt(NONFATAL,
-                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
-                               rank, p_out->path(), ::strerror(errno));
-                   continue;
-                }
-
 
                 //parallel filesystem can do n-to-1
                 if (parallel_dest) {
@@ -2154,6 +2178,13 @@ void process_stat_buffer(path_item*      path_buffer,
                     // handle zero-length source file - because it will not
                     // be processed through chunk/file loop below.
                     if (work_node.st.st_size == 0) {
+                        pre_process = 1;
+                        if (! p_out->unlink() && (errno != ENOENT)) {
+                            errsend_fmt(FATAL, "Failed to unlink (3) %s: %s\n",
+                                        p_out->path(), p_out->strerror());
+                        }
+                        out_unlinked = 1;
+
                         work_node.chkidx = 0;
                         work_node.chksz = 0;
                         regbuffer[reg_buffer_count] = work_node;
@@ -2180,78 +2211,94 @@ void process_stat_buffer(path_item*      path_buffer,
                                                rank, tostringCTM(ctm,&ctmstr,&ctmlen));
                             }
                         }
-                        else if (ctmExists)
+                        else if (ctmExists) {
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer
-                            purgeCTM(out_node.path);   
+                            purgeCTM(out_node.path);
+                            pre_process = 1;
+                            if (! p_out->unlink() && (errno != ENOENT)) {
+                                errsend_fmt(FATAL, "Failed to unlink (4) %s: %s\n",
+                                            p_out->path(), p_out->strerror());
+                            }
+                            out_unlinked = 1;
+                        }
                     }
 
-                    // --- CHUNKING-LOOP
-                    chunk_curr_offset = 0;              // keeps track of current offset in file for chunk.
-                    idx = 0;                    // keeps track of the chunk index
-                    while (chunk_curr_offset < work_node.st.st_size) {
-                        work_node.chkidx = idx;         // assign the chunk index
 
-                        // non-chunked file or file is a link or metadata
-                        // compare work - just send the whole file
-                        if ((work_node.st.st_size <= chunk_at)
-                            || (S_ISLNK(work_node.st.st_mode))
-                            || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+                        errsend_fmt(NONFATAL,
+                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                    rank, p_out->path(), ::strerror(errno));
+                    }
+                    else {
 
-                            work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
-                            chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
-                            PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
-                                           "non-chunkable file   chunk index: %d   chunk size: %ld\n",
-                                           rank, work_node.chkidx, work_node.chksz);
-                        }
-                        else {                  // having to chunk the file
-                            work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
-                            chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
-                                                  // should this be (work_node.chksz - chunk_curr_offset)?
-                                                  ? (work_node.st.st_size - chunk_curr_offset)
-                                                  : work_node.chksz);
-                            idx++;
-                        }
-#ifdef TAPE
-                        if (work_node.ftype == MIGRATEFILE
-#  ifdef FUSE_CHUNKER
-                            || (work_node.st.st_size > 0
-                                && work_node.st.st_blocks == 0
-                                && work_node.ftype == FUSEFILE)
-#  endif
-                            ) {
-                            tapebuffer[tape_buffer_count] = work_node;
-                            tape_buffer_count++;
-                            if (tape_buffer_count % TAPEBUFFER == 0) {
-                                send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
-                            }
-                        }
-                        else {
-#endif
-                            // if a non-conditional transfer or if the
-                            // chunk did not make on the first one ...
-                            if (!o.different
-                                || !chunktransferredCTM(ctm, work_node.chkidx)) {
+                        // --- CHUNKING-LOOP
+                        chunk_curr_offset = 0; // keeps track of current offset in file for chunk.
+                        idx = 0;               // keeps track of the chunk index
+                        while (chunk_curr_offset < work_node.st.st_size) {
+                            work_node.chkidx = idx;         // assign the chunk index
 
-                                num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
-                                regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
-                                reg_buffer_count++;
-                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk "
-                                               "index: %d   chunk size: %ld\n",
+                            // non-chunked file or file is a link or metadata
+                            // compare work - just send the whole file
+                            if ((work_node.st.st_size <= chunk_at)
+                                || (S_ISLNK(work_node.st.st_mode))
+                                || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+
+                                work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
+                                chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
+                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
+                                               "non-chunkable file   chunk index: %d   chunk size: %ld\n",
                                                rank, work_node.chkidx, work_node.chksz);
-                                if (((reg_buffer_count % COPYBUFFER) == 0)
-                                    || num_bytes_seen >= ship_off) {
-                                    PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
-                                                    "- sending %d reg buffers to manager.\n",
-                                                    rank, reg_buffer_count);
-                                    send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                                    num_bytes_seen = 0;
-                                }
-                            } // end send test
+                            }
+                            else {                  // having to chunk the file
+                                work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
+                                chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
+                                                      // should this be (work_node.chksz - chunk_curr_offset)?
+                                                      ? (work_node.st.st_size - chunk_curr_offset)
+                                                      : work_node.chksz);
+                                idx++;
+                            }
 #ifdef TAPE
-                        }
+                            if (work_node.ftype == MIGRATEFILE
+#  ifdef FUSE_CHUNKER
+                                || (work_node.st.st_size > 0
+                                    && work_node.st.st_blocks == 0
+                                    && work_node.ftype == FUSEFILE)
+#  endif
+                                ) {
+                                tapebuffer[tape_buffer_count] = work_node;
+                                tape_buffer_count++;
+                                if (tape_buffer_count % TAPEBUFFER == 0) {
+                                    send_manager_tape_buffer(tapebuffer, &tape_buffer_count);
+                                }
+                            }
+                            else {
 #endif
-                    } // end file/chunking loop
+                                // if a non-conditional transfer or if the
+                                // chunk did not make on the first one ...
+                                if (!o.different
+                                    || !chunktransferredCTM(ctm, work_node.chkidx)) {
+
+                                    num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
+                                    regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
+                                    reg_buffer_count++;
+                                    PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk "
+                                                   "index: %d   chunk size: %ld\n",
+                                                   rank, work_node.chkidx, work_node.chksz);
+                                    if (((reg_buffer_count % COPYBUFFER) == 0)
+                                        || num_bytes_seen >= ship_off) {
+                                        PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
+                                                        "- sending %d reg buffers to manager.\n",
+                                                        rank, reg_buffer_count);
+                                        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                                        num_bytes_seen = 0;
+                                    }
+                                } // end send test
+#ifdef TAPE
+                            }
+#endif
+                        } // end file/chunking loop
+                    }
 
                     // if CTM structure allocated it -> free the memory now
                     if (ctm)
@@ -2259,18 +2306,27 @@ void process_stat_buffer(path_item*      path_buffer,
                 } // end Parallel destination
 
                 else {  // non-parallel destination
-                    work_node.chkidx = 0;           // for non-chunked files, index is always 0
-                    work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
 
-                    num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
-                    regbuffer[reg_buffer_count] = work_node;
-                    reg_buffer_count++;
-                    if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
-                        PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
-                                        "- sending %d reg buffers to manager.\n",
-                                        rank, reg_buffer_count);
-                        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                        num_bytes_seen = 0;
+                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+                        errsend_fmt(NONFATAL,
+                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                    rank, p_out->path(), ::strerror(errno));
+                    }
+                    else {
+
+                        work_node.chkidx = 0;           // for non-chunked files, index is always 0
+                        work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
+
+                        num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
+                        regbuffer[reg_buffer_count] = work_node;
+                        reg_buffer_count++;
+                        if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
+                                            "- sending %d reg buffers to manager.\n",
+                                            rank, reg_buffer_count);
+                            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                            num_bytes_seen = 0;
+                        }
                     }
                 }
             }

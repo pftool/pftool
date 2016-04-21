@@ -2098,7 +2098,15 @@ public:
    // that is going to be copied to a MarFS destination (i.e. to us), and
    // knows the file is going to be treated as N:1.  The individual opens
    // and writes may use smaller sizes (because we now support N:1 writes).
-   // So, this is our chance to pick the appropriate batch repo.
+   // So, this is our chance to pick the appropriate batch repo.  This is
+   // only called once per destination, and is called before any other
+   // writes to the file.
+   //
+   // NOTE: We have attempted to set up process_stat_buffer() so that it
+   //     only calls us on files that don't exist (either because they
+   //     never existed, or have been unlinked).  This is important because
+   //     calling truncate or batch_pre_process on an existing N:1 file
+   //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
       const char* marPath   = marfs_sub_path(_item->path);
       size_t      file_size = src->st().st_size;
@@ -2110,12 +2118,18 @@ public:
       // we're restarting with a Multi. (We'll change access-mode later.)
       if (marfs_mknod(marPath, 0600, 0)) {
          if (errno == EEXIST) {
-            // TODO: replace this with something more versitle for restarts
-           if(0 != marfs_truncate (marPath, 0)) {
-                fprintf(stderr, "couldn't truncate file '%s': %s\n",
-                        _item->path, ::strerror(errno));
-           }
-         } else {
+            //   //   if (marfs_truncate (marPath, 0)) {
+            //   //      fprintf(stderr, "couldn't truncate file '%s': %s\n",
+            //   //              _item->path, ::strerror(errno));
+            //   //   }
+            //
+            //   assert(0); // DEBUGGING: does this ever run, now? [ANS: No.]
+            //
+            fprintf(stderr, "pre_process() -- file exists '%s'\n",
+                    _item->path);
+            return false;
+         }
+         else {
             fprintf(stderr, "couldn't create file '%s': %s\n",
                     _item->path, ::strerror(errno));
             return false;
