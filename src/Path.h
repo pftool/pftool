@@ -576,8 +576,8 @@ public:
    // NOTE: Objects cant be const; they might have to call stat(), etc.
    //
    //   virtual bool operator==(Path& p) { return identical(p); }
-   virtual bool identical(Path& p)     { return false; } // same item, same FS
-   virtual bool identical(PathPtr& p)  { return identical(*p); } // same item, same FS
+   virtual bool identical(Path* p)     { return false; } // same item, same FS
+   virtual bool identical(PathPtr& p)  { return identical(p.get()); } // same item, same FS
    //   virtual bool equivalent(Path& p) { return false; } // same size, perms, etc
 
    // allow subclasses to extend comparisons in pftool's samefile()
@@ -918,8 +918,10 @@ public:
 
 
    //   virtual bool operator==(POSIX_Path& p) { return (st().st_ino == p.st().st_ino); }
-   virtual bool identical(POSIX_Path& p) { 
-      return (st().st_ino == p.st().st_ino);
+   virtual bool identical(Path* p) { 
+      POSIX_Path* p2 = dynamic_cast<POSIX_Path*>(p);
+      return (p2 &&
+              (st().st_ino == p2->st().st_ino));
    }
 
 
@@ -1153,8 +1155,10 @@ public:
 
 
    //   virtual bool operator==(NULL_Path& p) { return (st().st_ino == p.st().st_ino); }
-   virtual bool identical(NULL_Path& p) { 
-      return (st().st_ino == p.st().st_ino);
+   virtual bool identical(Path* p) { 
+      NULL_Path* p2 = dynamic_cast<NULL_Path*>(p);
+      return (p2 &&
+              (st().st_ino == p2->st().st_ino));
    }
 
 
@@ -1618,7 +1622,12 @@ public:
    //      that this needs doing.
    //
    //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
-   virtual bool identical(const S3_Path& p) { NO_IMPL(identical); }
+   virtual bool identical(S3_Path* p) {
+      S3_Path* p2 = dynamic_cast<S3_Path*>(p);
+      if (! p2)
+         return false;
+      NO_IMPL(identical);
+   }
 
 
    // Strict S3 support N:1 via Multi-Part-Upload.  Scality adds a
@@ -2060,8 +2069,10 @@ public:
    // inodes.
    //
    //   virtual bool operator==(const S3_Path& p) { NO_IMPL(op==); }
-   virtual bool identical(MARFS_Path& p) {
-      return (st().st_ino == p.st().st_ino);
+   virtual bool identical(Path* p) {
+      MARFS_Path* p2 = dynamic_cast<MARFS_Path*>(p);
+      return (p2 &&
+              (st().st_ino == p2->st().st_ino));
    }
 
    virtual bool incomplete()           {
