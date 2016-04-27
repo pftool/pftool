@@ -33,6 +33,10 @@
 #  define MPI_Unpack MPY_Unpack
 #endif
 
+#include <map>
+#include <string>
+#include <vector>
+using namespace std;
 
 int main(int argc, char *argv[]) {
 
@@ -1211,17 +1215,59 @@ void worker_update_chunk(int            rank,
     if (MPI_Recv(workbuf, worksize, MPI_PACKED, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
     }
+
+#if ACCUMULATE_CHUNK_INFO
+    // This ACCUMULATE_CHUNK_INFO approach works, except for the "PROBLEM"
+    // mentioned below.  However, it's not currently very useful to
+    // accumulate chunk_infos, so that a given path can update many chunks
+    // at once, because worker_update_chunk() is apparently never called
+    // with path_count>1, and all other workers stall until we return.  So,
+    // ACCUMULATE_CHUNK_INFO is not defined anywhere.  This code is here
+    // for reference.
+
+    // save a record of chunks written on each file, so that we can call
+    // Path::chunks_complete() on a bunch of them at once.
+    typedef map<string, Path::ChunkInfoVec>            ChunkInfoMap; // path -> vector<ChunkInfo>
+    typedef map<string, Path::ChunkInfoVec>::iterator  ChunkInfoMapIt;
+    ChunkInfoMap  chunk_info_map;
+#endif
+
+    // process list of paths with completed chunks
     position = 0;
     for (i = 0; i < path_count; i++) {
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
 
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);     // CTM is based off of destination file. Populate out_node
+        // CTM is based off of destination file. Populate out_node
+        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+
+        // let sub-classes do any per-chunk work they want to do
+        //        PathPtr p_out(PathFactory::create_shallow(out_node));
+        //        p_out->chunk_complete();
+        Path::ChunkInfo chunk_info;
+        chunk_info.index = work_node.chkidx;
+        chunk_info.size  = work_node.chksz;
+
+        size_t chunk_start = (chunk_info.index * chunk_info.size);
+        size_t chunk_end   = chunk_start + chunk_info.size;
+        if (chunk_end > work_node.st.st_size) {
+            chunk_info.size = work_node.st.st_size - chunk_start;
+        }
+#if ACCUMULATE_CHUNK_INFO
+        chunk_info_map[out_node.path].push_back(chunk_info);
+#else
+        // just call the update per-chunk, instead of trying to accumulate updates
+        Path::ChunkInfoVec vec;
+        vec.push_back(chunk_info);
+        
+        PathPtr      p_out(PathFactory::create_shallow(&out_node));
+        p_out->chunks_complete(vec);
+#endif
+
         out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
         out_node.chksz = work_node.chksz;
         out_node.st.st_size = work_node.st.st_size;
-
 
         hash_value = hashtbl_get(*chunk_hash, out_node.path);             // get the value 
         if (hash_value == (HASHDATA *)NULL) {
@@ -1264,6 +1310,37 @@ void worker_update_chunk(int            rank,
         }
     }
     free(workbuf);
+
+#if ACCUMULATE_CHUNK_INFO
+    // Let Path-subclasses process the accumulated info about completed chunks
+    //
+    // PROBLEM: This works except the "hashdata_filedone()" case, above,
+    //     will already have called update_stats().  As a result, N:1
+    //     destination-files will have different metadata than the
+    //     source-file.  We could defer the call to update_stats() until
+    //     here, but that probably means copying every work_node, and
+    //     possibly every out_node, so we can use them here.  Because
+    //     worker_update_chunk() is actually only called with one work_node
+    //     at a time, this whole concept of accumulating chunks would
+    //     actually have to span multiple calls (e.g. make chunk_info_map
+    //     static, outside the function, and only do this post-processing
+    //     when we've accumulated enough chunk-info.  In that case, we'd
+    //     also move all the CTM processing to this loop, as well.  As
+    //     things stand, the ACCUMULATE_CHUNK_INFO approach is not worth
+    //     the trouble.
+    ChunkInfoMapIt map_it;
+    for (map_it=chunk_info_map.begin();
+         map_it!=chunk_info_map.end();
+         ++map_it) {
+
+        const char*         out_path(map_it->first.c_str());
+        Path::ChunkInfoVec& vec(map_it->second);
+
+        PathPtr      p_out(PathFactory::create(out_path));
+        p_out->chunks_complete(vec);
+    }
+#endif
+
     send_manager_work_done(rank);
 }
 

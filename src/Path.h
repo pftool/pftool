@@ -527,6 +527,15 @@ protected:
 
 public:
 
+   // for updating multiple chunks at once.
+   typedef struct {
+      size_t  index;            // index of this chunk
+      size_t  size;             // data written to chunk
+   } ChunkInfo;
+   typedef std::vector<ChunkInfo>            ChunkInfoVec;
+   typedef std::vector<ChunkInfo>::iterator  ChunkInfoVecIt;
+
+
    virtual ~Path() {
       // close_all();   // Wrong.  close() is abstract in Path.
    }
@@ -654,6 +663,10 @@ public:
    // xattrs.  It is called single-threaded from pftool, when before
    // copying a file.
    virtual bool    pre_process(PathPtr src) { return true; } // default is no-op
+
+   // Allow subclasses to maintain per-chunk state.  (e.g. MarFS can update
+   // MD chunk-info)
+   virtual bool    chunks_complete(ChunkInfoVec& vec) { return true; } // default is no-op
 
    // perform any class-specific initializations, after pftool copy has
    // finished.  For example, MARFS_Path can truncate to size It is called
@@ -1975,7 +1988,7 @@ protected:
    uint64_t         _open_offset;
    uint64_t         _open_size;
 
-   PathInfo         _info;
+   //   PathInfo         _info;  // just use fh.info, instead
 
    // we expect args from the Factory:
    //
@@ -2000,7 +2013,10 @@ protected:
         _n_ranks(-1),
         _open_offset(0),
         _open_size(0)
-   { 
+   {
+      memset(&fh, 0, sizeof(MarFS_FileHandle));
+      memset(&dh, 0, sizeof(MarFS_DirHandle));
+
       unset(DID_STAT);
       unset(IS_OPEN_DIR);
       unset(IS_OPEN);
@@ -2035,7 +2051,10 @@ public:
    // This runs on Pool<S3_Path>::get(), when initting an old instance
    virtual ~MARFS_Path() {
       close_all();
+
       //aws_iobuf_reset(_iobuf.get()); TODO: fix
+      if (is_open_md(&fh))
+         close();               // marfs_release() can handle this, too
    }
 
 
@@ -2076,14 +2095,14 @@ public:
    }
 
    virtual bool incomplete()           {
-      expand_path_info(&_info, marfs_sub_path(_item->path));
+      expand_path_info(&fh.info, marfs_sub_path(_item->path));
 #if 0
-      stat_xattrs(&_info);
-      return (has_any_xattrs(&_info, XVT_RESTART));
+      stat_xattrs(&fh.info);
+      return (has_any_xattrs(&fh.info, XVT_RESTART));
 #else
       // cheaper ...
       char    xattr_value_str[MARFS_MAX_XATTR_SIZE];
-      ssize_t val_size = lgetxattr(_info.post.md_path, "user.marfs_restart",
+      ssize_t val_size = lgetxattr(fh.info.post.md_path, "user.marfs_restart",
                                    &xattr_value_str, MARFS_MAX_XATTR_SIZE);
       return (val_size > 0);
 #endif
@@ -2151,6 +2170,66 @@ public:
          return false;
 
       return true;
+   }
+
+   // Called from worker_update_chunk() by a single pftool task.  It can
+   // potentially collect multiple chunks for us to update, so we can do
+   // multiple updates at once.
+   //
+   // We no longer allow marfs_write() and marfs_release() to update MD
+   // chunk-info, when they are serving an N:1 copy from pftool, because
+   // that would imply concurrent writes to the MDFS.  That might work for
+   // GPFS, but wouldn't work elsewhere.  (And it would be inefficient to
+   // have all writers fighting over individual updates to the GPFS MD
+   // file.)
+   virtual bool    chunks_complete(ChunkInfoVec& vec) {
+      PathInfo*         info = &fh.info;                  /* shorthand */
+      ObjectStream*     os   = &fh.os;
+
+      // iniitalize (if not already done)
+      //
+      // NOTE: We are only opening the MD file, rather than what open()
+      //     would do.  It looks like marfs_release() would properly
+      //     clean-up fh.md_fd, in this case, but we can't rely on
+      //     Path::close_all() to invoke that, because we're not IS_OPEN.
+      //     Therefore, we can't just leave the md_fd open and expect the
+      //     Path destructor to do everything, in worker_update_chunk().
+      expand_path_info(info, marfs_sub_path(_item->path));
+      stat_xattrs(info);
+
+      // we don't expect to be opened, but, if so, assure FH_WRITING is set
+      bool  fake_fh_writing(false);
+      if (_flags & IS_OPEN) {
+         if (! (fh.flags & FH_WRITING)) {
+            fprintf(stderr, "already open for reads in chunks_complete() for '%s'\n",
+                    _item->path);
+            return false;
+         }
+      }
+      else {
+         fh.flags |= FH_WRITING;  // for open_md() in write_chunkinfo()
+         fake_fh_writing = true;
+      }
+
+      bool retval(true);
+
+      ChunkInfoVecIt it;
+      for (it=vec.begin(); it!=vec.end(); ++it) {
+         const ChunkInfo& chunk_info = *it;
+
+         info->pre.chunk_no = chunk_info.index;
+         if (write_chunkinfo(&fh, chunk_info.size, 1)) {
+            fprintf(stderr, "couldn't update chunkinfo for chunk %ld in '%s': %s\n",
+                    info->pre.chunk_no, _item->path, ::strerror(errno));
+            retval = false;
+            break;
+         }
+      }
+
+      if (fake_fh_writing)
+         fh.flags &= ~FH_WRITING;
+
+      return retval;
    }
 
    // If opened N:1, this is our chance to reconcile things that parallel
@@ -2553,6 +2632,7 @@ public:
    // at the type, using stat_item().
    static PathPtr create(const char* path_name) {
       PathItemPtr  item(Pool<path_item>::get(true));
+      memset(item.get(), 0, sizeof(path_item));
       strncpy(item->path, path_name, PATHSIZE_PLUS);
       item->ftype = TBD;        // invoke stat_item() to determine type
 
