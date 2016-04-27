@@ -1278,12 +1278,6 @@ int update_stats(path_item*  src_file,
                       p_dest->path(), p_dest->strerror());
        }
     }
-    else if (! p_dest->chown(geteuid(), getegid())) {
-       if (! p_dest->chown(geteuid(), getegid())) {
-          errsend_fmt(NONFATAL, "update_stats -- user %u failed to chown %s: %s\n",
-                      geteuid(), p_dest->path(), p_dest->strerror());
-       }
-    }
 
 
     // ignore symlink destinations
@@ -1326,9 +1320,11 @@ int update_stats(path_item*  src_file,
     ////        sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file->path, mode);
     ////        errsend(NONFATAL, errormsg);
     ////    }
-    if (! p_dest->chmod(mode)) {
-       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
-                   p_dest->path(), p_dest->strerror());
+    if (0 == geteuid()) {
+        if (! p_dest->chmod(mode)) {
+           errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+                       p_dest->path(), p_dest->strerror());
+        }
     }
 
     // perform any final adjustments on destination, before we set atime/mtime
