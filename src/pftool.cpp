@@ -322,9 +322,6 @@ int main(int argc, char *argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
 
-    if (o.verbose && (rank == MANAGER_PROC)) {
-        printf("ranks = %d\n", nproc);
-    }
     // assure the minimal number of ranks exist
     if (nproc <= START_PROC) {
         fprintf(stderr, "Requires at least %d ranks\n", START_PROC +1);
@@ -452,12 +449,12 @@ int main(int argc, char *argv[]) {
 
 
 void manager(int             rank,
-        struct options& o,
-        int             nproc,
-        path_list*      input_queue_head,
-        path_list*      input_queue_tail,
-        int             input_queue_count,
-        const char*     dest_path) {
+             struct options& o,
+             int             nproc,
+             path_list*      input_queue_head,
+             path_list*      input_queue_tail,
+             int             input_queue_count,
+             const char*     dest_path) {
 
     MPI_Status  status;
 
@@ -562,18 +559,21 @@ void manager(int             rank,
                 //       than worker()), so that it does nothing but
                 //       synchronous recvs of the diagnostic messages
                 //       OUTCMD and LOGCMD.
+                //
+                // NOTE: The debugging fprintfs have served their purpose.
+                //       Commenting them out, now.
 
-                //                errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
-                //                            dest_node.path, dest_path);
-                fprintf(stderr, "Debugging: dest_path '%s' -> dest_node '%s'\n", dest_path, dest_node.path);
+
+                // // errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
+                // //             dest_node.path, dest_path);
+                // fprintf(stderr, "Debugging: dest_path '%s' -> dest_node '%s'\n",
+                //         dest_path, dest_node.path);
 
                 PathPtr p(PathFactory::create_shallow(&dest_node));
-                //                errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
-                fprintf(stderr, "Debugging: Path subclass is '%s'\n", p->class_name().get());
+                // // errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
+                // fprintf(stderr, "Debugging: dest Path-subclass is '%s'\n", p->class_name().get());
 
                 p->mkdir(S_IRWXU);
-                //                errsend_fmt(NONFATAL, "Debugging: created '%s'\n", p->path());
-                fprintf(stderr, "Debugging: created directory '%s'\n", p->path());
 
                 // TBD: Remove this.  This is just for now, because most of
                 //       pftool still just looks at naked stat structs,
@@ -619,9 +619,10 @@ void manager(int             rank,
     char* copy = strdup(dest_path);
     strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
     free(copy);
+
     ////    rc = stat(temp_path, &st);
     ////    if (rc < 0)
-    fprintf(stderr, "manager: creating temp_path %s\n", temp_path);
+    // fprintf(stderr, "manager: creating temp_path %s\n", temp_path);
     PathPtr p_dir(PathFactory::create((char*)temp_path));
     if (! p_dir->exists()) {
         fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
@@ -642,10 +643,21 @@ void manager(int             rank,
     for (i = 0; i < nproc; i++) {
         proc_status[i] = 0;
     }
+
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
     write_output(message, 1);
     sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_node.path);
     write_output(message, 1);
+
+    {   PathPtr p_src(PathFactory::create(beginning_node.path));
+        sprintf(message, "INFO  HEADER   Source-type: %s\n", p_src->class_name().get());
+        write_output(message, 1);
+
+        PathPtr p_dest(PathFactory::create(dest_path));
+        sprintf(message, "INFO  HEADER   Dest-type:   %s\n", p_dest->class_name().get());
+        write_output(message, 1);
+
+    }
 
     //starttime
     gettimeofday(&in, NULL);
@@ -2807,7 +2819,8 @@ void worker_comparelist(int             rank,
             sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
         }
         else {
-            sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s", work_node.path, (long long)offset, (long long)length, out_node.path);
+            sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s",
+                    work_node.path, (long long)offset, (long long)length, out_node.path);
         }
         if (rc == 0) {
             strncat(copymsg, " -- SUCCESS\n", MESSAGESIZE);
