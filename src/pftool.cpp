@@ -1766,8 +1766,10 @@ void worker_readdir(int         rank,
  *           file
  * @param o      the PFTOOL global options structure
  *
- * @return 1 (TRUE) if the metadata matches and no CTM
- *   exists for a chunkable file. 0 (FALSE) otherwise.
+ * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
+ *   command-line includes an option to skip copying files that have
+ *   already been done (-n), then the copy will be skipped if files are
+ *   "the same".
  */
 
 #if 0
@@ -1790,22 +1792,29 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
 
-    if (src.st.st_size == dst.st.st_size          // compare metadata - check size, mtime, mode, and owners
+    // compare metadata - check size, mtime, mode, and owners
+    if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
-        && src.st.st_mode == dst.st.st_mode
-        && src.st.st_uid == dst.st.st_uid
-        && src.st.st_gid == dst.st.st_gid) {
+        && ((src.st.st_mode == dst.st.st_mode)
+            || geteuid())       // non-root doesn't chmod dest
+        && (((src.st.st_uid == dst.st.st_uid)
+             && (src.st.st_gid == dst.st.st_gid))
+            || geteuid())) {    // non-root doesn't chown dest            
 
-        if ((src.st.st_size >= o.chunk_at)   // a chunkable file that looks the same - does it have a CTM?
-            && (hasCTM(dst.path)))           // if CTM exists -> two file are NOT the same
+        // if a chunkable file matches metadata, but has CTM,
+        // then files are NOT the same.
+        if ((src.st.st_size >= o.chunk_at)
+            && (hasCTM(dst.path)))
             return 0;
 
-        if (p_dst->incomplete()) // class-specific techniques (e.g. MarFS file has RESTART)
+        // class-specific techniques (e.g. MarFS file has RESTART?)
+        if (p_dst->incomplete())
             return 0;
 
         return 1;
     }
+
     return 0;
 }
 #endif
