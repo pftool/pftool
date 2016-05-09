@@ -529,6 +529,10 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     //    out_node->path[0] = 0;
     memset(out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
 
+    // marfs may want to know chunksize
+    out_node->chksz  = dest_node->chksz;
+    out_node->chkidx = dest_node->chkidx;
+
     //remove trailing slash(es)
     strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
     trim_trailing('/', out_node->path);
@@ -590,8 +594,9 @@ int one_byte_read(const char *path) {
     return 0;
 }
 
-//take a src, dest, offset and length. Copy the file and return 0 on
-//success, -1 on failure
+//take a src, dest, offset and length. Copy the file and return >=0 on
+//success, -1 on failure.  [0 means copy succeeded, 1 means a "deemed"
+//success.]
 int copy_file(path_item*    src_file,
               path_item*    dest_file,
               size_t        blocksize,
@@ -625,6 +630,7 @@ int copy_file(path_item*    src_file,
     ////#endif
     ssize_t     bytes_processed = 0;
     int         retry_count;
+    int         success = 0;
 
     //symlink
     char        link_path[PATHSIZE_PLUS];
@@ -793,12 +799,13 @@ int copy_file(path_item*    src_file,
         //
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
 
-        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n", rank, bytes_processed, dest_file.path);
+        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
+                       rank, bytes_processed, dest_file.path);
 #ifdef GEN_SYNDATA
         if (syndataExists(synbuf)) {
            int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
 
-#if 0
+# if 0
            // Don't waste time filling the buffer.  We just want a fast
            // way to create source data
 
@@ -808,7 +815,7 @@ int copy_file(path_item*    src_file,
               errsend(NONFATAL, errormsg);
               err = 1; break;  // return -1
            }
-#endif
+# endif
 
            bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
         }
@@ -922,6 +929,20 @@ int copy_file(path_item*    src_file,
         // robust against unresponsive individual servers, provided they
         // are unresponsive when we first try to write to them.
         //
+        // DEEMED SUCCESS: Another thing that could be going on is a
+        // restart of an N:1 copy, where the destination is a newer Scality
+        // sproxyd install, where overwrites of an existing object-ID are
+        // forbidden.  In this case, the CTM bitmap, which is only updated
+        // periodically, might not yet know that this particular chunk was
+        // already written successfully.  In that case, provided the
+        // existing object has the correct length, we "deem" the write a
+        // success despite the fact that it failed.  Note that the error is
+        // not reported (i.e. the PUT doesn't fail, and writes appear to be
+        // succeeding) until we've written the LAST byte, perhaps because
+        // PUTs from pftool have a length field, and the server doesn't
+        // bother complaining about anything until the full-length request
+        // has been received.
+        //
         // TBD: In a POSIX context, this is overkill.  You'd rather just
         // retry the write.  For the case we're seeing with object-servers,
         // we're skipping straight to what the problem seems to be, there,
@@ -961,11 +982,19 @@ int copy_file(path_item*    src_file,
 
 
 
-        if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: wrote %ld bytes instead of %zd (%s)",
-                    dest_file->path, bytes_processed, blocksize, p_dest->strerror());
-            errsend(NONFATAL, errormsg);
-            err = 1; break;  // return -1;
+        // see "DEEMED SUCCESS", above
+        if ((bytes_processed == -blocksize)
+            && (blocksize != 1) // TBD: how to distinguish this from an error?
+            && ((completed + blocksize) == length)) {
+
+           bytes_processed = -bytes_processed; // "deemed success"
+           success = 1;        // caller can distinguish actual/deemed success
+           // err = 0; break;  // return -1;
+        }
+        else if (bytes_processed != blocksize) {
+           errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd (%s)\n",
+                       dest_file->path, offset, bytes_processed, blocksize, p_dest->strerror());
+           err = 1; break;  // return -1;
         }
         completed += blocksize;
     }
@@ -1043,11 +1072,12 @@ int copy_file(path_item*    src_file,
     if (offset == 0 && length == src_file->st.st_size) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, dest_file.path);
-        if (update_stats(src_file, dest_file) != 0) {
+        if (update_stats(src_file, dest_file)) {
             return -1;
         }
     }
-    return 0;
+
+    return success;             // 0: copied, 1: deemed copy
 }
 
 int compare_file(path_item*  src_file,

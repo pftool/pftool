@@ -2058,9 +2058,14 @@ public:
    }
 
 
-   // pftool has a chunksize from the user.  They don't understand about
-   // recovery-info.  Return the marfs chunk-size for the repo matching
-   // this filesize.  (Return -1 for errors.)
+   // pftool gets a chunksize from the command-line, or a default.  Such
+   // values won't understand about MarFS recovery-info, or about repos
+   // having different chunksizes based on the total size of the file.  We
+   // compute the marfs chunk-size for the repo matching this filesize,
+   // leaving room for the recovery-info.  That way pftool "chunks", plus
+   // recovery-info will exactly fit into our chunksize.
+   //
+   // Return -1 for errors.
    //
    // TBD: Return something near what they gave us, which will produce an
    //     integral number of MarFS chunks, when that much user-data is
@@ -2471,13 +2476,77 @@ public:
    }
 
 
+   // We've added some special handling to support restart of an N:1 pftool
+   // copy to a MarFS destination, given a (recent vintage) Scality sproxyd
+   // repo.  In that situation, the pftool CTM may not have recorded every
+   // single chunk that was written, before the restart.  Therefore, the
+   // restart may be attempting to [over]write some existing object(s).
+   // More-recent Scality versions of sproxyd return 500 'Internal Server
+   // Error' for an attempt to PUT to an existing object (or to delete an
+   // existing object and then write to the same path).  However, they also
+   // don't respond until the entire request has been received.
+   //
+   // When MARFS_Path::write() fails, we can detect whether it was this
+   // particular situation as the AND of the following conditions: writing
+   // N:1, got a 500, object already exists, HEAD of the object shows size
+   // matching what we expected to write to it.  (We can expect the
+   // higher-level pftool validation to already have done MD-comparison on
+   // source/destination, etc.)  In this case, we'll deem the write a
+   // success.  But we'll return a negative value so pftool output can
+   // indicate that this unusual situation has occurred.
+   //
+   // In the case above, we would have just completed writing the final
+   // byte of user-data, then recovery-info, at the the tail-end of a marfs
+   // chunk.  Our <offset> argument is just the offset for this write.  We
+   // need the offset at the beginning of this chunk, to compute the
+   // expected_size of the chunk.  write_recoveryinfo() will have updated
+   // the fh.write_status.rec_info_mark to include all the data just
+   // written, so that's no help.  We'll defer to path_item.chksz (after
+   // fixing get_output_path(), to maintain that value.)  No, better yet,
+   // lets use the size of (the user-portion of) the PUT request, from the
+   // MarFS_FileHandle.
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
       ssize_t bytes;
       bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, &fh);
-      if (bytes == (ssize_t)-1)
-         set_err_string(errno, &fh.os.iob);
-      unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+
+      if (bytes == (ssize_t)-1) {
+
+         if (// (fh.pre.obj_type == OBJ_Nto1) &&
+             (fh.flags == 0x12)            // writing N:1
+             && (fh.os.iob.code == 500)) { // 500 Internal Server Error
+
+            // issue a HEAD request
+            static const int BUF_SIZE = 2048; // plenty?
+
+            IOBuf*       iob = aws_iobuf_new();
+            AWSContext*  ctx = aws_context_clone_r(fh.os.iob.context);
+            char*        objid = fh.info.pre.objid; // host, bucket are in <ctx>
+            char         headers[BUF_SIZE];         // avoid dyn-alloc on every header
+
+            ctx->flags = fh.os.iob.context->flags;  // clone doesn't do this
+            aws_iobuf_context(iob, ctx);
+            aws_iobuf_extend_static(iob, headers, BUF_SIZE);
+
+            CURLcode rc = s3_head(iob, objid);
+
+            // if object-size matches everything we thought we wrote to it
+            // then we deem the writes successful.
+            if (AWS4C_OK(iob)) {
+               const size_t expected_size = (fh.write_status.user_req
+                                             + MARFS_REC_UNI_SIZE);
+               if (iob->contentLen == expected_size) {
+                  set(DID_STAT);      // write() did something
+                  bytes = -count;     // neg <count> means "deemed success"
+               }
+            }
+            aws_iobuf_free(iob); // clean up everything in iob
+         }
+         else
+            set_err_string(errno, &fh.os.iob);
+      }
+
+      unset(DID_STAT);           // instead of updating _item->st, just mark it out-of-date
       return bytes;
    }
 

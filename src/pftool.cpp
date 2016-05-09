@@ -2088,7 +2088,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
                 //if the out path exists
                 ////                if (rc == 0)
-                if (p_out->exists()) {
+                if (dest_exists) {
 
                     // Maybe user only wants to operate on source-files
                     // that are "different" from the corresponding
@@ -2717,7 +2717,8 @@ void worker_copylist(int             rank,
                             out_node.path, work_node.path);
                 }
                 else {
-                    sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n",
+                    sprintf(copymsg, "INFO  DATACOPY %sCopied %s offs %lld len %lld to %s\n",
+                            ((rc == 1) ? "*" : ""),
                             work_node.path, (long long)offset, (long long)length, out_node.path);
                 }
                 //MPI_Pack(copymsg, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
