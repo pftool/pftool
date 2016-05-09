@@ -2096,6 +2096,12 @@ void process_stat_buffer(path_item*      path_buffer,
                     if ((o.different == 1) && samefile(p_work, p_out, o))
                         process = 0; // source/dest are the same, so skip
 
+                    // if someone truncated the destination to zero,
+                    // then any CTM that may exist is definitely obsolete
+                    if (out_node.st.st_size == 0) {
+                        purgeCTM(out_node.path);
+                    }
+
                     if (process == 1) {
 
 #ifdef FUSE_CHUNKER
@@ -2189,6 +2195,10 @@ void process_stat_buffer(path_item*      path_buffer,
                     // out_node.ftype = NONE;
                     out_unlinked = 1; // don't unset the ftype to communicate
                     pre_process = 1;
+
+                    // if someone deleted the destination,
+                    // then any CTM that may exist is definitely obsolete
+                    purgeCTM(out_node.path);
                 }
             } // end COPYWORK
 
