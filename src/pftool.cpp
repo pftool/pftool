@@ -107,6 +107,10 @@ int main(int argc, char *argv[]) {
        fprintf(stderr, "unable to load MarFS config\n");
        exit(1);
    }
+   if (validate_configuration()) {
+       fprintf(stderr, "MarFS config failed validation-tests\n");
+       exit(1);
+   }
 
 
     init_xattr_specs();
