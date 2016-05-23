@@ -199,113 +199,113 @@ int main(int argc, char *argv[]) {
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
         while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:vrlPMnh")) != -1) {
             switch(c) {
-                case 'p':
-                    //Get the source/beginning path
-                    strncpy(src_path, optarg, PATHSIZE_PLUS);
-                    break;
-                case 'c':
-                    //Get the destination path
-                    strncpy(dest_path, optarg, PATHSIZE_PLUS);
-                    break;
-                case 'j':
-                    strncpy(o.jid, optarg, 128);
-                    break;
-                case 't':
-                    o.dest_fstype = Path::parse_fstype(optarg);
-                    break;
-                case 'w':
-                    // this is <WorkType>, from pfutils.h
-                    // 0 = copy, 1 = list, 2 = compare
-                    o.work_type = atoi(optarg);
-                    break;
-                case 'i':
-                    strncpy(o.file_list, optarg, PATHSIZE_PLUS);
-                    o.use_file_list = 1;
-                    break;
-                case 's':
-                    o.blocksize = str2Size(optarg);
-                    break;
-                case 'C':
-                    o.chunk_at = str2Size(optarg);
-                    break;
-                case 'S':
-                    o.chunksize = str2Size(optarg);
-                    break;
+            case 'p':
+                //Get the source/beginning path
+                strncpy(src_path, optarg, PATHSIZE_PLUS);
+                break;
+            case 'c':
+                //Get the destination path
+                strncpy(dest_path, optarg, PATHSIZE_PLUS);
+                break;
+            case 'j':
+                strncpy(o.jid, optarg, 128);
+                break;
+            case 't':
+                o.dest_fstype = Path::parse_fstype(optarg);
+                break;
+            case 'w':
+                // this is <WorkType>, from pfutils.h
+                // 0 = copy, 1 = list, 2 = compare
+                o.work_type = atoi(optarg);
+                break;
+            case 'i':
+                strncpy(o.file_list, optarg, PATHSIZE_PLUS);
+                o.use_file_list = 1;
+                break;
+            case 's':
+                o.blocksize = str2Size(optarg);
+                break;
+            case 'C':
+                o.chunk_at = str2Size(optarg);
+                break;
+            case 'S':
+                o.chunksize = str2Size(optarg);
+                break;
 
-                case 'X':
+            case 'X':
 #ifdef GEN_SYNDATA
-                    strncpy(o.syn_pattern, optarg, 128);
+                strncpy(o.syn_pattern, optarg, 128);
 #else
-                    errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
+                errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
 #endif
-                    break;
+                break;
 
-                case 'x':
+            case 'x':
 #ifdef GEN_SYNDATA
-                    o.syn_size = str2Size(optarg);
+                o.syn_size = str2Size(optarg);
 #else
-                    errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
+                errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
 #endif
-                    break;
+                break;
 
 #ifdef FUSE_CHUNKER
-                case 'a':
-                    strncpy(o.archive_path, optarg, PATHSIZE_PLUS);
-                    break;
-                case 'f':
-                    strncpy(o.fuse_path, optarg, PATHSIZE_PLUS);
-                    o.use_fuse = 1;
-                    break;
-                case 'd':
-                    o.fuse_chunkdirs = atoi(optarg);
-                    break;
-                case 'W':
-                    o.fuse_chunk_at = str2Size(optarg);
-                    break;
-                case 'A':
-                    o.fuse_chunksize = str2Size(optarg);
-                    break;
+            case 'a':
+                strncpy(o.archive_path, optarg, PATHSIZE_PLUS);
+                break;
+            case 'f':
+                strncpy(o.fuse_path, optarg, PATHSIZE_PLUS);
+                o.use_fuse = 1;
+                break;
+            case 'd':
+                o.fuse_chunkdirs = atoi(optarg);
+                break;
+            case 'W':
+                o.fuse_chunk_at = str2Size(optarg);
+                break;
+            case 'A':
+                o.fuse_chunksize = str2Size(optarg);
+                break;
 #endif
 
 #ifdef PLFS
-                case 'z':
-                    o.plfs_chunksize = str2Size(optarg);
-                    break;
+            case 'z':
+                o.plfs_chunksize = str2Size(optarg);
+                break;
 #endif
 
-                case 'n':
-                    //different
-                    o.different = 1;  // falls through ... on purpose?
+            case 'n':
+                //different
+                o.different = 1;  // falls through ... on purpose?
 
-                case 'r':
-                    o.recurse = 1;
-                    break;
-                case 'l':
-                    o.logging = 1;
-                    break;
-                case 'P':
-                    o.parallel_dest = 1;
-                    break;
-                case 'M':
-                    o.meta_data_only = 0;
-                    break;
-                case 'v':
-                    // each '-v' increases verbosity, as follows
-                    //  >= 1  means normal diagnostics
-                    //  >= 2  means ...
-                    //  == 3  means also show S3 client/server interaction
-                    //  == 4  means also make a runtime infinite loop, for gdb
-                    o.verbose += 1;
-                    break;
+            case 'r':
+                o.recurse = 1;
+                break;
+            case 'l':
+                o.logging = 1;
+                break;
+            case 'P':
+                o.parallel_dest = 1;
+                break;
+            case 'M':
+                o.meta_data_only = 0;
+                break;
+            case 'v':
+                // each '-v' increases verbosity, as follows
+                //  >= 1  means normal diagnostics
+                //  >= 2  means ...
+                //  == 3  means also show S3 client/server interaction
+                //  == 4  means also make a runtime infinite loop, for gdb
+                o.verbose += 1;
+                break;
 
-                case 'h':
-                    //Help -- incoming!
-                    usage();
-                    return 0;
-                case '?':
-                    return -1;
-                default:
-                    break;
+            case 'h':
+                //Help -- incoming!
+                usage();
+                return 0;
+            case '?':
+                return -1;
+            default:
+                break;
             }
         }
 

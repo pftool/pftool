@@ -1350,11 +1350,9 @@ int update_stats(path_item*  src_file,
     ////        sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file->path, mode);
     ////        errsend(NONFATAL, errormsg);
     ////    }
-    if (0 == geteuid()) {
-        if (! p_dest->chmod(mode)) {
-           errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
-                       p_dest->path(), p_dest->strerror());
-        }
+    if (! p_dest->chmod(mode)) {
+       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+                   p_dest->path(), p_dest->strerror());
     }
 
     // perform any final adjustments on destination, before we set atime/mtime
