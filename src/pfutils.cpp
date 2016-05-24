@@ -57,6 +57,7 @@ void usage () {
     printf (" [-l]         turn on logging to /var/log/mesages\n");
     printf (" [-P]         force destination filesystem to be treated as parallel\n");
     printf (" [-M]         perform block-compare, default: metadata-compare\n");
+    printf (" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
     printf (" [-v]         user verbose output\n");
     printf (" [-h]         print Usage information\n");
 
@@ -601,7 +602,8 @@ int copy_file(path_item*    src_file,
               path_item*    dest_file,
               size_t        blocksize,
               int           rank,
-              SyndataBufPtr synbuf)
+              SyndataBufPtr synbuf,
+              struct options& o)
 {
     //MPI_Status status;
     int         rc;
@@ -665,7 +667,7 @@ int copy_file(path_item*    src_file,
            return -1;
         }
 
-        if (update_stats(src_file, dest_file) != 0) {
+        if (update_stats(src_file, dest_file, o) != 0) {
             return -1;
         }
         return 0;
@@ -1072,7 +1074,7 @@ int copy_file(path_item*    src_file,
     if (offset == 0 && length == src_file->st.st_size) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, dest_file.path);
-        if (update_stats(src_file, dest_file)) {
+        if (update_stats(src_file, dest_file, o)) {
             return -1;
         }
     }
@@ -1273,8 +1275,9 @@ int compare_file(path_item*  src_file,
 
 // make <dest_file> have the same meta-data as <src_file>
 // We assume that <src_file>.dest_ftype applies to <dest_file>
-int update_stats(path_item*  src_file,
-                 path_item*  dest_file) {
+int update_stats(path_item*      src_file,
+                 path_item*      dest_file,
+                 struct options& o) {
 
     int            rc;
     char           errormsg[MESSAGESIZE];
@@ -1302,7 +1305,7 @@ int update_stats(path_item*  src_file,
     ////                dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
     ////        errsend(NONFATAL, errormsg);
     ////    }
-    if (0 == geteuid()) {
+    if (0 == geteuid() || o.preserve) {
        if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
           errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
                       p_dest->path(), p_dest->strerror());

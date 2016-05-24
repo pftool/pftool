@@ -229,6 +229,7 @@ struct options {
     size_t  blocksize;
     size_t  chunk_at;
     size_t  chunksize;
+    int     preserve;           // attempt to preserve ownership during copies.
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
@@ -325,12 +326,12 @@ int mkpath(char *thePath, mode_t perms);
 //#else
 //int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
 //#endif
-int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf=NULL);
+int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf, struct options& o);
 
 //int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
 int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only);
 //int update_stats(path_item src_file, path_item dest_file);
-int   update_stats(path_item* src_file, path_item* dest_file);
+int   update_stats(path_item* src_file, path_item* dest_file, struct options& o);
 
 //dmapi/gpfs specfic
 #ifdef TAPE

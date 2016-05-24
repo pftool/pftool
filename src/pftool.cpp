@@ -197,7 +197,7 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:vrlPMnh")) != -1) {
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:orlPMnhv")) != -1) {
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -266,6 +266,10 @@ int main(int argc, char *argv[]) {
                 o.fuse_chunksize = str2Size(optarg);
                 break;
 #endif
+
+            case 'o':
+                o.preserve = 1; // preserve ownership, during copies.
+                break;
 
 #ifdef PLFS
             case 'z':
@@ -344,6 +348,7 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.preserve, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
 
 #ifdef FUSE_CHUNKER
     MPI_Bcast(o.archive_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -1322,7 +1327,7 @@ void worker_update_chunk(int            rank,
                            rank, out_node.chkidx, out_node.path);
             hash_value = hashtbl_remove(*chunk_hash, out_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
-            update_stats(&work_node, &out_node);
+            update_stats(&work_node, &out_node, o);
         }
     }
     free(workbuf);
@@ -1809,14 +1814,14 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& dst = p_dst->node();
 
     // compare metadata - check size, mtime, mode, and owners
+    // (satisfied conditions -> "same" file)
     if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
-        && ((src.st.st_mode == dst.st.st_mode)
-            || geteuid())       // non-root doesn't chmod dest
+        && (src.st.st_mode == dst.st.st_mode)
         && (((src.st.st_uid == dst.st.st_uid)
              && (src.st.st_gid == dst.st.st_gid))
-            || geteuid())) {    // non-root doesn't chown dest            
+            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
 
         // if a chunkable file matches metadata, but has CTM,
         // then files are NOT the same.
@@ -2700,7 +2705,7 @@ void worker_copylist(int             rank,
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
 #endif
-            rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
+            rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf, o);
 
 #ifdef FUSE_CHUNKER
         }
@@ -2716,7 +2721,7 @@ void worker_copylist(int             rank,
                  || chunk_ut.actime != ut.actime
                  || chunk_ut.modtime != ut.modtime) { //not a match
 
-                rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf);
+                rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf, o);
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else
