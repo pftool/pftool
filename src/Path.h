@@ -2203,7 +2203,6 @@ public:
       stat_xattrs(info);
 
       // we don't expect to be opened, but, if so, assure FH_WRITING is set
-      bool  fake_fh_writing(false);
       if (_flags & IS_OPEN) {
          if (! (fh.flags & FH_WRITING)) {
             fprintf(stderr, "already open for reads in chunks_complete() for '%s'\n",
@@ -2211,13 +2210,8 @@ public:
             return false;
          }
       }
-      else {
-         fh.flags |= FH_WRITING;  // for open_md() in write_chunkinfo()
-         fake_fh_writing = true;
-      }
 
       bool retval(true);
-
       ChunkInfoVecIt it;
       for (it=vec.begin(); it!=vec.end(); ++it) {
          const ChunkInfo& chunk_info = *it;
@@ -2230,9 +2224,6 @@ public:
             break;
          }
       }
-
-      if (fake_fh_writing)
-         fh.flags &= ~FH_WRITING;
 
       return retval;
    }
@@ -2347,7 +2338,8 @@ public:
       if ((flags & (O_WRONLY | O_RDWR))
           && (flags & O_CREAT)) {
          /* we need to create the node */
-         if (marfs_mknod(marPath, mode, 0)) {
+         if (! exists()
+             && marfs_mknod(marPath, mode, 0)) {
             set_err_string(errno, NULL);
             if (errno != EEXIST) {
                fprintf(stderr, "marfs_mknod failed: %s\n", this->strerror());
