@@ -665,7 +665,8 @@ public:
    virtual bool    pre_process(PathPtr src) { return true; } // default is no-op
 
    // Allow subclasses to maintain per-chunk state.  (e.g. MarFS can update
-   // MD chunk-info)
+   // MD chunk-info).  This is only called during chunked COPY tasks (not
+   // during chunked COMPARE tasks).
    virtual bool    chunks_complete(ChunkInfoVec& vec) { return true; } // default is no-op
 
    // perform any class-specific initializations, after pftool copy has
@@ -2187,6 +2188,9 @@ public:
    // GPFS, but wouldn't work elsewhere.  (And it would be inefficient to
    // have all writers fighting over individual updates to the GPFS MD
    // file.)
+   //
+   // This is not called from worker_update_chunk() in the case of a
+   // COMPARE task.
    virtual bool    chunks_complete(ChunkInfoVec& vec) {
       PathInfo*         info = &fh.info;                  /* shorthand */
       ObjectStream*     os   = &fh.os;

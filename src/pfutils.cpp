@@ -16,7 +16,7 @@
 #include <errno.h>
 
 #include "pfutils.h"
-#include "Path.h"
+#include "ctm.h"                // hasCTM()
 #include "debug.h"
 
 #include <syslog.h>
@@ -1082,10 +1082,11 @@ int copy_file(path_item*    src_file,
     return success;             // 0: copied, 1: deemed copy
 }
 
-int compare_file(path_item*  src_file,
-                 path_item*  dest_file,
-                 size_t      blocksize,
-                 int         meta_data_only) {
+int compare_file(path_item*      src_file,
+                 path_item*      dest_file,
+                 size_t          blocksize,
+                 int             meta_data_only,
+                 struct options& o) {
 
    ////    struct stat  dest_st;
    size_t       completed = 0;
@@ -1127,18 +1128,13 @@ int compare_file(path_item*  src_file,
    if (! p_dest->stat())
       return 2;
 
-   ////    if (src_file->st.st_size == dest_st.st_size &&
-   ////            (src_file->st.st_mtime == dest_st.st_mtime  ||
-   ////             S_ISLNK(src_file->st.st_mode))&&
-   ////            src_file->st.st_mode == dest_st.st_mode &&
-   ////            src_file->st.st_uid == dest_st.st_uid &&
-   ////            src_file->st.st_gid == dest_st.st_gid) {
-   if (src_file->st.st_size == dest_file->st.st_size &&
-       (src_file->st.st_mtime == dest_file->st.st_mtime  ||
-        S_ISLNK(src_file->st.st_mode))&&
-       src_file->st.st_mode == dest_file->st.st_mode &&
-       src_file->st.st_uid == dest_file->st.st_uid &&
-       src_file->st.st_gid == dest_file->st.st_gid) {
+   //   if (src_file->st.st_size == dest_file->st.st_size
+   //       && (src_file->st.st_mtime == dest_file->st.st_mtime  ||
+   //           S_ISLNK(src_file->st.st_mode))
+   //       && (src_file->st.st_mode == dest_file->st.st_mode)
+   //       && (src_file->st.st_uid == dest_file->st.st_uid)
+   //       && (src_file->st.st_gid == dest_file->st.st_gid)) {
+   if (samefile(p_src, p_dest, o)) {
 
       //metadata compare
       if (meta_data_only) {
@@ -1283,13 +1279,19 @@ int update_stats(path_item*      src_file,
     char           errormsg[MESSAGESIZE];
     int            mode;
 
+    // don't touch the destination, unless this is a COPY
+    if (o.work_type != COPYWORK)
+       return 0;
+
     // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
     // NOTE: Path::follow() is false, by default
     path_item  dest_copy(*dest_file);
     dest_copy.ftype = src_file->dest_ftype;
     PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
 
-    // update <dest_file> owner  (without following links)
+    // if running as root, always update <dest_file> owner  (without following links)
+    // non-root user can also attempt this, by setting "preserve" (with -o)
+    //
     ////#ifdef PLFS
     ////    if (src_file->dest_ftype == PLFSFILE){
     ////        rc = plfs_chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
@@ -2358,3 +2360,67 @@ int MPY_Abort(MPI_Comm comm, int errorcode) {
     return -1;
 }
 #endif
+
+
+/**
+ * This function tests the metadata of the two nodes
+ * to see if they are the same. For files that are chunkable,
+ * it looks to see if CTM (chunk transfer metadata) exists for 
+ * the source file. If it does, then it assumes that there was 
+ * an aborted transfer, and the files are NOT the same!
+ *
+ * check size, mtime, mode, and owners
+ * 
+ * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
+ *    their metadata is initialized with ctime=mtime, and atime=mtime.
+ *    Therefore, if you compare a POSIX file having values for ctime,
+ *    atime, and mtime that are not all the same, with any S3 object, the
+ *    two sets of metadata will *always* differ in these values, even if
+ *    you freshly create them and set all these values to match the
+ *    original.  Therefore, it might make sense to reconsider this test.
+ *
+ * @param src        a path_item structure containing
+ *           the metadata for the souce file
+ * @param dst        a path_item structure containing
+ *           the metadata for the destination
+ *           file
+ * @param o      the PFTOOL global options structure
+ *
+ * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
+ *   command-line includes an option to skip copying files that have
+ *   already been done (-n), then the copy will be skipped if files are
+ *   "the same".
+ */
+
+// TBD: Use Path methods to avoid over-reliance on POSIX same-ness
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
+    const path_item& src = p_src->node();
+    const path_item& dst = p_dst->node();
+
+    // compare metadata - check size, mtime, mode, and owners
+    // (satisfied conditions -> "same" file)
+    if (src.st.st_size == dst.st.st_size
+        && (src.st.st_mtime == dst.st.st_mtime
+            || S_ISLNK(src.st.st_mode))
+        && (src.st.st_mode == dst.st.st_mode)
+        && (((src.st.st_uid == dst.st.st_uid)
+             && (src.st.st_gid == dst.st.st_gid))
+            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+
+       // if a chunkable file matches metadata, but has CTM,
+       // then files are NOT the same.
+       if ((o.work_type == COPYWORK)
+           && (src.st.st_size >= o.chunk_at)
+           && (hasCTM(dst.path)))
+          return 0;
+
+       // class-specific techniques (e.g. MarFS file has RESTART?)
+       if (p_dst->incomplete())
+          return 0;
+
+       // Files are the "same", as far as MD is concerned.
+       return 1;
+    }
+
+    return 0;
+}

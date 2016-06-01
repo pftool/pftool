@@ -1275,16 +1275,22 @@ void worker_update_chunk(int            rank,
         if (chunk_end > work_node.st.st_size) {
             chunk_info.size = work_node.st.st_size - chunk_start;
         }
+
+        // don't update chunk-info unless this is a COPY task.
+        // (Only affects MarFS, currently)
+        if (o.work_type == COPYWORK) {
+
 #if ACCUMULATE_CHUNK_INFO
-        chunk_info_map[out_node.path].push_back(chunk_info);
+            chunk_info_map[out_node.path].push_back(chunk_info);
 #else
-        // just call the update per-chunk, instead of trying to accumulate updates
-        Path::ChunkInfoVec vec;
-        vec.push_back(chunk_info);
+            // just call the update per-chunk, instead of trying to accumulate updates
+            Path::ChunkInfoVec vec;
+            vec.push_back(chunk_info);
         
-        PathPtr      p_out(PathFactory::create_shallow(&out_node));
-        p_out->chunks_complete(vec);
+            PathPtr      p_out(PathFactory::create_shallow(&out_node));
+            p_out->chunks_complete(vec);
 #endif
+        }
 
         out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
         out_node.chksz = work_node.chksz;
@@ -1763,84 +1769,6 @@ void worker_readdir(int         rank,
 }
 
 
-/**
- * This function tests the metadata of the two nodes
- * to see if they are the same. For files that are chunkable,
- * it looks to see if CTM (chunk transfer metadata) exists for 
- * the source file. If it does, then it assumes that there was 
- * an aborted transfer, and the files are NOT the same!
- *
- * check size, mtime, mode, and owners
- * 
- * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
- *    their metadata is initialized with ctime=mtime, and atime=mtime.
- *    Therefore, if you compare a POSIX file having values for ctime,
- *    atime, and mtime that are not all the same, with any S3 object, the
- *    two sets of metadata will *always* differ in these values, even if
- *    you freshly create them and set all these values to match the
- *    original.  Therefore, it might make sense to reconsider this test.
- *
- * @param src        a path_item structure containing
- *           the metadata for the souce file
- * @param dst        a path_item structure containing
- *           the metadata for the destination
- *           file
- * @param o      the PFTOOL global options structure
- *
- * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
- *   command-line includes an option to skip copying files that have
- *   already been done (-n), then the copy will be skipped if files are
- *   "the same".
- */
-
-#if 0
-int samefile(path_item src, path_item dst, struct options o) {
-    int rc = 0;                         // return code of function
-
-    rc = (src.st.st_size == dst.st.st_size &&           // compare metadata - check size, mtime, mode, and owners
-            (src.st.st_mtime == dst.st.st_mtime  || S_ISLNK(src.st.st_mode)) &&
-            src.st.st_mode == dst.st.st_mode &&
-            src.st.st_uid == dst.st.st_uid &&
-            src.st.st_gid == dst.st.st_gid);
-    if (rc && src.st.st_size >= o.chunk_at)             // a chunkable file that looks the same - does it have a CTM?
-        rc = !(hasCTM(dst.path));                 // if CTM exists -> two file are NOT the same
-    return(rc);
-}
-
-#else
-// TBD: Use Path methods to avoid over-reliance on POSIX same-ness
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
-    const path_item& src = p_src->node();
-    const path_item& dst = p_dst->node();
-
-    // compare metadata - check size, mtime, mode, and owners
-    // (satisfied conditions -> "same" file)
-    if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
-        && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
-
-        // if a chunkable file matches metadata, but has CTM,
-        // then files are NOT the same.
-        if ((src.st.st_size >= o.chunk_at)
-            && (hasCTM(dst.path)))
-            return 0;
-
-        // class-specific techniques (e.g. MarFS file has RESTART?)
-        if (p_dst->incomplete())
-            return 0;
-
-        return 1;
-    }
-
-    return 0;
-}
-#endif
-
-
 // helper for process_stat_buffer avoids duplicated code
 //
 // This is called once only, before any copies are started from a given
@@ -2102,7 +2030,8 @@ void process_stat_buffer(path_item*      path_buffer,
                     // Maybe user only wants to operate on source-files
                     // that are "different" from the corresponding
                     // dest-files.
-                    if ((o.different == 1) && samefile(p_work, p_out, o))
+                    if ((o.different == 1)
+                        && samefile(p_work, p_out, o))
                         process = 0; // source/dest are the same, so skip
 
                     // if someone truncated the destination to zero,
@@ -2834,7 +2763,7 @@ void worker_comparelist(int             rank,
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.chkidx*work_node.chksz;
         length = work_node.chksz;
-        rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only);
+        rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only, o);
         if (o.meta_data_only || S_ISLNK(work_node.st.st_mode)) {
             sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
         }
@@ -2869,11 +2798,13 @@ void worker_comparelist(int             rank,
     if (o.verbose) {
         write_buffer_output(writebuf, writesize, read_count);
     }
+
     //update the chunk information
     if (buffer_count > 0) {
         send_manager_chunk_busy();
         update_chunk(chunks_copied, &buffer_count);
     }
+
     //for all non-chunked files
     if (num_compared_files > 0 || num_compared_bytes > 0) {
         send_manager_copy_stats(num_compared_files, num_compared_bytes);
