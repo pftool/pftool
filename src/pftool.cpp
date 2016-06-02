@@ -2007,7 +2007,31 @@ void process_stat_buffer(path_item*      path_buffer,
 
             dest_exists = p_out->exists();
 
-            if (o.work_type == COPYWORK) {
+
+            // if selected options require reading the source-file, and the
+            // source-file is not readable, we have a problem
+            if (((o.work_type == COPYWORK)
+                 || ((o.work_type == COMPAREWORK)
+                     && ! o.meta_data_only))
+                && (! p_work->access(R_OK))) {
+
+                errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
+                            p_work->path(), p_work->strerror());
+                process = 0;
+            }
+
+            // if selected options require reading the destination-file,
+            // and destination-file is not readable, we have a problem
+            else if ((((o.work_type == COMPAREWORK)
+                       && ! o.meta_data_only))
+                     && (! p_out->access(R_OK))) {
+
+                errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
+                            p_out->path(), p_out->strerror());
+                process = 0;
+            }
+
+            else if (o.work_type == COPYWORK) {
                 process = 1;
 
                 ////#ifdef PLFS
@@ -2146,6 +2170,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 process = 1;
                 work_node.dest_ftype = out_node.ftype;
             }
+
 
 
 

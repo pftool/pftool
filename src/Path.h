@@ -682,6 +682,9 @@ public:
    virtual int     get_errno()     { return _errno; }
    virtual int     get_rc()        { return _rc; }
 
+   // like POSIX access().  Return true if accessible in given mode
+   virtual bool    access(int mode)  = 0;
+
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
    // close it.  The boolean tells you whether you succeeded.  (Consider
@@ -812,7 +815,9 @@ public:
    virtual bool    chown(uid_t owner, gid_t group)       { NO_IMPL(chown); }
    virtual bool    chmod(mode_t mode)                    { NO_IMPL(chmod); }
    virtual bool    utime(const struct utimbuf* ut)       { NO_IMPL(utime); }
-   virtual bool    utimensat(const struct timespec times[2], flags) { NO_IMPL(utime); }
+   virtual bool    utimensat(const struct timespec times[2], flags) { NO_IMPL(utimensat); }
+
+   virtual bool    access(int mode) { NO_IMPL(access); }
 
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
@@ -973,6 +978,12 @@ public:
       if (_rc = ::utimensat(AT_FDCWD, path(), times, flags))
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      return (_rc == 0);
+   }
+
+   virtual bool    access(int mode) {
+      if (_rc = ::access(path(), mode))
+         _errno = errno;
       return (_rc == 0);
    }
 
@@ -1200,6 +1211,9 @@ public:
    virtual bool    utimensat(const struct timespec times[2], int flags) {
       return true;
    }
+   virtual bool    access(int mode) {
+      return (mode & R_OK);
+   }
 
    virtual bool    open(int flags, mode_t mode) {
       return true;
@@ -1362,6 +1376,12 @@ public:
       ut.modtime = times[1].tv_sec;
 
       return utime(&ut);
+   }
+
+   virtual bool    access(int mode) {
+      if (_rc = plfs_access(path(), mode))
+         _errno = errno;
+      return (_rc == 0);
    }
 
    // see comments at Path::open()
@@ -1749,6 +1769,9 @@ public:
       return true;              // [ see NOTE above S3_Path::chown() ]
    }
 
+   virtual bool    access(int mode) {
+      return true; // untested
+   }
 
    // Should we replicate POSIX behavior, where open() fails if you try it
    // multiple times?
@@ -2309,6 +2332,12 @@ public:
    }
 
 
+   virtual bool    access(int mode) {
+      expand_path_info(&fh.info, marfs_sub_path(_item->path));
+      if (_rc = ::access(fh.info.post.md_path, mode))
+         _errno = errno;
+      return (_rc == 0);
+   }
 
    // This is what allows N:1 writes (i.e. concurrent writers to the same
    // MarFS file).  Caller takes responsibility to assure that all writes
