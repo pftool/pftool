@@ -1965,6 +1965,8 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
 
 int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* ffi);
 
+extern MarFS_FileHandle packedFh;
+extern bool packedFhInitialized;
 
 class MARFS_Path : public Path {
 protected:
@@ -1977,6 +1979,9 @@ protected:
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
    //DIR*           _dirp;        // after opendir()  [obsolete?]
+
+   // decides wether or not this object is using the packed fh
+   bool usePacked;
 
    size_t           _total_size;
    MarFS_Repo*      _batch_repo;
@@ -2016,6 +2021,11 @@ protected:
    {
       memset(&fh, 0, sizeof(MarFS_FileHandle));
       memset(&dh, 0, sizeof(MarFS_DirHandle));
+
+      if(packedFhInitialized) {
+         memset(&packedFh, 0, sizeof(MarFS_FileHandle));
+         packedFhInitialized = true;
+      }
 
       unset(DID_STAT);
       unset(IS_OPEN_DIR);
@@ -2337,6 +2347,9 @@ public:
       int rc;
       const char* marPath = marfs_sub_path(_item->path);
 
+      // initally we will assume we are not using a packed file
+      usePacked=false;
+
       // clear the fh structure
       memset(&fh, 0, sizeof(fh));
 
@@ -2357,16 +2370,35 @@ public:
          flags = (flags & ~O_CREAT);
       }
 
-      // providing open_size allows internals to create request with appropriate
-      // byte range, which is faster than chunked-transfer-encoding (for sproxyd).
-      rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
-      _open_offset = 0;
-      _open_size   = 0;
-      if (0 != rc) {
-         fprintf(stderr, "marfs_open failed\n");
+      // if offset is zero we will try to open the file in packed mode. if we
+      // get an error we will revert to regular mode
+      if(0 == _open_offset) {
+         rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
+      }
+
+      if(-2 == rc) {
+         // providing open_size allows internals to create request with appropriate
+         // byte range, which is faster than chunked-transfer-encoding (for sproxyd).
+         rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
+         _open_offset = 0;
+         _open_size   = 0;
+         if (0 != rc) {
+            fprintf(stderr, "marfs_open failed\n");
+            _rc = rc;
+            set_err_string(errno, &fh.os.iob);
+            return false;
+         }
+      }
+      else if(0 != rc){
+         fprintf(stderr, "marfs_open_packed failed\n");
          _rc = rc;
-         set_err_string(errno, &fh.os.iob);
+         set_err_string(errno, &packedFh.os.iob);
          return false;
+      }
+      else {
+         usePacked = true;
+         _open_offset = 0;
+         _open_size   = 0;
       }
 
       set(IS_OPEN);
@@ -2413,16 +2445,35 @@ public:
 
    virtual bool    close() {
       int rc;
+      MarFS_FileHandle *whichFh;
 
-      rc = marfs_release(marfs_sub_path(_item->path), &fh);
+      if(usePacked) {
+         whichFh = &packedFh;
+      }
+      else {
+         whichFh = &fh;
+      }
+
+      rc = marfs_release(marfs_sub_path(_item->path), whichFh);
       if (0 != rc) {
-         set_err_string(errno, &fh.os.iob);
+         set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
       }
 
       unset(IS_OPEN);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return true;
+   }
+
+   // closes the underlying fh stream for packed files
+   static bool close_fh() {
+      int rc = 0;
+      if(packedFhInitialized) {
+         rc = marfs_release_fh(&packedFh);
+         packedFhInitialized = false;
+      }
+
+      return 0 == rc;
    }
 
    // TBD: See opendir().  For the closedir case, be need to deallocate
@@ -2445,6 +2496,10 @@ public:
    // NOTE: S3 has no access-time, so we don't reset DID_STAT
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       ssize_t bytes;
+
+      if(usePacked) {
+         return -1;
+      }
 
       bytes = marfs_read(marfs_sub_path(_item->path), buf, count, offset, &fh);
       if (bytes == (ssize_t)-1)
@@ -2508,23 +2563,32 @@ public:
 
    virtual ssize_t write(char* buf, size_t count, off_t offset) {
       ssize_t bytes;
-      bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, &fh);
+      MarFS_FileHandle *whichFh;
+
+      if(usePacked) {
+         whichFh = &packedFh;
+      }
+      else {
+         whichFh = &fh;
+      }
+
+      bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, whichFh);
 
       if (bytes == (ssize_t)-1) {
 
          if (// (fh.pre.obj_type == OBJ_Nto1) &&
-             (fh.flags == 0x12)            // writing N:1
-             && (fh.os.iob.code == 500)) { // 500 Internal Server Error
+             (whichFh->flags == 0x12)            // writing N:1
+             && (whichFh->os.iob.code == 500)) { // 500 Internal Server Error
 
             // issue a HEAD request
             static const int BUF_SIZE = 2048; // plenty?
 
             IOBuf*       iob = aws_iobuf_new();
-            AWSContext*  ctx = aws_context_clone_r(fh.os.iob.context);
-            char*        objid = fh.info.pre.objid; // host, bucket are in <ctx>
+            AWSContext*  ctx = aws_context_clone_r(whichFh->os.iob.context);
+            char*        objid = whichFh->info.pre.objid; // host, bucket are in <ctx>
             char         headers[BUF_SIZE];         // avoid dyn-alloc on every header
 
-            ctx->flags = fh.os.iob.context->flags;  // clone doesn't do this
+            ctx->flags = whichFh->os.iob.context->flags;  // clone doesn't do this
             aws_iobuf_context(iob, ctx);
             aws_iobuf_extend_static(iob, headers, BUF_SIZE);
 
@@ -2533,7 +2597,7 @@ public:
             // if object-size matches everything we thought we wrote to it
             // then we deem the writes successful.
             if (AWS4C_OK(iob)) {
-               const size_t expected_size = (fh.write_status.user_req
+               const size_t expected_size = (whichFh->write_status.user_req
                                              + MARFS_REC_UNI_SIZE);
                if (iob->contentLen == expected_size) {
                   set(DID_STAT);      // write() did something
@@ -2543,7 +2607,7 @@ public:
             aws_iobuf_free(iob); // clean up everything in iob
          }
          else
-            set_err_string(errno, &fh.os.iob);
+            set_err_string(errno, &whichFh->os.iob);
       }
 
       unset(DID_STAT);           // instead of updating _item->st, just mark it out-of-date

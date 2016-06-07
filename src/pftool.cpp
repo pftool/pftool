@@ -1152,6 +1152,9 @@ void worker(int rank, struct options& o) {
                 worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
                 break;
             case EXITCMD:
+#ifdef MARFS
+                MARFS_Path::close_fh();
+#endif
                 all_done = 1;
                 break;
             default:

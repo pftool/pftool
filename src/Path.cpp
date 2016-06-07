@@ -475,5 +475,8 @@ int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* 
    }
 }
 
+bool packedFhInitialized = false;
+MarFS_FileHandle packedFh;
+
 #endif
 
