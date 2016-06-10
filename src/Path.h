@@ -2372,6 +2372,7 @@ public:
 
       // if offset is zero we will try to open the file in packed mode. if we
       // get an error we will revert to regular mode
+      rc = -2;
       if(0 == _open_offset) {
          rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
       }
