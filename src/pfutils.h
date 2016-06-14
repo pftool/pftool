@@ -219,6 +219,7 @@ enum FSType {
 //options{
 struct options {
     int     verbose;            // each '-v' increases verbosity
+    int     debug;           // each '-g' increases diagnostic-level
     int     recurse;
     int     logging;
     FSType  dest_fstype;			// specifies the FS type of the destination
