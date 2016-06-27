@@ -219,6 +219,7 @@ enum FSType {
 //options{
 struct options {
     int     verbose;            // each '-v' increases verbosity
+    int     debug;           // each '-g' increases diagnostic-level
     int     recurse;
     int     logging;
     FSType  dest_fstype;			// specifies the FS type of the destination
@@ -229,6 +230,7 @@ struct options {
     size_t  blocksize;
     size_t  chunk_at;
     size_t  chunksize;
+    int     preserve;           // attempt to preserve ownership during copies.
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
@@ -325,12 +327,10 @@ int mkpath(char *thePath, mode_t perms);
 //#else
 //int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
 //#endif
-int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf=NULL);
+int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf, struct options& o);
 
-//int compare_file(path_item src_file, path_item dest_file, size_t blocksize, int meta_data_only);
-int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only);
-//int update_stats(path_item src_file, path_item dest_file);
-int   update_stats(path_item* src_file, path_item* dest_file);
+int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only, struct options& o);
+int   update_stats(path_item* src_file, path_item* dest_file, struct options& o);
 
 //dmapi/gpfs specfic
 #ifdef TAPE
@@ -409,11 +409,17 @@ void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffe
 void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
 void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
 
+
 //fake mpi
 int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm);
 int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm);
 int MPY_Abort(MPI_Comm comm, int errorcode);
+
+// functions with signatures that involve C++ Path sub-classes, etc
+// (Path subclasses are also used internally by other util-functions.)
+#include "Path.h"
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
+
+
 #endif
-
-
 
