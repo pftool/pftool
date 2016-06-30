@@ -2793,9 +2793,6 @@ void worker_copylist(int             rank,
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
     }
 
-    fprintf(stderr,"rank %d: worker_copylist() Recieved read_count %d\n", rank, read_count);
-    fflush(stderr);
-
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
     if (! writebuf) {
