@@ -1340,9 +1340,6 @@ void worker(int rank, struct options& o) {
                 worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
                 break;
             case EXITCMD:
-#ifdef MARFS
-                MARFS_Path::close_fh();
-#endif
                 all_done = 1;
                 break;
             default:
@@ -2796,6 +2793,9 @@ void worker_copylist(int             rank,
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
     }
 
+    fprintf(stderr,"rank %d: worker_copylist() Recieved read_count %d\n", rank, read_count);
+    fflush(stderr);
+
     writesize = MESSAGESIZE * read_count;
     writebuf = (char *) malloc(writesize * sizeof(char));
     if (! writebuf) {
@@ -2902,6 +2902,9 @@ void worker_copylist(int             rank,
     if (num_copied_files > 0 || num_copied_bytes > 0) {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
+#ifdef MARFS
+   MARFS_Path::close_fh();
+#endif
     send_manager_work_done(rank);
 #ifdef GEN_SYNDATA
     syndataDestroyBuffer(synbuf);

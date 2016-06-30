@@ -1991,6 +1991,7 @@ int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* 
 
 extern MarFS_FileHandle packedFh;
 extern bool packedFhInitialized;
+extern bool packedFhInUse;
 
 class MARFS_Path : public Path {
 protected:
@@ -2046,9 +2047,8 @@ protected:
       memset(&fh, 0, sizeof(MarFS_FileHandle));
       memset(&dh, 0, sizeof(MarFS_DirHandle));
 
-      if(packedFhInitialized) {
+      if(!packedFhInitialized) {
          memset(&packedFh, 0, sizeof(MarFS_FileHandle));
-         packedFhInitialized = true;
       }
 
       unset(DID_STAT);
@@ -2398,7 +2398,9 @@ public:
       // if offset is zero we will try to open the file in packed mode. if we
       // get an error we will revert to regular mode
       rc = -2;
-      if(0 == _open_offset) {
+      if(!packedFhInUse && 0 == _open_offset) {
+         fprintf(stderr, "marfs_open_packed()\n");
+         fflush(stderr);
          rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
       }
 
@@ -2417,11 +2419,14 @@ public:
       }
       else if(0 != rc){
          fprintf(stderr, "marfs_open_packed failed\n");
+         fflush(stderr);
          _rc = rc;
          set_err_string(errno, &packedFh.os.iob);
          return false;
       }
       else {
+         packedFhInitialized = true;
+         packedFhInUse = true;
          usePacked = true;
          _open_offset = 0;
          _open_size   = 0;
@@ -2475,6 +2480,8 @@ public:
 
       if(usePacked) {
          whichFh = &packedFh;
+         packedFhInUse = false;
+         usePacked = false;
       }
       else {
          whichFh = &fh;
@@ -2494,7 +2501,10 @@ public:
    // closes the underlying fh stream for packed files
    static bool close_fh() {
       int rc = 0;
+      fprintf(stderr,"close_fh()\n"); // TODO: remove
+      fflush(stderr);
       if(packedFhInitialized) {
+         fprintf(stderr, "marfs_release_fh()\n"); // TODO: remove
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
