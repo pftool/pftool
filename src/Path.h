@@ -2399,8 +2399,6 @@ public:
       // get an error we will revert to regular mode
       rc = -2;
       if(!packedFhInUse && 0 == _open_offset) {
-         fprintf(stderr, "marfs_open_packed()\n");
-         fflush(stderr);
          rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
       }
 
@@ -2501,10 +2499,7 @@ public:
    // closes the underlying fh stream for packed files
    static bool close_fh() {
       int rc = 0;
-      fprintf(stderr,"close_fh()\n"); // TODO: remove
-      fflush(stderr);
       if(packedFhInitialized) {
-         fprintf(stderr, "marfs_release_fh()\n"); // TODO: remove
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
