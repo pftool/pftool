@@ -176,6 +176,8 @@ def main():
   if logging:
     write_log("[pfcm] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
+  sys.exit(status)
+
 
 if __name__ == "__main__":
   main()
