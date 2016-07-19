@@ -650,7 +650,7 @@ public:
    }
 
    // try to adapt these POSIX calls
-   virtual bool    chown(uid_t owner, gid_t group)       = 0;
+   virtual bool    lchown(uid_t owner, gid_t group)       = 0;
    virtual bool    chmod(mode_t mode)                    = 0;
    virtual bool    utime(const struct utimbuf* ut)       = 0;
    virtual bool    utimensat(const struct timespec times[2], int flags) =0;
@@ -684,6 +684,9 @@ public:
 
    // like POSIX access().  Return true if accessible in given mode
    virtual bool    access(int mode)  = 0;
+
+   // like POSIX faccessat(). We assume path is never relative, so no <dirfd>
+   virtual bool    faccessat(int mode, int flags)  = 0;
 
    // open/close do not return file-descriptors, like POSIX open/close do.
    // You don't need those.  You just open a Path, then read from it, then
@@ -812,12 +815,13 @@ public:
    virtual bool    supports_n_to_1() const  { return false; }
 
 
-   virtual bool    chown(uid_t owner, gid_t group)       { NO_IMPL(chown); }
+   virtual bool    lchown(uid_t owner, gid_t group)      { NO_IMPL(lchown); }
    virtual bool    chmod(mode_t mode)                    { NO_IMPL(chmod); }
    virtual bool    utime(const struct utimbuf* ut)       { NO_IMPL(utime); }
    virtual bool    utimensat(const struct timespec times[2], flags) { NO_IMPL(utimensat); }
 
-   virtual bool    access(int mode) { NO_IMPL(access); }
+   virtual bool    access(int mode)               { NO_IMPL(access); }
+   virtual bool    faccessas(int mode, int flags) { NO_IMPL(faccessat); }
 
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
@@ -956,8 +960,8 @@ public:
       return ::strerror(_errno);
    }
 
-   virtual bool    chown(uid_t owner, gid_t group) {
-      if (_rc = ::chown(path(), owner, group))
+   virtual bool    lchown(uid_t owner, gid_t group) {
+      if (_rc = ::lchown(path(), owner, group))
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
@@ -968,6 +972,7 @@ public:
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return (_rc == 0);
    }
+   // WARNING: This follows links.  Reimplement with lutimes().  Meanwhile, use utimensat()
    virtual bool    utime(const struct utimbuf* ut) {
       if (_rc = ::utime(path(), ut))
          _errno = errno;
@@ -983,6 +988,12 @@ public:
 
    virtual bool    access(int mode) {
       if (_rc = ::access(path(), mode))
+         _errno = errno;
+      return (_rc == 0);
+   }
+   // path must not be relative
+   virtual bool    faccessat(int mode, int flags) {
+      if (_rc = ::faccessat(-1, path(), mode, flags))
          _errno = errno;
       return (_rc == 0);
    }
@@ -1087,12 +1098,14 @@ public:
       return (_rc == 0);
    }
 
+   // WARNING: this behaves like POSIX readlink(), not writing final '\0'
    virtual ssize_t readlink(char *buf, size_t bufsiz) {
-      _rc = ::readlink(_item->path, buf, bufsiz);
-      if(-1 == _rc) {
+      ssize_t count = ::readlink(_item->path, buf, bufsiz);
+      if (-1 == count) {
+         _rc = -1;              // we need an _rc_ssize
          _errno = errno;
       }
-      return _rc;
+      return count;
    }
    
    virtual bool    symlink(const char* link_name) {
@@ -1111,7 +1124,7 @@ public:
 // NULL file/dir
 //
 // This is being introduced to serve a simple purpose.  We want to give the
-// appearance of a sort of "dev/null directory tree", to allow pftool to
+// appearance of a sort of "/dev/null directory tree", to allow pftool to
 // show read BW in the case where the only available destination
 // file-system is slow (GPFS), and there is insufficient tempfs space to
 // allow that to be used instead.  In this case, this NULL class treats all
@@ -1199,7 +1212,7 @@ public:
       return ::strerror(_errno);
    }
 
-   virtual bool    chown(uid_t owner, gid_t group) {
+   virtual bool    lchown(uid_t owner, gid_t group) {
       return true;
    }
    virtual bool    chmod(mode_t mode) {
@@ -1212,6 +1225,9 @@ public:
       return true;
    }
    virtual bool    access(int mode) {
+      return (mode & R_OK);
+   }
+   virtual bool    faccessat(int mode, int flags) {
       return (mode & R_OK);
    }
 
@@ -1345,7 +1361,7 @@ public:
    virtual const char* const strerror() { return strplfserr(_plfs_rc); }
 
 
-   virtual bool    chown(uid_t owner, gid_t group) {
+   virtual bool    lchown(uid_t owner, gid_t group) {
       if (_rc = plfs_chown(path(), owner, group))
          _errno = errno;
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
@@ -1383,6 +1399,7 @@ public:
          _errno = errno;
       return (_rc == 0);
    }
+   virtual bool    faccessas(int mode, int flags) { NO_IMPL(faccessat); }
 
    // see comments at Path::open()
    // NOTE: We don't protect user from calling plfs_open when already open
@@ -1743,22 +1760,22 @@ public:
    // NOTE: Don't want to update ACLs for the hybrid approach.  And
    //       returning false will cause pftool to emit a FATAL error.  So,
    //       don't do anything, and say that we succeeded.
-   virtual bool    chown(uid_t owner, gid_t group) {
+   virtual bool    lchown(uid_t owner, gid_t group) {
       //      _item->st.st_uid = owner;
       //      _item->st.st_gid = group;
       //      return apply_stat();
-      return true;              // [ see NOTE above S3_Path::chown() ]
+      return true;              // [ see NOTE above S3_Path::lchown() ]
    }
    virtual bool    chmod(mode_t mode) {
       //      _item->st.st_mode = mode;
       //      return apply_stat();
-      return true;              // [ see NOTE above S3_Path::chown() ]
+      return true;              // [ see NOTE above S3_Path::lchown() ]
    }
    virtual bool    utime(const struct utimbuf* ut) {
       //      _item->st.st_atime = ut->actime;
       //      _item->st.st_mtime = ut->modtime;
       //      return apply_stat();
-      return true;              // [ see NOTE above S3_Path::chown() ]
+      return true;              // [ see NOTE above S3_Path::lchown() ]
    }
    virtual bool    utimensat(const struct timespec times[2], int flags) {
       //      _item->st.st_atim.tv_sec  = times[0].tv_sec;
@@ -1766,10 +1783,13 @@ public:
       //      _item->st.st_mtim.tv_sec  = times[1].tv_sec;
       //      _item->st.st_mtim.tv_nsec = times[1].tv_nsec;
       //      return apply_stat();
-      return true;              // [ see NOTE above S3_Path::chown() ]
+      return true;              // [ see NOTE above S3_Path::lchown() ]
    }
 
    virtual bool    access(int mode) {
+      return true; // untested
+   }
+   virtual bool    access(int mode, int flags) {
       return true; // untested
    }
 
@@ -2300,7 +2320,7 @@ public:
       return true;  // using "risky" MarFS support
    }
 
-   virtual bool    chown(uid_t owner, gid_t group) {
+   virtual bool    lchown(uid_t owner, gid_t group) {
       if (_rc = marfs_chown(marfs_sub_path(path()), owner, group))
          set_err_string(errno, NULL);
       else {
@@ -2344,9 +2364,16 @@ public:
    }
 
 
+   // replace w/ call to marfs_access()
    virtual bool    access(int mode) {
       expand_path_info(&fh.info, marfs_sub_path(_item->path));
       if (_rc = ::access(fh.info.post.md_path, mode))
+         _errno = errno;
+      return (_rc == 0);
+   }
+   // path must not be relative
+   virtual bool    faccessat(int mode, int flags) {
+      if (_rc = marfs_faccessat(marfs_sub_path(_item->path), mode, flags))
          _errno = errno;
       return (_rc == 0);
    }
@@ -2685,12 +2712,14 @@ public:
       return unlink();
    }
 
+   // marfs_readlink(), unlike POSIX readlink(), does currently add final '\0'
    virtual ssize_t readlink(char *buf, size_t bufsiz) {
-      _rc = marfs_readlink(marfs_sub_path(_item->path), buf, bufsiz);
-      if(-1 == _rc) {
+      ssize_t count = marfs_readlink(marfs_sub_path(_item->path), buf, bufsiz);
+      if (-1 == count) {
+         _rc = -1;              // we need an _rc_ssize
          _errno = errno;
       }
-      return _rc;
+      return count;
    }
  
    virtual bool    symlink(const char* link_name) {

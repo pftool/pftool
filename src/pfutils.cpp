@@ -658,11 +658,17 @@ int copy_file(path_item*    src_file,
             errsend(NONFATAL, errormsg);
             return -1;
         }
+        else if (numchars >= PATHSIZE_PLUS) {
+            sprintf(errormsg, "readlink %s, not enough room for '\\0'", src_file->path);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
+        link_path[numchars] = '\0';
+
 
         ////        rc = symlink(link_path, dest_file->path);
         ////        if (rc < 0)
-        if (! p_dest->symlink(link_path))
-        {
+        if (! p_dest->symlink(link_path)) {
            sprintf(errormsg, "Failed to create symlink %s -> %s", dest_file->path, link_path);
            errsend(NONFATAL, errormsg);
            return -1;
@@ -1309,7 +1315,7 @@ int update_stats(path_item*      src_file,
     ////        errsend(NONFATAL, errormsg);
     ////    }
     if (0 == geteuid() || o.preserve) {
-       if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
+       if (! p_dest->lchown(src_file->st.st_uid, src_file->st.st_gid)) {
           errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
                       p_dest->path(), p_dest->strerror());
        }
@@ -1331,7 +1337,7 @@ int update_stats(path_item*      src_file,
        ////                    dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
        ////            errsend(NONFATAL, errormsg);
        ////        }
-       if (! p_dest->chown(src_file->st.st_uid, src_file->st.st_gid)) {
+       if (! p_dest->lchown(src_file->st.st_uid, src_file->st.st_gid)) {
           errsend_fmt(NONFATAL, "update_stats -- Failed to chown fuse chunked file %s: %s\n",
                       p_dest->path(), p_dest->strerror());
        }
@@ -1738,6 +1744,11 @@ void set_fuse_chunk_data(path_item *work_node) {
         errsend(NONFATAL, errormsg);
         return;
     }
+    else if (numchars >= PATHSIZE_PLUS) {
+       sprintf(errormsg, "readlink %s, no room for '\\0'", work_node->path);
+       errsend(NONFATAL, errormsg);
+       return -1;
+    }
     linkname[numchars] = '\0';
 
     // "length" is found in the 4th token
@@ -1995,6 +2006,18 @@ int stat_item(path_item *work_node, struct options& o) {
 
     //special cases for links
     if (S_ISLNK(work_node->st.st_mode)) {
+
+#ifdef FUSE_CHUNKER
+       // moved the #ifdef to here from further below, so it would include
+       // the readlink().  No need to prove to ourselves that the target
+       // exists.  Pftool can handle broken links.  Plus, if the readlink()
+       // does fail for any reason, then the code here will attempt an
+       // errsend() from manager(), before the initial Bcast, which will
+       // cause a deadlock, because OUTPUT_PROC hasn't gotten through the
+       // Bcast, yet, and errsend() requires synchronous communication with
+       // OUTPUT_PROC.
+
+
         PathPtr p(PathFactory::create_shallow(work_node));
 
         // <linkname> = name of the link-destination
@@ -2004,10 +2027,16 @@ int stat_item(path_item *work_node, struct options& o) {
             errsend(NONFATAL, errmsg);
             return -1;
         }
+        else if (numchars >= PATHSIZE_PLUS) {
+            sprintf(errormsg, "readlink %s, not enough room for NULL", work_node->path);
+            errsend(NONFATAL, errormsg);
+            return -1;
+        }
         linkname[numchars] = '\0';
 
 
-#ifdef FUSE_CHUNKER
+
+//#ifdef FUSE_CHUNKER    /* [moved this #ifdef to higher-up] */
         if (
 # ifdef PLFS
             // this will *always* be true, right?  We just set ftype =

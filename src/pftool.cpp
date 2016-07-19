@@ -455,11 +455,6 @@ int main(int argc, char *argv[]) {
         manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
     }
     else {
-        // one of these workers is the OUTPUT_PROC.  Wouldn't it make sense
-        // for him to sit out the worker() task?  Otherwise we deadlock if
-        // we use errsend() when he's e.g. doing a Bcast, as a worker.
-        // [Alternatively, errsend() could be asynchronous, but then you
-        // may have output that never reaches the user.]
         worker(rank, o);
     }
 
@@ -1237,18 +1232,21 @@ void worker(int rank, struct options& o) {
     int       output_count = 0;
 
 
+    // OUTPUT_PROC could just sits out the Bcast of dest_node and base path
+    // (if we used a communicator without him).  OUTPUT_PROC won't need
+    // those, and waiting at the Bcast means anybody else who calls
+    // errsend() before hitting the Bcast will deadlock everything.
     if (rank == OUTPUT_PROC) {
         const size_t obuf_size = MESSAGEBUFFER * MESSAGESIZE * sizeof(char);
         output_buffer = (char *) malloc(obuf_size);
         if (! output_buffer) {
-            errsend_fmt(FATAL, "Failed to allocate %lu bytes for output_buffer\n", obuf_size);
+            // // This would never work ...
+            // errsend_fmt(FATAL, "Failed to allocate %lu bytes for output_buffer\n", obuf_size);
+            fprintf(stderr, "OUTPUT_PROC Failed to allocate %lu bytes "
+                    "for output_buffer\n", obuf_size);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
         memset(output_buffer, '\0', obuf_size);
-    }
-    if (rank == ACCUM_PROC) {
-        if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
-            errsend(FATAL, "hashtbl_create() failed\n");
-        }
     }
     if (o.work_type == COPYWORK) {
         makedir = 1;
@@ -1272,6 +1270,14 @@ void worker(int rank, struct options& o) {
             if (o.destfs >= PARALLEL_DESTFS) {
                 o.parallel_dest = 1;
             }
+        }
+    }
+
+    // can't do this before the Bcast above, or we'll deadlock, because
+    // output-proc won't yet be listening for work.
+    if (rank == ACCUM_PROC) {
+        if(!(chunk_hash=hashtbl_create(base_count, NULL))) {
+            errsend(FATAL, "hashtbl_create() failed\n");
         }
     }
 
@@ -2192,7 +2198,7 @@ void process_stat_buffer(path_item*      path_buffer,
             if (((o.work_type == COPYWORK)
                  || ((o.work_type == COMPAREWORK)
                      && ! o.meta_data_only))
-                && (! p_work->access(R_OK))) {
+                && (! p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
 
                 errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
                             p_work->path(), p_work->strerror());
@@ -2203,7 +2209,7 @@ void process_stat_buffer(path_item*      path_buffer,
             // and destination-file is not readable, we have a problem
             else if ((((o.work_type == COMPAREWORK)
                        && ! o.meta_data_only))
-                     && (! p_out->access(R_OK))) {
+                     && (! p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
 
                 errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
                             p_out->path(), p_out->strerror());
@@ -2257,8 +2263,16 @@ void process_stat_buffer(path_item*      path_buffer,
                                 // <linkname> = name of the link-destination
                                 numchars = p_out->readlink(linkname, PATHSIZE_PLUS);
                                 if (numchars < 0) {
-                                    snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", out_node.path);
+                                    snprintf(errmsg, MESSAGESIZE,
+                                             "Failed to read link %s",
+                                             out_node.path);
                                     errsend(FATAL, errmsg);
+                                }
+                                else if (numchars >= PATHSIZE_PLUS) {
+                                    sprintf(errormsg,
+                                            "readlink %s, not enough room for '\\0'",
+                                            out_node.path);
+                                    errsend(FATAL, errormsg);
                                 }
                                 linkname[numchars] = '\0';
 
