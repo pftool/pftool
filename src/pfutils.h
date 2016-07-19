@@ -86,10 +86,13 @@
 #define MESSAGEBUFFER  400
 
 #define DIRBUFFER      5
-#define STATBUFFER     50
-#define COPYBUFFER     15
+#define STATBUFFER     128
+#define COPYBUFFER     128
 #define CHUNKBUFFER    COPYBUFFER
 #define TAPEBUFFER     5
+
+// The amount of data to accumulate before shipping off to a copy process
+#define SHIPOFF        536870912
 
 
 // <sys/vfs.h> provides statfs(), which operates on a struct statfs,

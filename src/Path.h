@@ -1993,6 +1993,8 @@ extern MarFS_FileHandle packedFh;
 extern bool packedFhInitialized;
 extern bool packedFhInUse;
 
+extern std::vector<path_item> packedPaths;
+
 class MARFS_Path : public Path {
 protected:
 
@@ -2428,6 +2430,7 @@ public:
          usePacked = true;
          _open_offset = 0;
          _open_size   = 0;
+         packedPaths.push_back(*_item);
       }
 
       set(IS_OPEN);
@@ -2499,9 +2502,15 @@ public:
    // closes the underlying fh stream for packed files
    static bool close_fh() {
       int rc = 0;
+
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
+      }
+
+      while(!packedPaths.empty()) {
+         marfs_clear_restart(marfs_sub_path(packedPaths.back().path));
+         packedPaths.pop_back();
       }
 
       return 0 == rc;
@@ -2598,6 +2607,9 @@ public:
 
       if(usePacked) {
          whichFh = &packedFh;
+         // we need to correct the offset to account for previous files in the
+         // object
+         offset = whichFh->os.written - whichFh->write_status.sys_writes;
       }
       else {
          whichFh = &fh;

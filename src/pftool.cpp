@@ -2083,7 +2083,7 @@ void process_stat_buffer(path_item*      path_buffer,
     // represent more than <ship_off> bytes, in total.  For Marfs, that
     // means every single chunk is likely to be shipped off individually.
     // Maybe this should be bigger.
-    size_t      ship_off = 524288000;     //500 MB
+    size_t      ship_off = SHIPOFF;
 
     //int chunk_size = 1024;
     off_t       chunk_curr_offset = 0;
@@ -2680,7 +2680,7 @@ void worker_taperecall(int rank, int sending_rank, path_item* dest_node, struct 
     int buffer_count = 0;
     size_t num_bytes_seen = 0;
     //500 MB
-    size_t ship_off = 524288000;
+    size_t ship_off = SHIPOFF;
     int i, rc;
     PRINT_MPI_DEBUG("rank %d: worker_taperecall() Receiving the read_count from %d\n", rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {

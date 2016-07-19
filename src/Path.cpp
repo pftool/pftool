@@ -479,5 +479,7 @@ bool packedFhInitialized = false;
 bool packedFhInUse = false;
 MarFS_FileHandle packedFh;
 
+std::vector<path_item> packedPaths;
+
 #endif
 
