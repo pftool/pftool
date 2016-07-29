@@ -32,8 +32,8 @@ AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
 AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
 
-AC_ARG_ENABLE(marfs, [  --enable-marfs]  [choose libmarfs: {mdal| |no} default=non-mdal])
-AM_CONDITIONAL([MARFS], [test x$enable_marfs != xno])
+AC_ARG_ENABLE(marfs, [  --enable-marfs]  [enable marfs support])
+AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
 
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
@@ -122,23 +122,9 @@ AS_IF([test x$enable_plfs == xyes],
 AS_IF([test x$enable_s3 == xyes],
   [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
 )
-
-# You can use --enable-marfs to select which build of marfs you want use.
-# This controls the library we link against, as well as the value of the
-# USE_MDAL pre-proc variable, provided at compile-time.
-AS_IF([test x$enable_marfs == xmdal],
-      [ # AC_CHECK_HEADERS([aws4c.h, common.h, marfs_ops.h, mdal.h]),
-       AC_DEFINE([USE_MDAL], [1], [use libmarfs w/ MDAL]),
-       AC_SUBST([_marfs_lib], [marfs_mdal])],
-
-      [test x$enable_marfs != xno],
-      [ # AC_CHECK_HEADERS([aws4c.h, common.h, marfs_ops.h]),
-       AC_DEFINE([USE_MDAL], [0], [use libmarfs w/out MDAL]),
-       AC_SUBST([_marfs_lib], [marfs_nomdal])],
-
-      [AC_MSG_ERROR([Usage: --enable-marfs=@<:@ {mdal| }@:>@ got "$enable_marfs"]) ])
-
-
+AS_IF([test x$enable_marfs == xyes],
+  [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
+)
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
