@@ -113,8 +113,38 @@ def main():
   except:
     pass
 
-  commands.add("-c", dest)
-  commands.add("-p", *src)
+#  The updates below expand relative paths to avoid hitting bugs with odd src/dst paths.  /var/lib/perceus/vnfs is likely safe to remove from *any* path...
+#  commands.add("-c", dest)
+#  commands.add("-p", *src)
+#  print "src before = %s"%(src)
+#  print "dest before = %s"%(dest)
+
+  src_full = []
+  dest_full = []
+  for i in src:
+      src_full.append(os.path.abspath(i))
+  dest_full.append(os.path.abspath(dest))
+
+  src_fixed = []
+  dest_fixed = []
+  for i in src_full:
+      if i.find("/var/lib/perceus/vnfs") != "-1":
+         src_fixed.append(i.split('rootfs', 1)[-1])
+      else:
+         src_fixed.append(i)
+  for j in dest_full:
+      if j.find("/var/lib/perceus/vnfs") != "-1":
+         dest_fixed.append(j.split('rootfs', 1)[-1])
+      else:
+         dest_fixed.append(j)
+
+#  print "src_full after = %s"%(src_full)
+#  print "dest_full after = %s"%(dest_full)
+#  print "src_fixed after = %s"%(src_fixed)
+#  print "dest_fixed after = %s"%(dest_fixed)
+
+  commands.add("-c", *dest_fixed)
+  commands.add("-p", *src_fixed)
 
   threaded = False
   try:
@@ -165,6 +195,9 @@ def main():
     mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
     pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
 
+    # Add darshan logging support if its available (this must be called after adding mpigo)
+    add_darshan(config, pfcmd)
+
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
@@ -192,6 +225,8 @@ def main():
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   if logging:
     write_log("[pfcp] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+
+  sys.exit(status)
 
 
 if __name__ == "__main__":

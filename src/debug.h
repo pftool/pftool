@@ -14,7 +14,6 @@
 #ifndef      __PFTOOL_DEBUG_H
 #define      __PFTOOL_DEBUG_H
 
-
 //define debugs
 //#define POLL_DEBUG
 //#define MPI_DEBUG

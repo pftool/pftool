@@ -29,19 +29,46 @@ AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
 AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
 AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
+AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
+AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
+
+AC_ARG_ENABLE(marfs, [  --enable-marfs]  [enable marfs support])
+AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
+
 AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
+
+AC_ARG_ENABLE(CTM, [  --enable-ctm]  [choose CTM mode = {xattrs | files | no}, default=files])
 
 AC_CONFIG_HEADER([config.h])
 
 
+
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC
-AC_PROG_CC([mpicc cc])
+### AC_PROG_CC([mpicc cc])
+AC_PROG_CC([mpic++ mpicxx mpig++ c++ g++])
+AC_LANG(C++)
+AC_PROG_CXX([mpic++ mpicxx mpig++ c++ g++])
+
+
+# jti experiments
+AC_SUBST([_s3_cflags],  ${S3_CFLAGS})
+AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
+
+# dejager experiments
+AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
+AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
+
+AC_SUBST([_plfs_cflags],  ${PLFS_CFLAGS})
+AC_SUBST([_plfs_ldflags], ${PLFS_LDFLAGS})
+
+
 
 # check for adequate mpi support
 AS_IF([test x$enable_threads != xyes],
-[AC_MSG_CHECKING([if $CC can compile MPI applications])])
+# [AC_MSG_CHECKING([if $CC can compile MPI applications])])
+[AC_MSG_CHECKING([if $CXX can compile MPI applications])])
 
 AS_IF([test x$enable_threads != xyes],
 [AC_LINK_IFELSE([
@@ -50,13 +77,32 @@ AS_IF([test x$enable_threads != xyes],
         [[MPI_Finalize();]])],
     [AC_MSG_RESULT([yes])],
     [AC_MSG_RESULT([no])
-     AC_MSG_ERROR([$CC cannot compile MPI applications. cannot continue.])]
+     AC_MSG_ERROR([$CXX cannot compile MPI applications. cannot continue.])]
 )])
 
 #AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
 #AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
 
-AM_PROG_CC_C_O
+# chunk-transfer metadata can be stored to allow incremental restarts for
+# large N:1 destination-files.  use '--enable-CTM=' to specify how (or
+# whether) to store this info.
+AS_IF([test x$enable_CTM == xxattrs],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_XATTRS], [prefer to store CTM in xattrs])],
+
+      [test x$enable_CTM == xfiles],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_FILES], [prefer to store CTM in files])],
+
+      [test x$enable_CTM == xno],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_NONE], [Do not store CTM])],
+
+      [test x$enable_CTM == x],
+      [AC_DEFINE([CTM_MODE], [CTM_PREFER_FILES], [prefer to store CTM in files])],
+
+      [AC_MSG_ERROR([Usage: --enable-CTM=@<:@ {xattrs|files|no| }@:>@ ]) ])
+
+
+### AM_PROG_CC_C_O
+AC_PROG_CXX_C_O
 #works with 2.6 and above
 #AC_PROG_CC_C99
 
@@ -69,9 +115,16 @@ AC_CONFIG_MACRO_DIR([m4])
 # none at this point
 
 # checks for header files.
-AC_CHECK_HEADERS([\
-sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h\
-])
+AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
+AS_IF([test x$enable_plfs == xyes],
+  [AC_CHECK_HEADERS([plfs.h])]
+)
+AS_IF([test x$enable_s3 == xyes],
+  [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
+)
+AS_IF([test x$enable_marfs == xyes],
+  [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
+)
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
@@ -96,12 +149,14 @@ cat << EOF
 
 pftool configuration
 #####################
+CXX      : $CXX
+CXXFLAGS : $CXXFLAGS
 
-CC      : $CC
-CFLAGS  : $CFLAGS
-LDFLAGS : $LDFLAGS
-LIBS    : $LIBS
-CPPFLAGS: $CPPFLAGS
-CPP     : $CPP
+CC       : $CC
+CFLAGS   : $CFLAGS
+LDFLAGS  : $LDFLAGS
+LIBS     : $LIBS
+CPPFLAGS : $CPPFLAGS
+CPP      : $CPP
 
 EOF

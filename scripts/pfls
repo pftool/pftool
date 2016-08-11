@@ -41,7 +41,21 @@ def main():
     if options.recurse:
       commands.add("-r")
 
-    commands.add("-p", *src)
+#    commands.add("-p", *src)
+#    print "src before = %s"%(src)
+    src_full = []
+    for i in src:
+      src_full.append(os.path.abspath(i))
+    src_fixed = []
+    for i in src_full:
+      if i.find("/var/lib/perceus/vnfs") != "-1":
+        src_fixed.append(i.split('rootfs', 1)[-1])
+      else:
+        src_fixed.append(i)
+#     print "src_full after = %s"%(src_full)
+#     print "src_fixed after = %s"%(src_fixed)
+    commands.add("-p", *src_fixed)
+
   else:
     parser.error("please include a source path or input list")
 
@@ -76,6 +90,9 @@ def main():
     mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
     pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
 
+    # Add darshan logging support if its available (this must be called after adding mpigo)
+    add_darshan(config, pfcmd)
+
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
@@ -103,6 +120,8 @@ def main():
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   if logging:
     write_log("[pfls] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+
+  sys.exit(status)
 
 
 if __name__ == "__main__":

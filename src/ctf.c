@@ -335,7 +335,7 @@ int unlinkCTF(const char *chnkfname) {
 void registerCTF(CTM_IMPL *ctmimplptr) {
 	ctmimplptr->read = populateCTF;
 	ctmimplptr->write = storeCTF;
-	ctmimplptr->delete = unlinkCTF;
+	ctmimplptr->del = unlinkCTF;
 	return;
 }
 

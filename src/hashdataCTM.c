@@ -30,9 +30,9 @@
 */
 HASHDATA *hashdata_create(path_item newData) {
 	long numofchnks = (long)ceil(newData.st.st_size/((double)newData.chksz));		// number of chunks this file will have
-	CTM *new = getCTM(newData.path,numofchnks,newData.chksz);	// the new CTM for the file. This also initializes the persistent store
+	CTM *newCTM = getCTM(newData.path,numofchnks,newData.chksz);	// the new CTM for the file. This also initializes the persistent store
 
-	return((HASHDATA *)new);
+	return((HASHDATA *)newCTM);
 }
 
 /**

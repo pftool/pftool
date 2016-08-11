@@ -19,8 +19,15 @@
 #ifndef      __CTM_H
 #define      __CTM_H
 
+#include "config.h"
 #include <xfs/xfs.h>					// include because of BITS_PER_LONG define
 
+// configuration (via config.h) will define CTM_MODE to one of these values.
+// Use './configure --enable-ctm=value', where <value> is { xattrs | files | no }
+// The default is CTM_PREFER_FILES.
+#define CTM_PREFER_NONE   0
+#define CTM_PREFER_XATTRS 1
+#define CTM_PREFER_FILES  2
 
 // Typedefs that define the functions to access Chunk Transfer Metadata (CTM) from a persistant store
 typedef struct ctm_struct CTM;				// declaration of the CTM type. Defined below
@@ -42,7 +49,7 @@ typedef enum ctm_impltype CTM_ITYPE;
 struct ctm_impl {
 	ctm_read_fn_t read;				// the CTM read() pointer. Reads a persistent CTM store
 	ctm_write_fn_t write;				// the CTM write() pointer. Writes to a persistent CTM store
-	ctm_delete_fn_t delete;				// the CTM delete() pointer. Deletes or removes data from the persistent CTM store
+	ctm_delete_fn_t del;				// the CTM delete() pointer. Deletes or removes data from the persistent CTM store
 };
 
 // The structure to manage information of transferred chunks of a file
@@ -78,5 +85,6 @@ int updateCTM(CTM *ctmptr, long chnkidx);
 int removeCTM(CTM **pctmptr);
 int hasCTM(const char *transfilename);
 void purgeCTM(const char *transfilename);
+size_t allocateCTMFlags(CTM *ctmptr);
 
 #endif //__CTM_H
