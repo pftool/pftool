@@ -814,18 +814,13 @@ int copy_file(path_item*    src_file,
         if (syndataExists(synbuf)) {
            int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
 
-# if 0
-           // Don't waste time filling the buffer.  We just want a fast
-           // way to create source data
-
-
+           // Fill the buffer each time with new random data.
+           // -- I like my synthetic data random - cds 8/2016
            if(rc = syndataFill(synbuf,buf,buflen)) {
               sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
               errsend(NONFATAL, errormsg);
               err = 1; break;  // return -1
            }
-# endif
-
            bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
         }
         else {
