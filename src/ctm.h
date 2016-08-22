@@ -69,7 +69,7 @@ struct ctm_struct {
 #define SizeofBitArray(F)	( (size_t)(GetBitArraySize(F)*sizeof(unsigned long)) )
 #define SetBit(A,k)     ( A[(k/BITS_PER_LONG)] |= (1L << (k%BITS_PER_LONG)) )
 #define ClearBit(A,k)   ( A[(k/BITS_PER_LONG)] &= ~(1L << (k%BITS_PER_LONG)) )            
-#define TestBit(A,k)    ( A[(k/BITS_PER_LONG)] & (1L << (k%BITS_PER_LONG)) )
+#define TestBit(A,k)    (( A[(k/BITS_PER_LONG)] & (1L << (k%BITS_PER_LONG)) ) != 0)
 
 // Function Declarations
 int chunktransferredCTM(CTM *ctmptr,int idx);
