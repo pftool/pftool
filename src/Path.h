@@ -188,19 +188,19 @@ public:
    // This is the "deleter" method used by the shared_ptrs returned from get().
    static void put(T* t) {
       //      std::cout << "Pool<T>::put(" << t << ")" << std::endl;
+      // t->~T();                  // explicit destructor-call to do clean-up
+      *t = T();                 // reset via operator=()
       _pool.push_back(t);
    }
 
    // if the pool is not empty, extract an item, otherwise create one
-   static SharedPtr<T> get(bool init_w_default=false) {
-      // std::cout << "Pool<T>::get() -- pool size = " << _pool.size() << std::endl;
+   static SharedPtr<T> get() {
+      //      std::cout << "Pool<T>::get() -- pool size = " << _pool.size() << std::endl;
       if (_pool.size()) {
          T* t = _pool.back();
          _pool.pop_back();
-         /// if (init_w_default)
-         *t = T();                     // initialize to defaults (always)
-         // std::cout << "Pool<T>::get() -- old = " << t
-         //           << (init_w_default ? "  init" : "") << std::endl;
+         //         std::cout << "Pool<T>::get() -- "
+         //                   << "old = " << t << std::endl;
          return SharedPtr<T>(t, put);     // use put(), as shared_ptr deleter-fn
       }
       else {
@@ -215,8 +215,6 @@ protected:
    // per-class vectors hold the pool objects
    static std::vector<T*>  _pool;
 };
-
-
 
 
 
@@ -263,6 +261,35 @@ protected:
 //       implemented privately by any subclass that wants/needs updates at
 //       "construction"-time, from the factory, to suplement the no-arg,
 //       default copy-constructor.  (See e.g. PLFS_Path).
+//
+//
+// --- PATH LIFE-CYCLE:
+//
+// It is important to understand the interactions between PathFactory,
+// Pool<T>, and the Path classes.  pftool uses the PathFactory wherever
+// Path classes are needed.  In order to eliminate the cost of
+// dynamic-allocation, the factory uses Pool<T> everywhere, (where T is
+// some Path subclass).  Thus, the factory reuses Path objects.
+//
+// The pool returns PathPtrs, and the underlying Path objects are
+// initialized in the factory.  When these PathPtrs go out of scope in
+// pftool, the associated object is returned to its pool. (The PathPtr
+// "deleter" calls Pool<T>put(), which returns the object to the pool.)
+//
+// When objects are returned to their pool, they are not destructed
+// (because there doesn't seem to be a way for a template to call the
+// constructor of an existing object, when we want to pull it from the pool
+// again).  Instead, the pool assigns a default-constructed object on top
+// of it.  This assignment invokes Path::operator=(), which in turn calls
+// subclass cleanup methods, via Path::close_all(), which some subclasses
+// also override.
+//
+// The result is that Path-instance resources (e.g. open
+// metadata-filehandles, etc) are cleaned up (e.g. closed) when a Path
+// subclass object is returned to its respective Pool, via the following
+// somewhat-obscure mechanism:
+//
+//    Pool<T>::put() -> Path::operator=(Path&) -> ... Path::close_all()
 //
 // ---------------------------------------------------------------------------
 
@@ -311,7 +338,7 @@ protected:
    //   }
 
 
-   // This could be useful as a way to allow methods to be optinally
+   // This could be useful as a way to allow methods to be optionally
    // defined in some configurations, without requiring #ifdefs around the
    // method signatures, etc.  For instance, methods that are only needed
    // for tape-access could be given signatures in this way, and run-time
@@ -319,14 +346,16 @@ protected:
    // an implementation.
    void unimplemented(const char* fname, int line_number,
                       const char* method_name) const {
-      unimplemented_static(fname, line_number, method_name, this->class_name().get());
+      unimplemented_static(fname, line_number, method_name, this->class_name().get(), this);
    }
 
 
    static void unimplemented_static(const char* fname, int line_number,
-                                    const char* method_name, const char* class_name) {
+                                    const char* method_name, const char* class_name,
+                                    const Path* p) {
       std::cout << "file " << fname << ":" << line_number
                 << " -- class '" << class_name << "'"
+                << " " << p
                 << " does not implement method '" << method_name << "'."
                 << std::endl;
       std::cout << "It may be that this is supported with different configure options." << std::endl;
@@ -348,7 +377,7 @@ protected:
    // maybe someone calls stat to figure sub-class type, then gives it to us.
    // If you do give us a stat struct, we'll assume the stat call succeeded.
    Path()
-      : _item(Pool<path_item>::get(true)), // get recycled path_item from the pool
+      : _item(Pool<path_item>::get()), // get recycled path_item from the pool
         _flags(FACTORY_DEFAULT),       // i.e. path might be null
         _rc(0),
         _errno(0)
@@ -391,8 +420,8 @@ protected:
    // allows us to make a no-copy Path object corresponding to a path_item
    // sent over the wire, without having to run stat() again, to figure out
    // what it is.
+   //
    virtual Path& operator=(const PathItemPtr& item) {
-
       // Make sure we're not replacing _item with an item that
       // should be owned by a different Path subclass
       if ((_item->ftype > TBD) &&
@@ -402,6 +431,25 @@ protected:
          return *this;
       }
 
+      install_path_item(item);
+      return *this;
+   }
+
+   virtual Path& operator=(const Path& path) {
+      install_path_item(path._item);
+
+      _flags = path._flags;
+      _rc    = path._rc;
+      _errno = path._errno;
+
+      return *this;
+   }
+
+   void install_path_item(const PathItemPtr& item) {
+
+      // NOTE: this calls close_all()
+      //       subclasses should override close_all(), to handle reset
+      //       by Pool<T>, inside Factory.
       path_change_pre();        // subclasses may want to be informed
 
       _item  = item;            // returns old _item to Pool<path_item>
@@ -415,9 +463,8 @@ protected:
          did_stat(true);
 
       path_change_post();       // subclasses may want to be informed
-
-      return *this;
    }
+
 
    // see factory_install_list()
    void factory_install(int count, ...) {
@@ -448,11 +495,6 @@ protected:
    //     from the Pool is about to be reused.
    //
    //     NOTE: don't forget to pass the call along to parent classes.
-   //
-   ///   virtual reset_all() {
-   ///      _item = PathItemPtr();
-   ///   }
-
 
    virtual void close_all() {
       if (_flags & IS_OPEN)
@@ -466,7 +508,7 @@ protected:
    // no-longer correct.)  Subclasses can intercept this to do local work,
    // in those cases.  Saves them having to override op=()
    virtual void path_change_pre() {
-      close_all();
+      close_all();              // operator=() depends on this
       _flags &= ~(DID_STAT | STAT_OK);
    }
 
@@ -537,8 +579,9 @@ public:
 
 
    virtual ~Path() {
-      // close_all();   // Wrong.  close() is abstract in Path.
+      close_all();   // Wrong.  close() is abstract in Path.
    }
+
 
    // demangled name of any subclass
    //
@@ -809,7 +852,7 @@ protected:
 public:
 
    virtual ~SyntheticDataSource() {
-      close_all();
+      close_all();              // see Path::operator=()
    }
 
    virtual bool    supports_n_to_1() const  { return false; }
@@ -934,9 +977,8 @@ protected:
 
 public:
 
-   // This runs on Pool<POSIX_Path>::get(), when initting an old instance
    virtual ~POSIX_Path() {
-      close_all();
+      close_all();              // see Path::operator=()
    }
 
 
@@ -1187,8 +1229,8 @@ protected:
 
 public:
 
-   // This runs on Pool<NULL_Path>::get(), when initting an old instance
    virtual ~NULL_Path() {
+      close_all();              // see Path::operator=()
    }
 
 
@@ -1350,9 +1392,8 @@ protected:
 
 public:
 
-   // This runs on Pool<PLFS_Path>::get(), when initting an old instance
    virtual ~PLFS_Path() {
-      close_all();
+      close_all();              // see Path::operator=()
    }
 
    virtual bool    supports_n_to_1() const  { return true; }
@@ -1652,7 +1693,7 @@ protected:
 
    S3_Path()
       : Path(),
-        _iobuf(Pool<IOBuf>::get(true)) // aws_iobuf_new() is just malloc + memset
+        _iobuf(Pool<IOBuf>::get()) // aws_iobuf_new() is just malloc + memset
    {
       //      memset(_iobuf.get(), 0, sizeof(IOBuf));
    }
@@ -1660,9 +1701,12 @@ protected:
 
 public:
 
-   // This runs on Pool<S3_Path>::get(), when initting an old instance
    virtual ~S3_Path() {
-      close_all();
+      close_all();              // see Path::operator=()
+   }
+
+   virtual void close_all() {
+      Path::close_all();
       aws_iobuf_reset(_iobuf.get());
    }
 
@@ -2025,10 +2069,9 @@ protected:
    IOBufPtr         _iobuf;
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
-   //DIR*           _dirp;        // after opendir()  [obsolete?]
 
    // decides wether or not this object is using the packed fh
-   bool usePacked;
+   bool             usePacked;
 
    size_t           _total_size;
    MarFS_Repo*      _batch_repo;
@@ -2104,13 +2147,16 @@ public:
       return _err_str.c_str();
    }
 
-   // This runs on Pool<S3_Path>::get(), when initting an old instance
    virtual ~MARFS_Path() {
-      close_all();
+      close_all();              // see Path::operator=()
+   }
+
+   virtual void close_all() {
+      Path::close_all();
 
       //aws_iobuf_reset(_iobuf.get()); TODO: fix
       if (is_open_md(&fh))
-         close();               // marfs_release() can handle this, too
+         close_md(&fh);
    }
 
 
@@ -2836,7 +2882,7 @@ public:
    // construct appropriate subclass from raw path.  We will have to guess
    // at the type, using stat_item().
    static PathPtr create(const char* path_name) {
-      PathItemPtr  item(Pool<path_item>::get(true));
+      PathItemPtr  item(Pool<path_item>::get());
       memset(item.get(), 0, sizeof(path_item));
       strncpy(item->path, path_name, PATHSIZE_PLUS);
       item->ftype = TBD;        // invoke stat_item() to determine type
