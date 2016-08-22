@@ -363,7 +363,7 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 
 	flags = (char *)malloc((2*ctmptr->chnknum)+1);
 	for(i=0; i<ctmptr->chnknum; i++)
-	  snprintf(flags+(2*i),3,"%d,",(TestBit(ctmptr->chnkflags,i))?1:0);
+	  snprintf(flags+(2*i),3,"%d,",TestBit(ctmptr->chnkflags,i));
 	i = strlen(flags);
 	flags[i-1] = '\0';
 
