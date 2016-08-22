@@ -861,10 +861,10 @@ public:
    virtual bool    lchown(uid_t owner, gid_t group)      { NO_IMPL(lchown); }
    virtual bool    chmod(mode_t mode)                    { NO_IMPL(chmod); }
    virtual bool    utime(const struct utimbuf* ut)       { NO_IMPL(utime); }
-   virtual bool    utimensat(const struct timespec times[2], flags) { NO_IMPL(utimensat); }
+   virtual bool    utimensat(const struct timespec times[2], int flags) { NO_IMPL(utimensat); }
 
    virtual bool    access(int mode)               { NO_IMPL(access); }
-   virtual bool    faccessas(int mode, int flags) { NO_IMPL(faccessat); }
+   virtual bool    faccessat(int mode, int flags) { NO_IMPL(faccessat); }
 
    // TBD: assure we are only being opened for READ
    virtual bool    open(int flags, mode_t mode) {
