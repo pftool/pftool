@@ -21,7 +21,7 @@
 
 /* Function Prototypes */
 //manager rank operations
-void manager(int rank, struct options& o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path);
+int manager(int rank, struct options& o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path);
 void manager_workdone(int rank, int sending_rank, int *proc_status);
 int  manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
