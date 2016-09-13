@@ -448,6 +448,19 @@ int main(int argc, char *argv[]) {
             enqueue_path(&input_queue_head, &input_queue_tail, o.file_list, &input_queue_count);
         else
             enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
+
+        if(o.work_type == COPYWORK) {
+            // loop though the input queue and make sure it does not match the dest_path
+            path_list *head = input_queue_head;
+            while(head != NULL) {
+                if(0 == strcmp(dest_path, head->data.path)) {
+                    printf("The file \"%s\" is both a source and destiation\n", dest_path);
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+                head = head->next;
+            }
+        }
+
     }
 
     // take on the role appropriate to our rank.
