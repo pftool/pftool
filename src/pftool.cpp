@@ -2181,7 +2181,8 @@ void process_stat_buffer(path_item*      path_buffer,
                        rank, i, work_node.path);
 
         // Are these items *identical* ? (e.g. same POSIX inode)
-        if (p_work->identical(p_dest)) {
+        // We will not have a dest in list so we will not check
+        if (o.work_type != LSWORK && p_work->identical(p_dest)) {
             write_count--;
             continue;
         }
