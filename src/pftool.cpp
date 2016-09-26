@@ -710,21 +710,23 @@ int manager(int             rank,
         }
     }
 
-    //quick check that source is not nested
-    char* copy = strdup(dest_path);
-    strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
-    free(copy);
+    if(o.work_type != LSWORK) {
+        //quick check that source is not nested
+        char* copy = strdup(dest_path);
+        strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
+        free(copy);
 
-    ////    rc = stat(temp_path, &st);
-    ////    if (rc < 0)
-    // fprintf(stderr, "manager: creating temp_path %s\n", temp_path);
-    PathPtr p_dir(PathFactory::create((char*)temp_path));
-    if (! p_dir->exists()) {
-        fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
-        char err_cause[MESSAGESIZE];
-        strerror_r(errno, err_cause, MESSAGESIZE);
-        snprintf(errmsg, MESSAGESIZE, "parent doesn't exist: %s: %s", dest_path, err_cause);
-        errsend(FATAL, errmsg);
+        ////    rc = stat(temp_path, &st);
+        ////    if (rc < 0)
+        // fprintf(stderr, "manager: creating temp_path %s\n", temp_path);
+        PathPtr p_dir(PathFactory::create((char*)temp_path));
+        if (! p_dir->exists()) {
+            fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
+            char err_cause[MESSAGESIZE];
+            strerror_r(errno, err_cause, MESSAGESIZE);
+            snprintf(errmsg, MESSAGESIZE, "parent doesn't exist: %s: %s", dest_path, err_cause);
+            errsend(FATAL, errmsg);
+        }
     }
 
     //pack our list into a buffer:
