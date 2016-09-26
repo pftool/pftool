@@ -2581,12 +2581,16 @@ public:
          packedFhInitialized = false;
       }
 
+      if(0 != rc) {
+          return false;
+      }
+
       while(!packedPaths.empty()) {
          marfs_clear_restart(marfs_sub_path(packedPaths.back().path));
          packedPaths.pop_back();
       }
 
-      return 0 == rc;
+      return true;
    }
 
    // TBD: See opendir().  For the closedir case, be need to deallocate

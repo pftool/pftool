@@ -2936,7 +2936,9 @@ void worker_copylist(int             rank,
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
 #ifdef MARFS
-   MARFS_Path::close_fh();
+   if(!MARFS_Path::close_fh()) {
+       errsend_fmt(NONFATAL, "Failed to close file handle\n");
+   }
 #endif
     send_manager_work_done(rank);
 #ifdef GEN_SYNDATA
