@@ -23,6 +23,7 @@
 #include <syslog.h>
 #include <sys/types.h>
 #include <pwd.h>
+#include <fnmatch.h>
 
 #include "pftool.h"
 #include "ctm.h"
@@ -171,6 +172,7 @@ int main(int argc, char *argv[]) {
         o.blocksize = (1024 * 1024);
         o.chunk_at  = (100ULL * 1024 * 1024 * 1024); // 107374182400
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
+        strncpy(o.exclude, "", PATHSIZE_PLUS);
 
         // marfs can't default these until we see the destination
         bool chunk_at_defaulted = true;
@@ -199,7 +201,7 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:orlPMnhvg")) != -1) {
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:orlPMnhvg")) != -1) {
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -311,6 +313,11 @@ int main(int argc, char *argv[]) {
                 o.debug += 1;
                 break;
 
+            case 'e':
+                strncpy(o.exclude, optarg, PATHSIZE_PLUS);
+                o.exclude[PATHSIZE_PLUS-1] = '\0';
+                break;
+
             case 'h':
                 //Help -- incoming!
                 usage();
@@ -392,6 +399,7 @@ int main(int argc, char *argv[]) {
 
     MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(o.exclude, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
 
 #ifdef GEN_SYNDATA
     MPI_Bcast(o.syn_pattern, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -449,18 +457,29 @@ int main(int argc, char *argv[]) {
         else
             enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
 
-        if(o.work_type == COPYWORK) {
-            // loop though the input queue and make sure it does not match the dest_path
-            path_list *head = input_queue_head;
-            while(head != NULL) {
+        // loop though the input queue and make sure it does not match the dest_path
+        // also check for anything that should be excluded
+        path_list *head = input_queue_head;
+        while(head != NULL) {
+
+            // checking dest_path against src
+            if(o.work_type == COPYWORK) {
                 if(0 == strcmp(dest_path, head->data.path)) {
                     printf("The file \"%s\" is both a source and destiation\n", dest_path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
-                head = head->next;
             }
-        }
 
+            // check for exclusions
+            if(0 == fnmatch(o.exclude, head->data.path, 0)) {
+                if (o.verbose >= 1) {
+                    printf("Excluding: %s\n", head->data.path);
+                }
+                // TODO: implement removal
+            }
+
+            head = head->next;
+        }
     }
 
     // take on the role appropriate to our rank.
@@ -1912,20 +1931,29 @@ void worker_readdir(int         rank,
                 }
                 if (strncmp(append_path, ".", PATHSIZE_PLUS) != 0 &&
                         strncmp(append_path, "..", PATHSIZE_PLUS) != 0) {
+                    // check to see if we should skip it
+                    if( 0 == fnmatch(o.exclude, path, 0) ) {
+                        if (o.verbose >= 1) {
+                            char message[MESSAGESIZE];
+                            sprintf(message, "Excluding: %s\n", path);
+                            write_output(message, 1);
+                        }
+                    } else {
 
-                    // full-path is <path> + "/" + readdir()
-                    PathPtr p_new = PathFactory::create(path);
-                    if (! p_new->exists()) {
-                        errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
-                                "Failed to stat path (2) %s\n", p_new->path());
-                        if (o.work_type == LSWORK)
-                            return;
-                    }
+                        // full-path is <path> + "/" + readdir()
+                        PathPtr p_new = PathFactory::create(path);
+                        if (! p_new->exists()) {
+                            errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
+                                    "Failed to stat path (2) %s\n", p_new->path());
+                            if (o.work_type == LSWORK)
+                                return;
+                        }
 
-                    workbuffer[buffer_count] = p_new->node();
-                    buffer_count++;
-                    if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                        process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
+                        workbuffer[buffer_count] = p_new->node();
+                        buffer_count++;
+                        if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+                            process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
+                        }
                     }
                 }
             }

@@ -235,6 +235,8 @@ struct options {
     size_t  chunksize;
     int     preserve;           // attempt to preserve ownership during copies.
 
+    char exclude[PATHSIZE_PLUS]; // pattern/list to exclude
+
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
     char    jid[128];
