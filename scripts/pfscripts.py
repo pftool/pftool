@@ -9,6 +9,11 @@ import ConfigParser
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
 
+"""
+checks if ptool is in the environment and uses that, otherwise uses ../bin/pftool
+"""
+pftool=os.getenv('PFTOOL', ROOT_PATH("..","bin","pftool"))
+
 class Work:
   COPY = 0
   LS = 1
@@ -181,12 +186,4 @@ def busy():
 *******************************************************************
 """
 
-"""
-Checks if pftool is in the path with fidexec, which returns None if not found
-If it is not in the path, use the old default behaviour.
-Then check if it is in the environment and possibly use that.
-"""
-pftool_temp=findexec('pftool')
-if pftool_temp is None:
-  pftool_temp=ROOT_PATH("..","bin","pftool")
-pftool=os.getenv('PFTOOL', pftool_temp)
+
