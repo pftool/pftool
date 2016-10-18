@@ -8,7 +8,11 @@ import ConfigParser
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
-pftool = ROOT_PATH("..", "bin", "pftool")
+
+"""
+checks if ptool is in the environment and uses that, otherwise uses ../bin/pftool
+"""
+pftool=os.getenv('PFTOOL', ROOT_PATH("..","bin","pftool"))
 
 class Work:
   COPY = 0
@@ -43,7 +47,7 @@ def get_jid():
   jid = user+time_id+hostname
   return jid
 
-def parse_config(options_path=ROOT_PATH("..", "etc", "pftool.cfg")):
+def parse_config(options_path=os.getenv('PFTOOL_CONFIG', ROOT_PATH("..", "etc", "pftool.cfg"))):
   config = ConfigParser.ConfigParser()
   config.read(options_path)
   return config
@@ -181,3 +185,5 @@ def busy():
 * Contact:  ICN Consulting Office (5-4444 option 3)               *
 *******************************************************************
 """
+
+
