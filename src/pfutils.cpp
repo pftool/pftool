@@ -58,6 +58,7 @@ void usage () {
     printf (" [-P]         force destination filesystem to be treated as parallel\n");
     printf (" [-M]         perform block-compare, default: metadata-compare\n");
     printf (" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
+    printf (" [-e]         excludes files that match this pattern\n");
     printf (" [-v]         output verbosity [specify multiple times, to increase]\n");
     printf (" [-g]         debugging-level  [specify multiple times, to increase]\n");
     printf (" [-h]         print Usage information\n");

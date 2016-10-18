@@ -62,6 +62,10 @@ int main(int argc, char *argv[]) {
     char        src_path[PATHSIZE_PLUS];
     char        dest_path[PATHSIZE_PLUS];
 
+    // should we run (this allows for a clean exit on -h)
+    int ret_val = 0;
+    int run = 1;
+
 #ifdef S3
     // aws_init() -- actually, curl_global_init() -- is supposed to be
     // called before *any* threads are created.  Could MPI_Init() create
@@ -321,7 +325,8 @@ int main(int argc, char *argv[]) {
             case 'h':
                 //Help -- incoming!
                 usage();
-                return 0;
+                run=0;
+                break;
             case '?':
                 return -1;
             default:
@@ -459,6 +464,7 @@ int main(int argc, char *argv[]) {
 
         // loop though the input queue and make sure it does not match the dest_path
         // also check for anything that should be excluded
+        path_list *prev = NULL;
         path_list *head = input_queue_head;
         while(head != NULL) {
 
@@ -472,28 +478,49 @@ int main(int argc, char *argv[]) {
 
             // check for exclusions
             if(0 == fnmatch(o.exclude, head->data.path, 0)) {
+                path_list *oldHead;
                 if (o.verbose >= 1) {
                     printf("Excluding: %s\n", head->data.path);
                 }
-                // TODO: implement removal
+                if(head == input_queue_head) {
+                    input_queue_head = head->next;
+                }
+                if(head == input_queue_tail) {
+                    input_queue_tail = prev;
+                }
+                if(NULL != prev) {
+                    prev->next = head->next;
+                }
+                oldHead = head;
+                head = head->next;
+                free(oldHead);
+                input_queue_count--;
+            } else {
+                prev = head;
+                head = head->next;
             }
-
-            head = head->next;
+        }
+        if(NULL == input_queue_head) {
+            printf("Exclude pattern has exlcuded all input so no work will be done\n");
+            run=0;
         }
     }
 
+    // tell the wokers weather or not we are going to run
+    MPI_Bcast(&run, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+
     // take on the role appropriate to our rank.
-    if (rank == MANAGER_PROC) {
-        int ret_val;
-        ret_val = manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
-        MPI_Finalize();
-        return ret_val;
+    if (run) {
+        if (rank == MANAGER_PROC) {
+            ret_val = manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
+        }
+        else {
+            worker(rank, o);
+        }
     }
-    else {
-        worker(rank, o);
-        MPI_Finalize();
-        return 0;
-    }
+
+    MPI_Finalize();
+    return ret_val;
 }
 
 
