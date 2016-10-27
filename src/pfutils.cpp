@@ -61,6 +61,7 @@ void usage () {
     printf (" [-e]         excludes files that match this pattern\n");
     printf (" [-v]         output verbosity [specify multiple times, to increase]\n");
     printf (" [-g]         debugging-level  [specify multiple times, to increase]\n");
+    printf (" [-D]         The maximum number of readdir ranks, -1 allows all ranks to be used\n");
     printf (" [-h]         print Usage information\n");
 
     printf("\n");
@@ -2159,23 +2160,23 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 #endif
 }
 
-int get_free_rank(int *proc_status, int start_range, int end_range) {
+int get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range) {
     //given an inclusive range, return the first encountered free rank
     int i;
     for (i = start_range; i <= end_range; i++) {
-        if (proc_status[i] == 0) {
+        if (proc_status[i].inuse == 0) {
             return i;
         }
     }
     return -1;
 }
 
-int processing_complete(int *proc_status, int nproc) {
+int processing_complete(struct worker_proc_status *proc_status, int nproc) {
     //are all the ranks free?
     int i;
     int count = 0;
     for (i = 0; i < nproc; i++) {
-        if (proc_status[i] == 1) {
+        if (proc_status[i].inuse == 1) {
             count++;
         }
     }

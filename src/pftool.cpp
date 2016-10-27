@@ -177,6 +177,7 @@ int main(int argc, char *argv[]) {
         o.chunk_at  = (100ULL * 1024 * 1024 * 1024); // 107374182400
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
         strncpy(o.exclude, "", PATHSIZE_PLUS);
+        o.max_readdir_ranks = MAXREADDIRRANKS;
 
         // marfs can't default these until we see the destination
         bool chunk_at_defaulted = true;
@@ -205,7 +206,7 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:orlPMnhvg")) != -1) {
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orlPMnhvg")) != -1) {
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -238,6 +239,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'S':
                 o.chunksize = str2Size(optarg);
+                break;
+            case 'D':
+                o.max_readdir_ranks = atoi(optarg);
                 break;
 
             case 'X':
@@ -572,7 +576,8 @@ int manager(int             rank,
     int         work_rank;
     int         sending_rank;
     int         i;
-    int*        proc_status;
+    struct worker_proc_status* proc_status;
+    int readdir_rank_count = 0;
 
     struct timeval in;
     struct timeval out;
@@ -780,11 +785,12 @@ int manager(int             rank,
     delete_queue_path(&input_queue_head, &input_queue_count);
 
     //allocate a vector to hold proc status for every proc
-    proc_status = (int*)malloc(nproc * sizeof(int));
+    proc_status = (struct worker_proc_status*)malloc(nproc * sizeof(struct worker_proc_status));
 
     //initialize proc_status
     for (i = 0; i < nproc; i++) {
-        proc_status[i] = 0;
+        proc_status[i].inuse = 0;
+        proc_status[i].readdir = 0;
     }
 
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
@@ -835,28 +841,32 @@ int manager(int             rank,
             if (message_ready == 0) {
 #endif
                 for (i = 0; i < nproc; i++) {
-                    PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status[i]);
+                    PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status.inuse[i]);
                 }
                 PRINT_PROC_DEBUG("=============\n");
-                work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
-                if (work_rank >= 0) {
-                    if (((start == 1 || o.recurse) && dir_buf_list_size != 0)
-                        || (o.use_file_list
-                            && dir_buf_list_size != 0
-                            && stat_buf_list_size < nproc*3)) {
-                        proc_status[work_rank] = 1;
-                        send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
-                        start = 0;
-                    }
-                    else if (!o.recurse) {
-                        delete_buf_list(&dir_buf_list, &dir_buf_list_size);
+                if(-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
+                    work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                    if (work_rank >= 0) {
+                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)
+                            || (o.use_file_list
+                                && dir_buf_list_size != 0
+                                && stat_buf_list_size < nproc*3)) {
+                            proc_status[work_rank].inuse = 1;
+                            proc_status[work_rank].readdir = 1;
+                            readdir_rank_count += 1;
+                            send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
+                            start = 0;
+                        }
+                        else if (!o.recurse) {
+                            delete_buf_list(&dir_buf_list, &dir_buf_list_size);
+                        }
                     }
                 }
 #ifdef TAPE
                 //handle tape
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                 if (work_rank >= 0 && tape_buf_list_size > 0) {
-                    proc_status[work_rank] = 1;
+                    proc_status[work_rank].inuse = 1;
                     send_worker_tape_path(work_rank, &tape_buf_list, &tape_buf_list_size);
                 }
 #endif
@@ -864,7 +874,7 @@ int manager(int             rank,
                     for (i = 0; i < 3; i ++) {
                         work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                         if (work_rank >= 0 && process_buf_list_size > 0) {
-                            proc_status[work_rank] = 1;
+                            proc_status[work_rank].inuse = 1;
                             send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_size);
                         }
                     }
@@ -873,7 +883,7 @@ int manager(int             rank,
                     for (i = 0; i < 3; i ++) {
                         work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                         if (work_rank >= 0 && process_buf_list_size > 0) {
-                            proc_status[work_rank] = 1;
+                            proc_status[work_rank].inuse = 1;
                             send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_size);
                         }
                     }
@@ -940,7 +950,7 @@ int manager(int             rank,
             switch(type_cmd) {
             case WORKDONECMD:
                 //worker finished their tasks
-                manager_workdone(rank, sending_rank, proc_status);
+                manager_workdone(rank, sending_rank, proc_status, &readdir_rank_count);
                 break;
 
             case NONFATALINCCMD:
@@ -949,7 +959,7 @@ int manager(int             rank,
                 break;
 
             case CHUNKBUSYCMD:
-                proc_status[ACCUM_PROC] = 1;
+                proc_status[ACCUM_PROC].inuse = 1;
                 break;
 
             case COPYSTATSCMD:
@@ -1271,8 +1281,12 @@ void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes,
 }
 #endif
 
-void manager_workdone(int rank, int sending_rank, int *proc_status) {
-    proc_status[sending_rank] = 0;
+void manager_workdone(int rank, int sending_rank, struct worker_proc_status *proc_status, int* readdir_rank_count) {
+    proc_status[sending_rank].inuse = 0;
+    if(1 == proc_status[sending_rank].readdir) {
+        *readdir_rank_count -= 1;
+        proc_status[sending_rank].readdir = 0;
+    }
 }
 
 void worker(int rank, struct options& o) {

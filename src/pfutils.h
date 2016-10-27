@@ -94,6 +94,8 @@
 // The amount of data to accumulate before shipping off to a copy process
 #define SHIPOFF        536870912
 
+// The number of stat processes to default to, -1 is infinate
+#define MAXREADDIRRANKS (-1)
 
 // <sys/vfs.h> provides statfs(), which operates on a struct statfs,
 // similarly to what stat() does with struct fs.  statfs.f_type identifies
@@ -241,6 +243,8 @@ struct options {
     int     use_file_list;
     char    jid[128];
 
+    int     max_readdir_ranks;
+
 #if GEN_SYNDATA
     char    syn_pattern[128];
     size_t  syn_size;
@@ -264,6 +268,10 @@ struct options {
     SrcDstFSType  destfs;
 };
 
+struct worker_proc_status {
+    char inuse;
+    char readdir;
+};
 
 // A queue to store all of our input nodes
 //struct path_link {
@@ -366,8 +374,8 @@ int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct u
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int  stat_item(path_item* work_node, struct options& o);
 void get_stat_fs_info(const char *path, SrcDstFSType *fs);
-int  get_free_rank(int *proc_status, int start_range, int end_range);
-int  processing_complete(int *proc_status, int nproc);
+int  get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range);
+int  processing_complete(struct worker_proc_status *proc_status, int nproc);
 
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
