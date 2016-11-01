@@ -208,6 +208,8 @@ int main(int argc, char *argv[]) {
 	o.syn_suffix[0] = '\0';		// Clear the synthetic data suffix
 #endif
 
+	bool destination_selected=false;
+	bool work_type_equals_list_selected=false;
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
         while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orlPMnhvg")) != -1) {
             switch(c) {
@@ -218,6 +220,7 @@ int main(int argc, char *argv[]) {
             case 'c':
                 //Get the destination path
                 strncpy(dest_path, optarg, PATHSIZE_PLUS);
+		destination_selected=true;
                 break;
             case 'j':
                 strncpy(o.jid, optarg, 128);
@@ -229,6 +232,9 @@ int main(int argc, char *argv[]) {
                 // this is <WorkType>, from pfutils.h
                 // 0 = copy, 1 = list, 2 = compare
                 o.work_type = atoi(optarg);
+		if (o.worktype ==1) {
+			work_type_equals_list_selected=true;
+		}
                 break;
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
@@ -376,7 +382,9 @@ int main(int argc, char *argv[]) {
                 sleep(5);
             }
         }
-
+	if (destination_selected && work_type_equals_list_selected) {
+        	errsend(NONFATAL,"Invalid option set, do not  use option '-c' when listing files");
+	}
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
