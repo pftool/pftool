@@ -45,7 +45,7 @@ def main():
 #    print "src before = %s"%(src)
     src_full = []
     for i in src:
-      src_full.append(os.path.abspath(i))
+      src_full.append(os.path.realpath(i))
     src_fixed = []
     for i in src_full:
       if i.find("/var/lib/perceus/vnfs") != "-1":
