@@ -12,6 +12,7 @@ def main():
   parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
   parser.add_option("-x", dest="synSize", default=None, metavar="SIZE", help="development only. Option may be used for future feature")
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
+  parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   
   (options, args) = parser.parse_args()
 
@@ -100,6 +101,11 @@ def main():
   #parse additional options
   if options.different:
     commands.add("-n")
+    
+  if options.exclude is not None:
+      commands.add("-e")
+      commands.add(parser.values.exclude)
+
 
   try:
     t = config.get("environment", "parallel_dest")
