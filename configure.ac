@@ -125,6 +125,17 @@ AS_IF([test x$enable_s3 == xyes],
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
+AS_IF([test x"$enable_marfs" == xyes],
+  [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
+   AC_CHECK_LIB([curl], [curl_easy_cleanup])
+   AC_CHECK_LIB([aws4c_extra], [s3_create_bucket], [], [], [-laws4c])
+   AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
+   AC_CHECK_LIB([marfs], [mc_put],
+                [LIBS = -lmarfs $LIBS -lisal -lne
+                 AC_DEFINE(HAVE_LIBMARFS)],
+                [AC_CHECK_LIB([marfs], [marfs_open], [],
+                              [AC_ERROR([could not find libmarfs])])],
+                [-lisal -lne])])
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
