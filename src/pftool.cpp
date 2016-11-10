@@ -2021,16 +2021,19 @@ void worker_readdir(int         rank,
         //       the PATH subclasses.
         else {
             fp = fopen(work_node.path, "r");
-            while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL) {
-                size_t path_len = strlen(work_node.path);
-                if (work_node.path[path_len -1] == '\n') {
-                    work_node.path[path_len -1] = '\0';
+            path_item   list_node;
+            memset(&list_node, 0, sizeof(path_item));
+            while (fgets(list_node.path, PATHSIZE_PLUS, fp) != NULL) {
+                size_t path_len = strlen(list_node.path);
+                if (list_node.path[path_len -1] == '\n') {
+                    list_node.path[path_len -1] = '\0';
                 }
-                workbuffer[buffer_count] = work_node;
+                workbuffer[buffer_count] = list_node;
                 buffer_count++;
                 if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
                     process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                 }
+                memset(&work_node, 0, sizeof(path_item));
             }
             fclose(fp);
         }
