@@ -178,6 +178,8 @@ int main(int argc, char *argv[]) {
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
         strncpy(o.exclude, "", PATHSIZE_PLUS);
         o.max_readdir_ranks = MAXREADDIRRANKS;
+        src_path[0] = '\0';
+        dest_path[0] = '\0';
 
         // marfs can't default these until we see the destination
         bool chunk_at_defaulted = true;
@@ -436,6 +438,17 @@ int main(int argc, char *argv[]) {
 
         if ((optind < argc) && (o.use_file_list)) { // only one of them is enqueued, below
             printf("Provided sources via '-i' and on the command-line\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        if(!o.use_file_list && 0 == strnlen(src_path, PATHSIZE_PLUS)) {
+            printf("No souce was provided\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        if((COMPAREWORK == o.work_type || COPYWORK == o.work_type) &&
+                0 == strnlen(dest_path, PATHSIZE_PLUS)) {
+            printf("No destination was provided\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
 
