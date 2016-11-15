@@ -2745,11 +2745,11 @@ void process_stat_buffer(path_item*      path_buffer,
 
 
     //incase we tried to copy a file into itself
-    if (write_count && o.verbose >= 1) {
+    if (0 < write_count && o.verbose >= 1) {
         writesize = MESSAGESIZE * write_count;
         writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
         if (! writebuf) {
-            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf\n", writesize);
+            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf, write_count: %d\n", writesize, write_count);
         }
         write_buffer_output(writebuf, writesize, write_count);
     }
