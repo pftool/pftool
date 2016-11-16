@@ -1532,7 +1532,7 @@ void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
     }
 }
 
-void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs) {
+void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes) {
     send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
     //send the # of paths
     if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
@@ -1547,6 +1547,11 @@ void send_manager_examined_stats(int num_examined_files, size_t num_examined_byt
         fprintf(stderr, "Failed to send num_examined_dirs %d to rank %d\n", num_examined_dirs, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
+    if (MPI_Send(&num_finished_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+        fprintf(stderr, "Failed to send num_finished_bytes %zd to rank %d\n", num_finished_bytes, MANAGER_PROC);
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
 }
 
 #ifdef TAPE

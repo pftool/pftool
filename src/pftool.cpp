@@ -618,6 +618,7 @@ int manager(int             rank,
     int         examined_file_count = 0;
     int         examined_dir_count = 0;
     size_t      examined_byte_count = 0;
+    size_t      finished_byte_count = 0;
 #ifdef TAPE
     int         examined_tape_count = 0;
     size_t      examined_tape_byte_count = 0;
@@ -995,7 +996,7 @@ int manager(int             rank,
                 break;
 
             case EXAMINEDSTATSCMD:
-                manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count);
+                manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count, &finished_byte_count);
                 break;
 #ifdef TAPE
             case TAPESTATCMD:
@@ -1071,15 +1072,15 @@ int manager(int             rank,
                 // human-readable representations
                 human_readable(files,     BUF_SIZE, num_copied_files);
                 // human_readable(files_ex,  BUF_SIZE, examined_file_count);
-                human_readable(bytes,     BUF_SIZE, num_copied_bytes);
+                human_readable(bytes,     BUF_SIZE, num_copied_bytes + finished_byte_count);
                 human_readable(bytes_tbd, BUF_SIZE, examined_byte_count); // - num_copied_bytes);
                 human_readable(bw,        BUF_SIZE, bw0); // this period
                 human_readable(bw_avg,    BUF_SIZE, bw_tot);
 
                 sprintf(message,
-                        "INFO ACCUM  files/chunks: %4s       "
-                        "data: %7sB / %7sB       "
-                        "avg BW: %7sB/s      "
+                        "INFO ACCUM  files/chunks: %4s    "
+                        "data: %7sB / %7sB    "
+                        "avg BW: %7sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
@@ -1267,11 +1268,12 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, s
     *num_copied_bytes += num_bytes;
 }
 
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs) {
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs, size_t *num_finished_bytes) {
     MPI_Status status;
     int        num_files = 0;
     size_t     num_bytes = 0;
     int        num_dirs = 0;
+    size_t     num_bytes_finished = 0;
 
     //gather the # of examined files
     PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
@@ -1286,9 +1288,15 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_fi
     if (MPI_Recv(&num_dirs, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
     }
+    PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_finished_bytes from rank %d\n", rank, sending_rank);
+    if (MPI_Recv(&num_bytes_finished, 1, MPI_DOUBLE, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        errsend(FATAL, "Failed to receive worksize\n");
+    }
+
     *num_examined_files += num_files;
     *num_examined_bytes += num_bytes;
     *num_examined_dirs += num_dirs;
+    *num_finished_bytes += num_bytes_finished;
 }
 
 #ifdef TAPE
@@ -2152,6 +2160,7 @@ void process_stat_buffer(path_item*      path_buffer,
     int         write_count = 0;
     int         num_examined_files = 0;
     size_t      num_examined_bytes = 0;
+    size_t      num_finished_bytes = 0;
     int         num_examined_dirs = 0;
     char        errmsg[MESSAGESIZE];
     char        statrecord[MESSAGESIZE];
@@ -2335,8 +2344,11 @@ void process_stat_buffer(path_item*      path_buffer,
                     // that are "different" from the corresponding
                     // dest-files.
                     if ((o.different == 1)
-                        && samefile(p_work, p_out, o))
+                        && samefile(p_work, p_out, o)) {
                         process = 0; // source/dest are the same, so skip
+
+                        num_finished_bytes += work_node.st.st_size;
+                    }
 
                     // if someone truncated the destination to zero
                     // (i.e. the only way a zero-size file could have CTM),
@@ -2652,6 +2664,9 @@ void process_stat_buffer(path_item*      path_buffer,
                                         num_bytes_seen = 0;
                                     }
                                 } // end send test
+                                else {
+                                    num_finished_bytes += work_node.chksz;
+                                }
 #ifdef TAPE
                             }
 #endif
@@ -2766,7 +2781,7 @@ void process_stat_buffer(path_item*      path_buffer,
     }
     send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
 #endif
-    send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
+    send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs, num_finished_bytes);
 
     //free malloc buffers
     free(writebuf);
