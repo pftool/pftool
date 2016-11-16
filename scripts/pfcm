@@ -98,8 +98,8 @@ def main():
   src_full = []
   dest_full = []
   for i in src:
-      src_full.append(os.path.abspath(i))
-  dest_full.append(os.path.abspath(dest))
+      src_full.append(os.path.realpath(i))
+  dest_full.append(os.path.realpath(dest))
 
   src_fixed = []
   dest_fixed = []
