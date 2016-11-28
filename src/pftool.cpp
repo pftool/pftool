@@ -178,6 +178,8 @@ int main(int argc, char *argv[]) {
         o.chunksize = (100ULL * 1024 * 1024 * 1024);
         strncpy(o.exclude, "", PATHSIZE_PLUS);
         o.max_readdir_ranks = MAXREADDIRRANKS;
+        src_path[0] = '\0';
+        dest_path[0] = '\0';
 
         // marfs can't default these until we see the destination
         bool chunk_at_defaulted = true;
@@ -442,21 +444,19 @@ int main(int argc, char *argv[]) {
     //wildcard
     if (rank == MANAGER_PROC) {
 
-        if (optind < argc && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
-            //// struct stat dest_stat;
-            //// int         statrc = lstat(dest_path, &dest_stat);
-            //// if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)) {
-            ////     printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
-            ////     MPI_Abort(MPI_COMM_WORLD, -1);
-            //// }
-            PathPtr p_dest(PathFactory::create(dest_path));
-            if (!p_dest->exists() || !p_dest->is_dir()) {
-                printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
-                MPI_Abort(MPI_COMM_WORLD, -1);
-            }
-        }
         if ((optind < argc) && (o.use_file_list)) { // only one of them is enqueued, below
             printf("Provided sources via '-i' and on the command-line\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        if(!o.use_file_list && 0 == strnlen(src_path, PATHSIZE_PLUS)) {
+            printf("No souce was provided\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        if((COMPAREWORK == o.work_type || COPYWORK == o.work_type) &&
+                0 == strnlen(dest_path, PATHSIZE_PLUS)) {
+            printf("No destination was provided\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
 
@@ -469,10 +469,41 @@ int main(int argc, char *argv[]) {
                 enqueue_path(&input_queue_head, &input_queue_tail, argv[i], &input_queue_count);
             }
         }
-        else if (o.use_file_list)
-            enqueue_path(&input_queue_head, &input_queue_tail, o.file_list, &input_queue_count);
-        else
+        else if (o.use_file_list) {
+            //we were provided a file list
+            //
+            // NOTE: We'll just assume the file-list is stored on a POSIX
+            //       filesys, so we don't have to add fgets() methods to all
+            //       the PATH subclasses.
+            FILE *fp;
+            char list_path[PATHSIZE_PLUS];
+            fp = fopen(o.file_list, "r");
+            while (fgets(list_path, PATHSIZE_PLUS, fp) != NULL) {
+                size_t path_len = strlen(list_path);
+                if (list_path[path_len -1] == '\n') {
+                    list_path[path_len -1] = '\0';
+                }
+                enqueue_path(&input_queue_head, &input_queue_tail, list_path, &input_queue_count);
+            }
+            fclose(fp);
+
+            //enqueue_path(&input_queue_head, &input_queue_tail, o.file_list, &input_queue_count);
+        } else
             enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
+
+        if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
+            //// struct stat dest_stat;
+            //// int         statrc = lstat(dest_path, &dest_stat);
+            //// if (statrc < 0 || !S_ISDIR(dest_stat.st_mode)) {
+            ////     printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
+            ////     MPI_Abort(MPI_COMM_WORLD, -1);
+            //// }
+            PathPtr p_dest(PathFactory::create(dest_path));
+            if (!p_dest->exists() || !p_dest->is_dir()) {
+                printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+        }
 
         // loop though the input queue and make sure it does not match the dest_path
         // also check for anything that should be excluded
@@ -513,7 +544,7 @@ int main(int argc, char *argv[]) {
             }
         }
         if(NULL == input_queue_head) {
-            printf("Exclude pattern has exlcuded all input so no work will be done\n");
+            printf("No source was provided/all was excluded so no work will be done\n");
             run=0;
         }
     }
@@ -595,6 +626,7 @@ int manager(int             rank,
     int         examined_file_count = 0;
     int         examined_dir_count = 0;
     size_t      examined_byte_count = 0;
+    size_t      finished_byte_count = 0;
 #ifdef TAPE
     int         examined_tape_count = 0;
     size_t      examined_tape_byte_count = 0;
@@ -676,80 +708,80 @@ int manager(int             rank,
         makedir = 1;
     }
 
-    if (!o.use_file_list) { // If not using a file list -> broadcast the destination path
-        //setup paths
-        strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
-        get_base_path(base_path, &beginning_node, wildcard);
-        if (o.work_type != LSWORK) {
+    //setup paths
+    strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
+    get_base_path(base_path, &beginning_node, wildcard);
+    if (o.work_type != LSWORK) {
 
-            //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
-            rc = stat_item(&beginning_node, o);
-            get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
-            ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
+        //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
+        rc = stat_item(&beginning_node, o);
+        get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
+        ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
-            if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
-                //// #ifdef PLFS
-                ////                 if (dest_node.ftype == PLFSFILE){
-                ////                     plfs_mkdir(dest_node.path, S_IRWXU);
-                ////                 }
-                ////                 else {
-                //// #endif
-                ////                     mkdir(dest_node.path, S_IRWXU);
-                //// #ifdef PLFS
-                ////                 }
-                //// #endif
-                ////                 rc = stat_item(&dest_node, o);
-
-
-                // NOTE: If we errsend anything here, we'll deadlock on the
-                //       other procs that are waiting at the Bcast(),
-                //       below.  That's because there's a problem with the
-                //       way OUTPUT_PROC is used.  Either the errsend()
-                //       functions should send asynchronously, or
-                //       OUTPUT_PROC should run a special process (other
-                //       than worker()), so that it does nothing but
-                //       synchronous recvs of the diagnostic messages
-                //       OUTCMD and LOGCMD.
-                //
-                // NOTE: The debugging fprintfs have served their purpose.
-                //       Commenting them out, now.
+        if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
+            //// #ifdef PLFS
+            ////                 if (dest_node.ftype == PLFSFILE){
+            ////                     plfs_mkdir(dest_node.path, S_IRWXU);
+            ////                 }
+            ////                 else {
+            //// #endif
+            ////                     mkdir(dest_node.path, S_IRWXU);
+            //// #ifdef PLFS
+            ////                 }
+            //// #endif
+            ////                 rc = stat_item(&dest_node, o);
 
 
-                // // errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
-                // //             dest_node.path, dest_path);
-                // fprintf(stderr, "Debugging: dest_path '%s' -> dest_node '%s'\n",
-                //         dest_path, dest_node.path);
+            // NOTE: If we errsend anything here, we'll deadlock on the
+            //       other procs that are waiting at the Bcast(),
+            //       below.  That's because there's a problem with the
+            //       way OUTPUT_PROC is used.  Either the errsend()
+            //       functions should send asynchronously, or
+            //       OUTPUT_PROC should run a special process (other
+            //       than worker()), so that it does nothing but
+            //       synchronous recvs of the diagnostic messages
+            //       OUTCMD and LOGCMD.
+            //
+            // NOTE: The debugging fprintfs have served their purpose.
+            //       Commenting them out, now.
 
-                PathPtr p(PathFactory::create_shallow(&dest_node));
-                // // errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
-                // fprintf(stderr, "Debugging: dest Path-subclass is '%s'\n", p->class_name().get());
 
-                p->mkdir(S_IRWXU);
+            // // errsend_fmt(NONFATAL, "Debugging: dest_node '%s' -> dest_path '%s'\n",
+            // //             dest_node.path, dest_path);
+            // fprintf(stderr, "Debugging: dest_path '%s' -> dest_node '%s'\n",
+            //         dest_path, dest_node.path);
 
-                // TBD: Remove this.  This is just for now, because most of
-                //       pftool still just looks at naked stat structs,
-                //       inside Path objects.  Ours hasn't been initialized
-                //       yet.  If you ask for any stat-related info from
-                //       the Path object, it would do a stat before
-                //       answering.  But if you just go look at the raw
-                //       struct, e.g. with S_ISDIR(st.st_mode), you'll be
-                //       looking at all zeros, and you'll think it isn't a
-                //       directory.
-                p->stat();
-            }
+            PathPtr p(PathFactory::create_shallow(&dest_node));
+            // // errsend_fmt(NONFATAL, "Debugging: Path subclass is '%s'\n", p->path());
+            // fprintf(stderr, "Debugging: dest Path-subclass is '%s'\n", p->class_name().get());
 
-            //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
-            mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
-            if (mpi_ret_code < 0) {
-                errsend(FATAL, "Failed to Bcast dest_path");
-            }
+            // we need to use the permissions of the source filtering out other mode things
+            p->mkdir(beginning_node.st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO));
+
+            // TBD: Remove this.  This is just for now, because most of
+            //       pftool still just looks at naked stat structs,
+            //       inside Path objects.  Ours hasn't been initialized
+            //       yet.  If you ask for any stat-related info from
+            //       the Path object, it would do a stat before
+            //       answering.  But if you just go look at the raw
+            //       struct, e.g. with S_ISDIR(st.st_mode), you'll be
+            //       looking at all zeros, and you'll think it isn't a
+            //       directory.
+            p->stat();
         }
-        //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the base_path: %s\n", rank, base_path);
-        mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+
+        //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the dest_path: %s\n", rank, dest_path);
+        mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
         if (mpi_ret_code < 0) {
-            errsend(FATAL, "Failed to Bcast base_path");
+            errsend(FATAL, "Failed to Bcast dest_path");
         }
     }
+    //PRINT_MPI_DEBUG("rank %d: manager() MPI_Bcast the base_path: %s\n", rank, base_path);
+    mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    if (mpi_ret_code < 0) {
+        errsend(FATAL, "Failed to Bcast base_path");
+    }
+    
 
     // Make sure there are no multiple roots for a recursive operation
     // (because we assume we can use base_path to generate all destination paths?)
@@ -855,10 +887,7 @@ int manager(int             rank,
                 if(-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
                     work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                     if (work_rank >= 0) {
-                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)
-                            || (o.use_file_list
-                                && dir_buf_list_size != 0
-                                && stat_buf_list_size < nproc*3)) {
+                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
                             proc_status[work_rank].inuse = 1;
                             proc_status[work_rank].readdir = 1;
                             readdir_rank_count += 1;
@@ -975,7 +1004,7 @@ int manager(int             rank,
                 break;
 
             case EXAMINEDSTATSCMD:
-                manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count);
+                manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count, &finished_byte_count);
                 break;
 #ifdef TAPE
             case TAPESTATCMD:
@@ -1051,15 +1080,15 @@ int manager(int             rank,
                 // human-readable representations
                 human_readable(files,     BUF_SIZE, num_copied_files);
                 // human_readable(files_ex,  BUF_SIZE, examined_file_count);
-                human_readable(bytes,     BUF_SIZE, num_copied_bytes);
+                human_readable(bytes,     BUF_SIZE, num_copied_bytes + finished_byte_count);
                 human_readable(bytes_tbd, BUF_SIZE, examined_byte_count); // - num_copied_bytes);
                 human_readable(bw,        BUF_SIZE, bw0); // this period
                 human_readable(bw_avg,    BUF_SIZE, bw_tot);
 
                 sprintf(message,
-                        "INFO ACCUM  files/chunks: %4s       "
-                        "data: %7sB / %7sB       "
-                        "avg BW: %7sB/s      "
+                        "INFO ACCUM  files/chunks: %4s    "
+                        "data: %7sB / %7sB    "
+                        "avg BW: %7sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
@@ -1247,11 +1276,12 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, s
     *num_copied_bytes += num_bytes;
 }
 
-void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs) {
+void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs, size_t *num_finished_bytes) {
     MPI_Status status;
     int        num_files = 0;
     size_t     num_bytes = 0;
     int        num_dirs = 0;
+    size_t     num_bytes_finished = 0;
 
     //gather the # of examined files
     PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_examined_files from rank %d\n", rank, sending_rank);
@@ -1266,9 +1296,15 @@ void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_fi
     if (MPI_Recv(&num_dirs, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive worksize\n");
     }
+    PRINT_MPI_DEBUG("rank %d: manager_add_examined_stats() Receiving num_finished_bytes from rank %d\n", rank, sending_rank);
+    if (MPI_Recv(&num_bytes_finished, 1, MPI_DOUBLE, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+        errsend(FATAL, "Failed to receive worksize\n");
+    }
+
     *num_examined_files += num_files;
     *num_examined_bytes += num_bytes;
     *num_examined_dirs += num_dirs;
+    *num_finished_bytes += num_bytes_finished;
 }
 
 #ifdef TAPE
@@ -1340,27 +1376,26 @@ void worker(int rank, struct options& o) {
     if (o.work_type == COPYWORK) {
         makedir = 1;
     }
-    if (!o.use_file_list) {
-        //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
-        if (o.work_type != LSWORK) {
-            mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
-            if (mpi_ret_code < 0) {
-                errsend(FATAL, "Failed to Receive Bcast dest_path");
-            }
-        }
-        //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the base_path\n", rank);
-        mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
+    if (o.work_type != LSWORK) {
+        mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
         if (mpi_ret_code < 0) {
-            errsend(FATAL, "Failed to Receive Bcast base_path");
-        }
-        get_stat_fs_info(base_path, &o.sourcefs);
-        if (o.parallel_dest == 0 && o.work_type != LSWORK) {
-            get_stat_fs_info(dest_node.path, &o.destfs);
-            if (o.destfs >= PARALLEL_DESTFS) {
-                o.parallel_dest = 1;
-            }
+            errsend(FATAL, "Failed to Receive Bcast dest_path");
         }
     }
+    //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the base_path\n", rank);
+    mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    if (mpi_ret_code < 0) {
+        errsend(FATAL, "Failed to Receive Bcast base_path");
+    }
+    get_stat_fs_info(base_path, &o.sourcefs);
+    if (o.parallel_dest == 0 && o.work_type != LSWORK) {
+        get_stat_fs_info(dest_node.path, &o.destfs);
+        if (o.destfs >= PARALLEL_DESTFS) {
+            o.parallel_dest = 1;
+        }
+    }
+    
 
     // can't do this before the Bcast above, or we'll deadlock, because
     // output-proc won't yet be listening for work.
@@ -1788,7 +1823,7 @@ void worker_readdir(int         rank,
         PRINT_MPI_DEBUG("rank %d: worker_readdir() PathFactory::cast(%d)\n", rank, (unsigned)work_node.ftype);
         PathPtr p_work = PathFactory::create_shallow(&work_node);
         
-        if (work_node.start == 1 && o.use_file_list == 0) {
+        if (work_node.start == 1) {
 
             //first time through, not using a filelist
 
@@ -1813,7 +1848,7 @@ void worker_readdir(int         rank,
             buffer_count++;
         }
 
-        else if (o.use_file_list == 0) {
+        else {
             // work_node is a source-directory.  Read file-names from it,
             // construct full source-side pathnames.  Eventually these go
             // to process_stat_buffer(), where they are converted to
@@ -1846,7 +1881,6 @@ void worker_readdir(int         rank,
 
 
             if (makedir == 1) {
-                //get_output_path(mkdir_node, base_path, &work_node, dest_node, o);
                 get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o);
 
                 ////#ifdef PLFS
@@ -1864,7 +1898,7 @@ void worker_readdir(int         rank,
                 ////                }
                 ////#endif
                 PathPtr p_dir(PathFactory::create_shallow(&mkdir_node));
-                if (! p_dir->mkdir(S_IRWXU)
+                if (! p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO))
                     && (p_dir->get_errno() != EEXIST)) {
                     errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n", 
                                 p_dir->class_name().get(), p_dir->path());
@@ -2023,28 +2057,6 @@ void worker_readdir(int         rank,
             }
         }
 
-
-
-        //we were provided a file list
-        //
-        // NOTE: We'll just assume the file-list is stored on a POSIX
-        //       filesys, so we don't have to add fgets() methods to all
-        //       the PATH subclasses.
-        else {
-            fp = fopen(work_node.path, "r");
-            while (fgets(work_node.path, PATHSIZE_PLUS, fp) != NULL) {
-                size_t path_len = strlen(work_node.path);
-                if (work_node.path[path_len -1] == '\n') {
-                    work_node.path[path_len -1] = '\0';
-                }
-                workbuffer[buffer_count] = work_node;
-                buffer_count++;
-                if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-                    process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
-                }
-            }
-            fclose(fp);
-        }
     }
     // process any remaining partially-filled workbuffer contents
     while(buffer_count != 0) {
@@ -2159,6 +2171,7 @@ void process_stat_buffer(path_item*      path_buffer,
     int         write_count = 0;
     int         num_examined_files = 0;
     size_t      num_examined_bytes = 0;
+    size_t      num_finished_bytes = 0;
     int         num_examined_dirs = 0;
     char        errmsg[MESSAGESIZE];
     char        statrecord[MESSAGESIZE];
@@ -2341,8 +2354,11 @@ void process_stat_buffer(path_item*      path_buffer,
                     // that are "different" from the corresponding
                     // dest-files.
                     if ((o.different == 1)
-                        && samefile(p_work, p_out, o))
+                        && samefile(p_work, p_out, o)) {
                         process = 0; // source/dest are the same, so skip
+
+                        num_finished_bytes += work_node.st.st_size;
+                    }
 
                     // if someone truncated the destination to zero
                     // (i.e. the only way a zero-size file could have CTM),
@@ -2658,6 +2674,9 @@ void process_stat_buffer(path_item*      path_buffer,
                                         num_bytes_seen = 0;
                                     }
                                 } // end send test
+                                else {
+                                    num_finished_bytes += work_node.chksz;
+                                }
 #ifdef TAPE
                             }
 #endif
@@ -2751,11 +2770,11 @@ void process_stat_buffer(path_item*      path_buffer,
 
 
     //incase we tried to copy a file into itself
-    if (write_count && o.verbose >= 1) {
+    if (0 < write_count && o.verbose >= 1) {
         writesize = MESSAGESIZE * write_count;
         writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
         if (! writebuf) {
-            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf\n", writesize);
+            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf, write_count: %d\n", writesize, write_count);
         }
         write_buffer_output(writebuf, writesize, write_count);
     }
@@ -2772,7 +2791,7 @@ void process_stat_buffer(path_item*      path_buffer,
     }
     send_manager_tape_stats(num_examined_tapes, num_examined_tape_bytes);
 #endif
-    send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs);
+    send_manager_examined_stats(num_examined_files, num_examined_bytes, num_examined_dirs, num_finished_bytes);
 
     //free malloc buffers
     free(writebuf);

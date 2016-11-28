@@ -10,6 +10,7 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="list directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-i", dest="input_list", help="input file list")
+  parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -26,6 +27,10 @@ def main():
     l = config.get("environment", "logging")
   except:
     parser.error("please specify whether logging should be enabled (e.g. logging: True)")
+
+  if options.exclude is not None:
+      commands.add("-e")
+      commands.add(parser.values.exclude)
 
   if l.lower() == "true":
     logging = True
@@ -45,7 +50,7 @@ def main():
 #    print "src before = %s"%(src)
     src_full = []
     for i in src:
-      src_full.append(os.path.abspath(i))
+      src_full.append(os.path.realpath(i))
     src_fixed = []
     for i in src_full:
       if i.find("/var/lib/perceus/vnfs") != "-1":

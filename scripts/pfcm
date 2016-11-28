@@ -10,6 +10,7 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
+  parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -40,6 +41,11 @@ def main():
 
   if options.verbose:
     commands.add("-v")
+
+  if options.exclude is not None:
+      commands.add("-e")
+      commands.add(parser.values.exclude)
+
 
   base_name = os.path.dirname(src[0])
   if options.recurse:
@@ -92,8 +98,8 @@ def main():
   src_full = []
   dest_full = []
   for i in src:
-      src_full.append(os.path.abspath(i))
-  dest_full.append(os.path.abspath(dest))
+      src_full.append(os.path.realpath(i))
+  dest_full.append(os.path.realpath(dest))
 
   src_fixed = []
   dest_fixed = []
