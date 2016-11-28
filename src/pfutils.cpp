@@ -81,6 +81,42 @@ void usage () {
     return;
 }
 
+/**
+* Returns the PFTOOL internal command in string format.
+* See pfutils.h for the list of commands.
+*
+* @param cmdidx		the command (or command type)
+*
+* @return a string representation of the command
+*/
+const char *cmd2str(OpCode cmdidx) {
+	static const char *CMDSTR[] = {
+			 "EXITCMD"
+			,"UPDCHUNKCMD"
+			,"OUTCMD"
+			,"BUFFEROUTCMD"
+			,"LOGCMD"
+			,"QUEUESIZECMD"
+			,"STATCMD"
+			,"COMPARECMD"
+			,"COPYCMD"
+			,"PROCESSCMD"
+			,"INPUTCMD"
+			,"DIRCMD"
+#ifdef TAPE
+			,"TAPECMD"
+			,"TAPESTATCMD"
+#endif
+			,"WORKDONECMD"
+			,"NONFATALINCCMD"
+			,"CHUNKBUSYCMD"
+			,"COPYSTATSCMD"
+			,"EXAMINEDSTATSCMD"
+				};
+
+	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+}
+
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
 char *printmode (mode_t aflag, char *buf) {
 
@@ -601,11 +637,10 @@ int one_byte_read(const char *path) {
 //take a src, dest, offset and length. Copy the file and return >=0 on
 //success, -1 on failure.  [0 means copy succeeded, 1 means a "deemed"
 //success.]
-int copy_file(path_item*    src_file,
-              path_item*    dest_file,
+int copy_file(PathPtr       p_src,
+              PathPtr       p_dest,
               size_t        blocksize,
               int           rank,
-              SyndataBufPtr synbuf,
               struct options& o)
 {
     //MPI_Status status;
@@ -623,10 +658,10 @@ int copy_file(path_item*    src_file,
     ////    int         dest_fd = -1;
     //    off_t       offset = src_file->offset;
     //    size_t      length = src_file->length;
-    off_t offset = (src_file->chkidx * src_file->chksz);
-    off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
-                    ? (src_file->st.st_size - offset)
-                    : src_file->chksz);
+    off_t offset = (p_src->node().chkidx * p_src->node().chksz);
+    off_t length = (((offset + p_src->node().chksz) > p_src->size())
+                    ? (p_src->size() - offset)
+                    : p_src->node().chksz);
 
     ////#ifdef PLFS
     ////    int         pid = getpid();
@@ -641,9 +676,6 @@ int copy_file(path_item*    src_file,
     char        link_path[PATHSIZE_PLUS];
     int         numchars;
 
-    PathPtr p_src( PathFactory::create_shallow(src_file));
-    PathPtr p_dest(PathFactory::create_shallow(dest_file));
-
     // If source is a link, create similar link on the destination-side.
     //can't be const for MPI_IO
     //
@@ -651,18 +683,16 @@ int copy_file(path_item*    src_file,
     //       system.  So we can just readlink(), to get the link-target.
     //       But the destination could be anything, so we need a
     //       Path::symlink() to implement that.
-    if (S_ISLNK(src_file->st.st_mode)) {
+    if (p_src->is_link()) {
 
         // <link_path> = name of link-destination
         numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
-            sprintf(errormsg, "Failed to read link %s", src_file->path);
-            errsend(NONFATAL, errormsg);
+	    errsend_fmt(NONFATAL, "Failed to read link %s", p_src->path());
             return -1;
         }
         else if (numchars >= PATHSIZE_PLUS) {
-            sprintf(errormsg, "readlink %s, not enough room for '\\0'", src_file->path);
-            errsend(NONFATAL, errormsg);
+            errsend_fmt(NONFATAL, "readlink %s, not enough room for '\\0'", p_src->path());
             return -1;
         }
         link_path[numchars] = '\0';
@@ -671,12 +701,11 @@ int copy_file(path_item*    src_file,
         ////        rc = symlink(link_path, dest_file->path);
         ////        if (rc < 0)
         if (! p_dest->symlink(link_path)) {
-           sprintf(errormsg, "Failed to create symlink %s -> %s", dest_file->path, link_path);
-           errsend(NONFATAL, errormsg);
+           errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s", p_dest->path(), link_path);
            return -1;
         }
 
-        if (update_stats(src_file, dest_file, o) != 0) {
+        if (update_stats(p_src, p_dest, o) != 0) {
             return -1;
         }
         return 0;
@@ -703,9 +732,9 @@ int copy_file(path_item*    src_file,
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
 
 
-#ifdef GEN_SYNDATA
-    if (!syndataExists(synbuf)) {
-#endif
+//#ifdef GEN_SYNDATA
+//    if (!syndataExists(synbuf)) {
+//#endif
 
         ////#ifdef PLFS
         ////        if (src_file->ftype == PLFSFILE){
@@ -722,35 +751,37 @@ int copy_file(path_item*    src_file,
         ////            errsend(NONFATAL, errormsg);
         ////            return -1;
         ////        }
-       if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset, length)) {
-           errsend_fmt(NONFATAL, "Failed to open file %s for read\n", p_src->path());
+//int m = p_src->mode();
+//if (! p_src->open(O_RDONLY, m)) {
+       if (! p_src->open(O_RDONLY, p_src->mode())) {
+           errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
            if (buf)
               free(buf);
            return -1;
         }
 
-#ifdef GEN_SYNDATA
-    }
-#endif
+//#ifdef GEN_SYNDATA
+//    }
+//#endif
     PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk "
                    "index %d. offset = %ld   length = %ld   blocksize = %ld\n",
-                   rank, src_file.chkidx, offset, length, blocksize);
+                   rank, p_src->node().chkidx, offset, length, blocksize);
     // OPEN destination for writing
     //
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
 
     // create appropriate flags
-    if ((src_file->st.st_size <= length) || (dest_file->fstype != PAN_FS)) {
+    if ((p_src->size() <= length) || (p_dest->node().fstype != PAN_FS)) {
        // no chunking or not writing to PANFS - cds 6/2014
        flags = O_WRONLY | O_CREAT;
        PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT",
-                       dest_file->fstype_to_str());
+                       p_dest->fstype_to_str());
     }
     else {
        // Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
        PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE",
-                       dest_file->fstype_to_str());
+                       p_dest->fstype_to_str());
     }
 
     // do the open
@@ -779,7 +810,7 @@ int copy_file(path_item*    src_file,
     //sleep((rank % 2) * 2);
 
     // give destination the same mode as src, (access-bits only)
-    mode_t dest_mode = src_file->st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO);
+    mode_t dest_mode = p_src->mode() & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO);
     if (! p_dest->open(flags, dest_mode, offset, length)) {
        errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
@@ -811,22 +842,22 @@ int copy_file(path_item*    src_file,
         //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
 
         PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
-                       rank, bytes_processed, dest_file.path);
-#ifdef GEN_SYNDATA
-        if (syndataExists(synbuf)) {
-           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
-
-           // Fill the buffer each time with new random data.
-           // -- I like my synthetic data random - cds 8/2016
-           if(rc = syndataFill(synbuf,buf,buflen)) {
-              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
-              errsend(NONFATAL, errormsg);
-              err = 1; break;  // return -1
-           }
-           bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
-        }
-        else {
-#endif
+                       rank, bytes_processed, p_dest->path());
+//#ifdef GEN_SYNDATA
+//        if (syndataExists(synbuf)) {
+//           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
+//
+//           // Fill the buffer each time with new random data.
+//           // -- I like my synthetic data random - cds 8/2016
+//           if(rc = syndataFill(synbuf,buf,buflen)) {
+//              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
+//              errsend(NONFATAL, errormsg);
+//             err = 1; break;  // return -1
+//           }
+//           bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
+//        }
+//        else {
+//#endif
 
            ////#ifdef PLFS
            ////           if (src_file->ftype == PLFSFILE) {
@@ -873,7 +904,7 @@ int copy_file(path_item*    src_file,
                  // err = 1;
               }
 
-              if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset+completed, length-completed)) {
+              if (! p_src->open(O_RDONLY, p_src->mode(), offset+completed, length-completed)) {
                  errsend_fmt(NONFATAL, "(RETRY) Failed to open %s for read, off %lu+%lu\n",
                              p_src->path(), offset, completed);
                  if (buf)
@@ -891,15 +922,14 @@ int copy_file(path_item*    src_file,
            // END of EXPERIMENT
 
 
-#ifdef GEN_SYNDATA
-        }
-#endif
+//#ifdef GEN_SYNDATA
+//        }
+//#endif
 
 
         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %ld bytes instead of %zd (%s)",
-                    src_file->path, bytes_processed, blocksize, p_src->strerror());
-            errsend(NONFATAL, errormsg);
+            errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd (%s)",
+                    p_src->path(), bytes_processed, blocksize, p_src->strerror());
             err = 1; break;  // return -1
         }
 
@@ -999,7 +1029,7 @@ int copy_file(path_item*    src_file,
         }
         else if (bytes_processed != blocksize) {
            errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd (%s)\n",
-                       dest_file->path, offset, bytes_processed, blocksize, p_dest->strerror());
+                       p_dest->path(), offset, bytes_processed, blocksize, p_dest->strerror());
            err = 1; break;  // return -1;
         }
         completed += blocksize;
@@ -1008,9 +1038,9 @@ int copy_file(path_item*    src_file,
 
     // CLOSE source and destination
 
-#ifdef GEN_SYNDATA
-    if(!syndataExists(synbuf)) {
-#endif
+//#ifdef GEN_SYNDATA
+//    if(!syndataExists(synbuf)) {
+//#endif
 
        ////#ifdef PLFS
        ////       if (src_file->ftype == PLFSFILE) {
@@ -1038,9 +1068,9 @@ int copy_file(path_item*    src_file,
           // err = 1;
        }
 
-#ifdef GEN_SYNDATA
-    }
-#endif
+//#ifdef GEN_SYNDATA
+//    }
+//#endif
 
 
 
@@ -1075,10 +1105,10 @@ int copy_file(path_item*    src_file,
     if (err)
        return -1;
 
-    if (offset == 0 && length == src_file->st.st_size) {
+    if (offset == 0 && length == p_src->size()) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
-                       rank, dest_file.path);
-        if (update_stats(src_file, dest_file, o)) {
+                       rank, p_dest->path());
+        if (update_stats(p_src, p_dest, o)) {
             return -1;
         }
     }
@@ -1275,8 +1305,8 @@ int compare_file(path_item*      src_file,
 
 // make <dest_file> have the same meta-data as <src_file>
 // We assume that <src_file>.dest_ftype applies to <dest_file>
-int update_stats(path_item*      src_file,
-                 path_item*      dest_file,
+int update_stats(PathPtr      p_src,
+                 PathPtr      p_dst,
                  struct options& o) {
 
     int            rc;
@@ -1289,8 +1319,8 @@ int update_stats(path_item*      src_file,
 
     // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
     // NOTE: Path::follow() is false, by default
-    path_item  dest_copy(*dest_file);
-    dest_copy.ftype = src_file->dest_ftype;
+    path_item  dest_copy(p_dst->node());
+    dest_copy.ftype = p_src->dest_ftype();
     PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
 
     // if running as root, always update <dest_file> owner  (without following links)
@@ -1312,7 +1342,7 @@ int update_stats(path_item*      src_file,
     ////        errsend(NONFATAL, errormsg);
     ////    }
     if (0 == geteuid() || o.preserve) {
-       if (! p_dest->lchown(src_file->st.st_uid, src_file->st.st_gid)) {
+       if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
           errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
                       p_dest->path(), p_dest->strerror());
        }
@@ -1320,7 +1350,7 @@ int update_stats(path_item*      src_file,
 
 
     // ignore symlink destinations
-    if (S_ISLNK(src_file->st.st_mode))
+    if (p_src->is_link())
         return 0;
 
 
@@ -1334,7 +1364,7 @@ int update_stats(path_item*      src_file,
        ////                    dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
        ////            errsend(NONFATAL, errormsg);
        ////        }
-       if (! p_dest->lchown(src_file->st.st_uid, src_file->st.st_gid)) {
+       if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
           errsend_fmt(NONFATAL, "update_stats -- Failed to chown fuse chunked file %s: %s\n",
                       p_dest->path(), p_dest->strerror());
        }
@@ -1344,7 +1374,7 @@ int update_stats(path_item*      src_file,
 
 
     // update <dest_file> access-permissions
-    mode = src_file->st.st_mode & 07777;
+    mode = p_src->mode() & 07777;
     ////#ifdef PLFS
     ////    if (src_file->dest_ftype == PLFSFILE){
     ////        rc = plfs_chmod(dest_file->path, mode);
@@ -1365,7 +1395,7 @@ int update_stats(path_item*      src_file,
     }
 
     // perform any final adjustments on destination, before we set atime/mtime
-    PathPtr p_src(PathFactory::create_shallow(src_file));
+//    PathPtr p_src(PathFactory::create_shallow(src_file));
     p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
@@ -1385,6 +1415,7 @@ int update_stats(path_item*      src_file,
     ////        errsend(NONFATAL, errormsg);
     ////    }
     struct timespec times[2];
+
     times[0].tv_sec  = p_src->st().st_atim.tv_sec;
     times[0].tv_nsec = p_src->st().st_atim.tv_nsec;
 
@@ -1417,9 +1448,13 @@ int request_input_queuesize() {
 }
 
 void send_command(int target_rank, int type_cmd) {
-    //Tell a rank it's time to begin processing
-    PRINT_MPI_DEBUG("target rank %d: Sending command %d to target rank %d\n", target_rank, type_cmd, target_rank);
-    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+#ifdef MPI_DEBUG
+    int rank;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    PRINT_MPI_DEBUG("rank %d: Sending command %d to target rank %d\n", rank, type_cmd, target_rank);
+#endif
+    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {//Tell a rank it's time to begin processing
         fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
@@ -1917,6 +1952,20 @@ int stat_item(path_item *work_node, struct options& o) {
 #endif
 
 
+#ifdef GEN_SYNDATA
+    // --- is it a Synthetic Data path?
+    if (! got_type) {
+        if (o.syn_size && isSyndataPath(work_node->path)) { 
+	   int dlvl;					// directory level, if a directory. Currently ignored.
+	   if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
+	       return -1;				// syndataSetAttr() returns non-zero on failure
+	   work_node->ftype = SYNDATA;
+           got_type = true;
+        }
+    }
+#endif
+
+
     // --- is it '/dev/null' or '/dev/null/[...]'?
     if (! got_type) {
        if ( (! strncmp(work_node->path, "/dev/null", 9)) ) {
@@ -1956,11 +2005,6 @@ int stat_item(path_item *work_node, struct options& o) {
             return -1;
     }
 
-
-#ifdef GEN_SYNDATA
-    if (o.syn_size) // We are generating synthetic data, and NOT copying data in file. Need to muck with the file size
-        st.st_size = o.syn_size;
-#endif
 
 
     work_node->st = st;
@@ -2118,6 +2162,10 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
        }
        else if (p->node().ftype == S3FILE) {
           *fs = S3FS;
+          return;
+       }
+       else if (p->node().ftype == SYNDATA) {
+          *fs = SYNDATAFS;
           return;
        }
        else if (p->node().ftype == PLFSFILE) {

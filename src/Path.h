@@ -541,7 +541,7 @@ protected:
             memset(&_item->st, 0, sizeof(struct stat));
 #endif
             if (err_on_failure) {
-               errsend_fmt(NONFATAL, "Failed to stat path %s", _item->path);
+               errsend_fmt(NONFATAL, "Failed to stat path %s\n", _item->path);
             }
          }
       }
@@ -682,6 +682,7 @@ public:
 
    virtual time_t  ctime()    { do_stat(); return _item->st.st_ctime; }
    virtual time_t  mtime()    { do_stat(); return _item->st.st_mtime; }
+   virtual mode_t  mode()     { do_stat(); return _item->st.st_mode; }
    virtual size_t  size()     { do_stat(); return _item->st.st_size; }
 
    virtual bool    is_open()  {            return  (_flags & (IS_OPEN | IS_OPEN_DIR)); }
@@ -816,25 +817,29 @@ protected:
 
    friend class Pool<SyntheticDataSource>;
 
-   struct options*   _o;
-   int               _rank;
-   SyndataBufPtr     _synbuf;
+   struct options*   _o;			// options structure - TBD: should probably only pass necessary options for synthetic data, notthe whole structure
+   int               _rank;			// seed for random data - TBD: rework, or remove altogether
+   SyndataBufPtr     _synbuf;			// buffer of synthetic data to be read from
+   SyndataTreeSpec*   _spec;			// synthetic directoy specification (used by directory operations)
+   int		     _dlvl;			// current synthetic directory level (used by directory operations)
+   int		     _dnum;			// current synthetic directory number (used by directory operations)
+   int		     _fnum;			// current synthetic file number (used by directory operations)
    
 
    virtual bool do_stat_internal() {
-      if (_o->syn_size) {
-         // We are generating synthetic data, and NOT copying data in
-         // file. Need to muck with the file size
-         _item->st.st_size = _o->syn_size;
-      }
-      return true;
+			// syndataSetAttr() returns non-zero on failure
+      return(!syndataSetAttr(_item->path,&(_item->st),&_dlvl,_o->syn_size));
    }
 
    SyntheticDataSource()
       : Path(),
         _o(NULL),
         _rank(-1),
-        _synbuf(NULL) {
+        _synbuf(NULL),
+	_spec(NULL),
+	_dlvl(-1),							// if _dlvl < 0 -> not in a directory
+	_dnum(0),
+	_fnum(0) {
 
       strncpy(_item->path, "SyntheticDataSource", PATHSIZE_PLUS);
    }
@@ -847,6 +852,14 @@ protected:
    virtual void factory_install_list(int count, va_list list) {
       _o    = va_arg(list, struct options *);
       _rank = va_arg(list, int);
+      _dlvl = va_arg(list, int);
+   }
+
+   virtual bool initialize_buffer() {
+      if (!syndataExists(_synbuf))
+         _synbuf = syndataCreateBufferWithSize(((_o->syn_pattern[0]) ? _o->syn_pattern : NULL),
+                                               ((_o->syn_size >= 0)  ? _o->syn_size : -_rank));
+      return(_synbuf != NULL);
    }
 
 public:
@@ -863,56 +876,103 @@ public:
    virtual bool    utime(const struct utimbuf* ut)       { NO_IMPL(utime); }
    virtual bool    utimensat(const struct timespec times[2], int flags) { NO_IMPL(utimensat); }
 
-   virtual bool    access(int mode)               { NO_IMPL(access); }
-   virtual bool    faccessat(int mode, int flags) { NO_IMPL(faccessat); }
+   virtual bool    access(int mode)               { return(1); }	// Always successful
+   virtual bool    faccessat(int mode, int flags) { access(mode); }	
 
-   // TBD: assure we are only being opened for READ
-   virtual bool    open(int flags, mode_t mode) {
-      _synbuf = syndataCreateBufferWithSize(((_o->syn_pattern[0]) ? _o->syn_pattern : NULL),
-                                            ((_o->syn_size >= 0)  ? _o->syn_size : -_rank));
-      if (! _synbuf) {
-         errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", _rank);
-         unset(IS_OPEN);
+   virtual bool open(int flags, mode_t mode) {
+      if (flags == O_RDONLY) {
+         if (!initialize_buffer()) {
+	    _errno = EFAULT;				// errors encountered when allocating/initializing _synbuf
+            errsend_fmt(FATAL, "Rank %d: Synthetic-data buffer is not allocated and does not exist!\n", _rank);
+            unset(IS_OPEN);
+         }
+         else
+            set(IS_OPEN);
       }
       else
-         set(IS_OPEN);
+         _errno = EACCES;				// invalid flags specified
 
       return is_open();
    }
-   virtual bool    close() {
-      syndataDestroyBuffer(_synbuf);
+
+   virtual bool close() {
       unset(IS_OPEN);
+      _synbuf = syndataDestroyBuffer(_synbuf);		// clean up the data buffer ...
       return true;
    }
-
-
 
    // read/write to/from caller's buffer
    virtual ssize_t read(char* buf, size_t count, off_t offset) {
       int rc = syndataFill(_synbuf, buf, count);
+
       if (rc) {
          errsend_fmt(NONFATAL, "Failed to copy from synthetic data buffer. err = %d", rc);
-         return 0;
+	 errno = _errno = EIO;				// could not fill buffer
+         return -1;
       }
+      _item->st.st_atim.tv_sec = time((time_t *)NULL);	// set access time
+      _item->st.st_atim.tv_nsec = 0;
       return count;
    }
 
+   // we are only a source, not a sink
+   virtual ssize_t write(char* buf, size_t count, off_t offset) { NO_IMPL(write); }
 
-   virtual ssize_t write(char* buf, size_t count, off_t offset) {
-      NO_IMPL(read);            // we are only a source, not a sink
+   virtual bool opendir() {
+      if (!(_spec = syndataGetTreeSpec(_item->path))) {
+         unset(IS_OPEN_DIR);
+	 _errno = ENOENT;				// invalid directory specification
+      }
+      else if (!_spec->max_level) {
+	 unset(IS_OPEN_DIR);
+	 _errno = ENOTDIR;				// directory specification implies no directory
+      }
+      else {
+	if (_dlvl < 0)					// initialize current level - if needed
+	   _dlvl = syndataGetDirLevel(_item->path);
+        _dnum = _fnum = 0; 				// initialize directory and file counters
+	set(IS_OPEN_DIR);
+      }
+
+      return is_open();
    }
 
+   virtual bool closedir() {
+      unset(IS_OPEN_DIR);
+      if(_spec) free(_spec);				// deallocate directory specification upon closing - if ncessary
+      return true;
+   }
 
+   virtual bool readdir(char* path, size_t size) {
+      int nxtlvl = _dlvl+1;
+      char nbuf[PATHSIZE_PLUS];				// a buffer to construct a directory entry
 
+      if (_dlvl > _spec->max_level) {			// if current level is > max level, something is very wrong!
+	  _errno = EBADF;				
+	  return(false);				// we are done reading this directory
+      }
+							// if next level < max level -> not at leaf directory. Generate 
+							// directories if needed
+      if (nxtlvl < _spec->max_level && _dnum < _spec->max_dirs)
+	  sprintf(nbuf,SYN_DIR_FMT,nxtlvl,_dnum++);	// generate directory name and increment directory number
+							// if current level >= the level to start files, then do so
+      else if (_dlvl >= _spec->start_files && _fnum < _spec->max_files)
+	  sprintf(nbuf,SYN_FILE_FMT,_fnum++,_o->syn_suffix);	// generate file name and increment file number
+      else
+	  nbuf[0] = '\0';				// Nothing to generate? set to the empty string
 
+      if (strlen(nbuf) > size) {
+	 _errno = EINVAL;				// Cannot fit entry into buffer provided
+	 return(false);
+      }
+      strncpy(path,nbuf,size);				// copy the buffer to te path entry ...
+      return(true);
+   }
 
-   virtual bool    opendir()             { NO_IMPL(opendir); }
-   virtual bool    closedir()            { NO_IMPL(closedir); }
-   virtual bool    readdir(char* path, size_t) { NO_IMPL(readdir); }
    virtual bool    mkdir(mode_t mode)    { NO_IMPL(mkdir); }
 
-   virtual bool    remove()              { return true; }
-   virtual bool    unlink()              { return true; }
+   virtual bool    remove()              { return close(); }
+   virtual bool    unlink()              { return remove(); }
 };
 
 #endif
@@ -986,6 +1046,7 @@ public:
    virtual bool identical(Path* p) { 
       POSIX_Path* p2 = dynamic_cast<POSIX_Path*>(p);
       return (p2 &&
+	      p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -1237,7 +1298,8 @@ public:
    //   virtual bool operator==(NULL_Path& p) { return (st().st_ino == p.st().st_ino); }
    virtual bool identical(Path* p) { 
       NULL_Path* p2 = dynamic_cast<NULL_Path*>(p);
-      return (p2 &&
+      return (p2 && 
+	      p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -2198,6 +2260,7 @@ public:
    virtual bool identical(Path* p) {
       MARFS_Path* p2 = dynamic_cast<MARFS_Path*>(p);
       return (p2 &&
+	      p2->exist() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -2985,7 +3048,7 @@ public:
 #if GEN_SYNDATA
       case SYNDATA:
          p = Pool<SyntheticDataSource>::get();
-         p->factory_install(1, _opts, _rank);
+         p->factory_install(1, _opts, _rank, -1);
          break;
 #endif
 

@@ -135,11 +135,12 @@ enum SrcDstFSType {
    PANASASFS  = 1,   // everything after here supports N:1 (see PARALLEL_DESTFS)
    GPFSFS     = 2,
    NULLFS     = 3,
-   FUSEFS     = 4,
+   SYNDATAFS  = 4,
+   FUSEFS     = 5,
 
-   S3FS       = 5,   // everything after here is REST-ful (see REST_FS)
-   PLFSFS     = 6,
-   MARFSFS    = 7
+   S3FS       = 6,   // everything after here is REST-ful (see REST_FS)
+   PLFSFS     = 7,
+   MARFSFS    = 8
 };
 #define PARALLEL_DESTFS  PANASASFS /* beginning of SrcDstFSTypes supporting N:1 writes */
 #define REST_FS          S3FS      /* beginning of SrcDstFSTypes that are RESTful */
@@ -176,6 +177,7 @@ enum cmd_opcode {
     COPYSTATSCMD,
     EXAMINEDSTATSCMD
 };
+typedef enum cmd_opcode OpCode;
 
 
 //for our MPI communications
@@ -204,9 +206,9 @@ enum FileType {
    MIGRATEFILE,                 // for TAPE
    PLFSFILE,
    S3FILE,
-   SYNDATA,                     // synthetic data (no file)
    MARFSFILE,
 
+   SYNDATA,                     // synthetic data (no file - in memory read)
    NULLFILE,
    NULLDIR                      // no-cost writes
 };
@@ -223,11 +225,11 @@ enum FSType {
 //Structs and typedefs
 //options{
 struct options {
-    int     verbose;            // each '-v' increases verbosity
-    int     debug;           // each '-g' increases diagnostic-level
+    int     verbose;            				// each '-v' increases verbosity
+    int     debug;           					// each '-g' increases diagnostic-level
     int     recurse;
     int     logging;
-    FSType  dest_fstype;			// specifies the FS type of the destination
+    FSType  dest_fstype;					// specifies the FS type of the destination
     int     different;
     int     parallel_dest;
     int     work_type;
@@ -235,9 +237,9 @@ struct options {
     size_t  blocksize;
     size_t  chunk_at;
     size_t  chunksize;
-    int     preserve;           // attempt to preserve ownership during copies.
+    int     preserve;           				// attempt to preserve ownership during copies.
 
-    char exclude[PATHSIZE_PLUS]; // pattern/list to exclude
+    char exclude[PATHSIZE_PLUS]; 				// pattern/list to exclude
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
@@ -246,8 +248,9 @@ struct options {
     int     max_readdir_ranks;
 
 #if GEN_SYNDATA
-    char    syn_pattern[128];
-    size_t  syn_size;
+    char    syn_pattern[128];					// a file holding a pattern to be used when generating synthetic data
+    char    syn_suffix[SYN_SUFFIX_MAX];				// holds the suffix for syntheticlly generated files - should be the syn_size as specified by the user
+    size_t  syn_size;						// the size of each syntheticlly generated file
 #endif
 
 #ifdef FUSE_CHUNKER
@@ -321,6 +324,7 @@ typedef struct work_buf_list {
 void  usage();
 char *printmode (mode_t aflag, char *buf);
 void  trim_trailing(int ch, char* str);
+const char *cmd2str(OpCode cmdidx);
 
 //char *get_base_path(const char *path, int wildcard);
 void  get_base_path(char* base_path, const path_item* path, int wildcard);
@@ -340,10 +344,8 @@ int mkpath(char *thePath, mode_t perms);
 //#else
 //int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
 //#endif
-int   copy_file(path_item* src_file, path_item* dest_file, size_t blocksize, int rank, SyndataBufPtr synbuf, struct options& o);
 
 int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only, struct options& o);
-int   update_stats(path_item* src_file, path_item* dest_file, struct options& o);
 
 //dmapi/gpfs specfic
 #ifdef TAPE
@@ -432,6 +434,8 @@ int MPY_Abort(MPI_Comm comm, int errorcode);
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
+int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
+int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
 
 
 #endif

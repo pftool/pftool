@@ -201,8 +201,9 @@ int main(int argc, char *argv[]) {
         o.work_type = LSWORK;   // default op is to do a listing (not printed)
 
 #ifdef GEN_SYNDATA
-        o.syn_pattern[0] = '\0'; // Make sure synthetic data pattern file or name is clear
-        o.syn_size = 0;          // Clear the synthetic data size
+        o.syn_pattern[0] = '\0';	// Make sure synthetic data pattern file or name is clear
+        o.syn_size = 0;			// Clear the synthetic data size
+	o.syn_suffix[0] = '\0';		// Clear the synthetic data suffix
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
@@ -254,7 +255,13 @@ int main(int argc, char *argv[]) {
 
             case 'x':
 #ifdef GEN_SYNDATA
+		int slen;
+
                 o.syn_size = str2Size(optarg);
+		strncpy(o.syn_suffix,optarg,SYN_SUFFIX_MAX-2);			// two less, so that we can add a 'b' if needed
+		if (isdigit(o.syn_suffix[(slen=strlen(o.syn_suffix))-1])) {	// if last character is a digit -> add a 'b' for bytes
+		    o.syn_suffix[slen] = 'b'; o.syn_suffix[slen+1] = '\0';
+		}
 #else
                 errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
 #endif
@@ -412,6 +419,7 @@ int main(int argc, char *argv[]) {
 
 #ifdef GEN_SYNDATA
     MPI_Bcast(o.syn_pattern, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(o.syn_suffix, SYN_SUFFIX_MAX, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.syn_size, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #endif
 
@@ -945,7 +953,7 @@ int manager(int             rank,
             }
             sending_rank = status.MPI_SOURCE;
             PRINT_MPI_DEBUG("rank %d: manager() Receiving the command %s from rank %d\n",
-                            rank, cmd2str(type_cmd), sending_rank);
+                            rank, cmd2str((OpCode)type_cmd), sending_rank);
             //do operations based on the message
             switch(type_cmd) {
             case WORKDONECMD:
@@ -1397,7 +1405,7 @@ void worker(int rank, struct options& o) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n", rank, cmd2str(type_cmd), sending_rank);
+        PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n", rank, cmd2str((OpCode)type_cmd), sending_rank);
         //do operations based on the message
         switch(type_cmd) {
             case OUTCMD:
@@ -1599,7 +1607,10 @@ void worker_update_chunk(int            rank,
                            rank, out_node.chkidx, out_node.path);
             hash_value = hashtbl_remove(*chunk_hash, out_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
-            update_stats(&work_node, &out_node, o);
+
+	    PathPtr p_work(PathFactory::create_shallow(&work_node));
+	    PathPtr p_out(PathFactory::create_shallow(&out_node));
+            update_stats(p_work, p_out, o);
         }
     }
     free(workbuf);
@@ -1829,8 +1840,8 @@ void worker_readdir(int         rank,
             ////            }
             ////#endif
             if (! p_work->opendir()) {
-                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s\n", 
-                            p_work->class_name().get(), p_work->path());
+                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s [%s]\n", 
+                            p_work->class_name().get(), p_work->path(),p_work->strerror());
             }
 
 
@@ -2007,8 +2018,8 @@ void worker_readdir(int         rank,
 
             // done with 
             if (! p_work->closedir()) {
-                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s\n", 
-                        p_work->class_name().get(), p_work->path());
+                errsend_fmt(NONFATAL, "Failed to close (%s) dir %s [%s]\n", 
+                        p_work->class_name().get(), p_work->path(),p_work->strerror());
             }
         }
 
@@ -2250,7 +2261,6 @@ void process_stat_buffer(path_item*      path_buffer,
 
         PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
                        rank, i, work_node.path);
-
         // Are these items *identical* ? (e.g. same POSIX inode)
         // We will not have a dest in list so we will not check
         if (o.work_type != LSWORK && p_work->identical(p_dest)) {
@@ -2857,7 +2867,7 @@ void worker_copylist(int             rank,
     MPI_Status     status;
     char*          workbuf;
     char*          writebuf;
-    SyndataBufPtr  synbuf = NULL;
+//    SyndataBufPtr  synbuf = NULL;
     int            worksize;
     int            writesize;
     int            position;
@@ -2911,15 +2921,15 @@ void worker_copylist(int             rank,
         errsend(FATAL, "Failed to receive workbuf\n");
     }
 
-#ifdef GEN_SYNDATA
-    if(o.syn_size) {
+//#ifdef GEN_SYNDATA
+//    if(o.syn_size) {
         // If no pattern id is given -> use rank as a seed for random data
-        synbuf = syndataCreateBufferWithSize((o.syn_pattern[0] ? o.syn_pattern : NULL),
-                                             ((o.syn_size >= 0) ? o.syn_size : -rank));
-        if (! synbuf)
-            errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
-    }
-#endif
+//        synbuf = syndataCreateBufferWithSize((o.syn_pattern[0] ? o.syn_pattern : NULL),
+//                                             ((o.syn_size >= 0) ? o.syn_size : -rank));
+//        if (! synbuf)
+//           errsend_fmt(FATAL, "Rank %d: Failed to allocate synthetic-data buffer\n", rank);
+//   }
+//#endif
 
     position = 0;
     out_position = 0;
@@ -2938,11 +2948,14 @@ void worker_copylist(int             rank,
 
         get_output_path(&out_node, base_path, &work_node, dest_node, o);
         out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
+	// Need Path objects for the copy_file at this point ...
+	PathPtr p_work( PathFactory::create_shallow(&work_node));
+	PathPtr p_out(PathFactory::create_shallow(&out_node));
 
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
 #endif
-            rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf, o);
+            rc = copy_file(p_work, p_out, o.blocksize, rank, o);
 
 #ifdef FUSE_CHUNKER
         }
@@ -2958,7 +2971,7 @@ void worker_copylist(int             rank,
                  || chunk_ut.actime != ut.actime
                  || chunk_ut.modtime != ut.modtime) { //not a match
 
-                rc = copy_file(&work_node, &out_node, o.blocksize, rank, synbuf, o);
+                rc = copy_file(p_work, p_out, o.blocksize, rank, o);
                 set_fuse_chunk_attr(out_node.path, offset, length, ut, userid, groupid);
             }
             else
@@ -2992,6 +3005,9 @@ void worker_copylist(int             rank,
                 buffer_count++;
             }
         }
+//    	// If a sythetic data source was passed in, we are done with it now -> remove it.
+//   	if (work_node.ftype == SYNDATA ) 
+//	    p_work->unlink();
     }
     /*if (o.verbose > 1) {
       write_buffer_output(writebuf, writesize, read_count);
@@ -3010,9 +3026,9 @@ void worker_copylist(int             rank,
    }
 #endif
     send_manager_work_done(rank);
-#ifdef GEN_SYNDATA
-    syndataDestroyBuffer(synbuf);
-#endif
+//#ifdef GEN_SYNDATA
+//    syndataDestroyBuffer(synbuf);
+//#endif
     free(workbuf);
     free(writebuf);
 }

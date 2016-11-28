@@ -10,6 +10,7 @@ def main():
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
+  parser.add_option("-g", dest="debug", default=None, action="store_true", help="development only. Allows for gdb to attach")
   parser.add_option("-x", dest="synSize", default=None, metavar="SIZE", help="development only. Option may be used for future feature")
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
   
@@ -46,6 +47,8 @@ def main():
   if options.synPattern is not None:		# add synthetic pattern to PFTOOL command line
     commands.add("-X")
     commands.add(parser.values.synPattern)
+  if options.debug is not None:			# add debug flag to PFTOOL command line
+    commands.add("-g")
 
   base_name = os.path.dirname(src[0])
   if options.recurse:				# add recursive flag to PFTOOL command line
@@ -144,7 +147,10 @@ def main():
 #  print "dest_fixed after = %s"%(dest_fixed)
 
   commands.add("-c", *dest_fixed)
-  commands.add("-p", *src_fixed)
+  if options.synSize:							# src_fixed has the last '/' shaved off, which is important for synthetic data sources
+     commands.add("-p", *src)
+  else:
+     commands.add("-p", *src_fixed)
 
   threaded = False
   try:
@@ -214,7 +220,8 @@ def main():
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
 
 
-#  print pfcmd.commands							# print the command out used to run PFTOOL
+  if options.debug:
+    print pfcmd.commands						# print the command out used to run PFTOOL
   status = subprocess.call(pfcmd.commands)
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]

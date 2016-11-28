@@ -63,34 +63,6 @@ char *str2md5(const char *str) {
 }
 
 
-//
-// Testing functions
-//
-
-
-
-/**
-* Test a string to see if it has printable characters in it,
-* other than whitespace. If it does, then it is considered
-* NOT blank, and this function returns FALSE. Otherwise
-* TRUE is returned - including if the argument is NULL.
-*
-* @param s	string to test
-*
-* @return FALSE is returned if S has any character between '!' - '~'.
-*	Otherwise TRUE is returned
-*/
-int strIsBlank(char *s)
-{
-   if (!s)
-      return TRUE;
-
-   while (*s && !isgraph(*s))
-      ++s;
-
-   return (*s) ? FALSE : TRUE;
-}
-
 
 /**
 * Converts a string containing human-readable size-specification
@@ -165,6 +137,10 @@ size_t str2Size(char* ss)
 	return (sizeNoUnits);
 }
 
+//
+// Testing functions
+//
+
 /**
 * Test a string to see if it has printable characters in it,
 * other than whitespace. If it does, then it is considered
@@ -175,9 +151,74 @@ size_t str2Size(char* ss)
 *
 * @return FALSE is returned if S has any character between '!' - '~'.
 *	Otherwise TRUE is returned
+int strIsBlank(char *s)
+{
+   if (!s) return TRUE;
+   while (*s && !isgraph(*s)) ++s;
+   return (*s) ? FALSE : TRUE;
+}
+*/
+
+/**
+* Test a string to see if it has printable characters in it,
+* other than whitespace. If it does, then it is considered
+* NOT blank, and this function returns FALSE. Otherwise
+* TRUE is returned - including if the argument is NULL.
+*
+* @param s	string to test
+*
+* @return FALSE is returned if s has any character between '!' - '~'.
+*	Otherwise TRUE is returned
 */
 int strIsBlank(const char *s)
 {
         for ( ; s && !isgraph(*s) && *s!='\0'; s++);
         return (!s || *s=='\0') ? TRUE : FALSE;
 }
+
+/**
+* Test a string to see if the start of it forms prefix.
+* Prefixs are defined in the given prefixes argument,
+* which is a table of strings, terminated by a NULL entry.
+*
+* @param prefixes	a NULL terminated array of strings that are
+* 			defined as "prefixes"
+* @param s		string to test
+*
+* @return TRUE if s starts with any entry in prefixes[]. 
+* 	Otherwise FALSE is returned
+*/
+int strHasPrefix(const char *prefixes[],const char *s)
+{
+	return(strStripPrefix(prefixes,s) != (char *)NULL);	// if we can strip the prefix off -> the prefix exists in the given string
+}
+
+//
+// Parsing Functions
+//
+
+/**
+* This function returns a pointer to the first character in
+* a string that is NOT part of a prefix, as defined by the
+* prefixes argument. In the case of a prefix only string, the 
+* returned pointer will point to '\0'. If there is no defined
+* prefix in the string, then NULL is returned. 
+*
+* @param prefixes	a NULL terminated array of strings that are
+* 			defined as "prefixes"
+* @param s		string to parse
+*
+* @return a non-null pointer into the string that points to the
+* 	character NOT in a prefix. NULL is returned if the string
+* 	does not contain a defined prefix.
+*/
+char *strStripPrefix(const char *prefixes[],const char *s)
+{
+	int j = 0;						// array index
+								// looping through prefix entries. strncmp() tests the beginning of the string.
+	while(prefixes && prefixes[j] && strncmp(s,prefixes[j],strlen(prefixes[j]))) j++;
+								// if table exists and current entry is not NULL, then we found a match -> return 
+								// the first charater past the prefix
+	return((prefixes && prefixes[j])?((char *)(s+strlen(prefixes[j]))):(char*)NULL);
+}
+

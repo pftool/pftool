@@ -15,8 +15,10 @@
 #endif
 
 // Function Declarations
+char *str2md5(const char *str);
 size_t str2Size(char *ss);
 int strIsBlank(const char *s);
-char *str2md5(const char *str);
+int strHasPrefix(const char *prefixes[],const char *s);
+char *strStripPrefix(const char *prefixes[],const char *s);
 
 #endif  // __STR_H
