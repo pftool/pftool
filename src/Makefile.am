@@ -1,30 +1,34 @@
+
 bin_PROGRAMS = $(top_builddir)/bin/pftool
 
+__top_builddir__bin_pftool_SOURCES = \
+debug.h \
+cta.c ctf.c ctm.c ctm.h \
+hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
+str.c str.h \
+pfutils.cpp pfutils.h \
+pftool.cpp pftool.h \
+Path.cpp Path.h
+
 if SYNDATA
-__top_builddir__bin_pftool_SOURCES = \
-debug.h \
-cta.c ctf.c ctm.c ctm.h \
-hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
-str.c str.h \
-syndata.c syndata.h \
-pfutils.cpp pfutils.h \
-pftool.cpp pftool.h \
-Path.cpp Path.h
-
+__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h 
 syndata_cflags=-DGEN_SYNDATA
-
-else
-__top_builddir__bin_pftool_SOURCES = \
-debug.h \
-cta.c ctf.c ctm.c ctm.h \
-hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
-str.c str.h \
-pfutils.cpp pfutils.h \
-pftool.cpp pftool.h \
-Path.cpp Path.h
-
 endif
 
+if HPSS
+#__top_builddir__bin_pftool_SOURCES += hpss.c hpss.h hpsstypes.h
+hpssroot=/opt/hpss
+
+hpss_cflags= \
+     -I$(hpssroot)/include -I$(hpssroot)/tools/unsupported/src/posix_api \
+     -DHPSS -D_LARGE_FILES -D_LARGE_FILE_SUPPORT=1 -D_FILE_OFFSET_BITS=64  
+
+hpss_ldflags=\
+     -m64 -DLITTLEEND -fPIC \
+     -Wl,-rpath,$(hpssroot)/tools/unsupported/lib \
+     -L$(hpssroot)/lib -L$(hpssroot)/tools/unsupported/lib \
+     -tirpc -lhpssposix -lhpsscs -lhpss
+endif
 
 if THREADS
 threads_cflags=-DTHREADS_ONLY -I$(top_srcdir)/libs/tompi/include
@@ -33,7 +37,7 @@ endif
 
 if TAPE
 tape_cflags = -DTAPE -O -DGPFS_LINUX
-tape_ldflags=-lgpfs -ldmapi
+tape_ldflags= -lgpfs -ldmapi
 endif
 
 if FUSECHUNKER
@@ -65,10 +69,10 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
-__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
+__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
 
-__top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(hpss_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
 
 
 

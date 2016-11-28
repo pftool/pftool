@@ -23,6 +23,9 @@ AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
 AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [enable fusechunker support])
 AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
 
+AC_ARG_ENABLE(hpss, [  --enable-hpss]  [enable hpss support])
+AM_CONDITIONAL([HPSS], [test x$enable_hpss = xyes])
+
 AC_ARG_ENABLE(syndata, [  --enable-syndata]  [enable synthetic data generation support])
 AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
 
