@@ -2260,7 +2260,7 @@ public:
    virtual bool identical(Path* p) {
       MARFS_Path* p2 = dynamic_cast<MARFS_Path*>(p);
       return (p2 &&
-	      p2->exist() &&
+	      p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
