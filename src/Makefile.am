@@ -11,7 +11,7 @@ pftool.cpp pftool.h \
 Path.cpp Path.h
 
 if SYNDATA
-__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h 
+__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h
 syndata_cflags=-DGEN_SYNDATA
 endif
 
