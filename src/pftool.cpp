@@ -376,9 +376,10 @@ int main(int argc, char *argv[]) {
                 sleep(5);
             }
         }
-	if (dest_path[0] == '\0' && (o.work_type == LSWORK)) {
-        	errsend(NONFATAL,"Invalid option set, do not  use option '-c' when listing files");
-	}
+        if (dest_path[0] != '\0' && (o.work_type == LSWORK)) {
+            fprintf(stderr, "Invalid option set, do not  use option '-c' when listing files\n");
+            return -1;
+        }
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
