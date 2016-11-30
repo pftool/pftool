@@ -376,7 +376,9 @@ int main(int argc, char *argv[]) {
                 sleep(5);
             }
         }
-
+	if (dest_path[0] == '\0' && (o.worktype == LSWORK)) {
+        	errsend(NONFATAL,"Invalid option set, do not  use option '-c' when listing files");
+	}
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
