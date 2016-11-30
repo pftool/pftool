@@ -229,7 +229,6 @@ int main(int argc, char *argv[]) {
                 // this is <WorkType>, from pfutils.h
                 // 0 = copy, 1 = list, 2 = compare
                 o.work_type = atoi(optarg);
-		}
                 break;
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
