@@ -229,6 +229,7 @@ int main(int argc, char *argv[]) {
                 // this is <WorkType>, from pfutils.h
                 // 0 = copy, 1 = list, 2 = compare
                 o.work_type = atoi(optarg);
+		}
                 break;
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
@@ -376,7 +377,9 @@ int main(int argc, char *argv[]) {
                 sleep(5);
             }
         }
-
+	if (dest_path[0] == '\0' && (o.worktype == LSWORK)) {
+        	errsend(NONFATAL,"Invalid option set, do not  use option '-c' when listing files");
+	}
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
