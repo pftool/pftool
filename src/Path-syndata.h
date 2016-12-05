@@ -126,7 +126,7 @@ protected:
    virtual bool initialize_buffer() {
       if (!syndataExists(_synbuf))
          _synbuf = syndataCreateBufferWithSize(((_o->syn_pattern[0]) ? _o->syn_pattern : NULL),
-                                               ((_o->syn_size >= 0)  ? _o->syn_size : -_rank));
+                                               ((_o->syn_pattern[0])  ? SYN_PATTERN_SIZE : -_rank));
       return(_synbuf != NULL);
    }
 

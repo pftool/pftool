@@ -298,8 +298,12 @@ SyndataBuffer* syndataCreateBufferWithSize(char *pname, int length)
       // caller wants all-zeros
       rc = synCopyPattern(NULL,out->buf,out->length);
    }
-   else if (!stat(pname,&st_test)) {
-      // patten file exists - use it to generate the pattern
+   else if (!stat(pname,&st_test)) {			// pattern file exists - use it to generate the pattern
+      if(st_test.st_size < (size_t)len) {		// pattern file size < current patterm buffer -> resize buffer
+	 free(out->buf);
+	 out->length = len = st_test.st_size;
+	 out->buf = (char*)malloc(len);
+      }
       rc = synFillPattern(pname,out->buf,out->length);
    }
    else if (pname && isgraph(*pname)) {
