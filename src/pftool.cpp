@@ -174,8 +174,8 @@ int main(int argc, char *argv[]) {
         strncpy(o.jid, "TestJob", 128);
         o.parallel_dest = 0;
         o.blocksize = (1024 * 1024);
-        o.chunk_at  = (100ULL * 1024 * 1024 * 1024); // 107374182400
-        o.chunksize = (100ULL * 1024 * 1024 * 1024);
+        o.chunk_at  = (10ULL * 1024 * 1024 * 1024); // 10737418240
+        o.chunksize = (10ULL * 1024 * 1024 * 1024);
         strncpy(o.exclude, "", PATHSIZE_PLUS);
         o.max_readdir_ranks = MAXREADDIRRANKS;
         src_path[0] = '\0';
