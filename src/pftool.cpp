@@ -2447,7 +2447,7 @@ void process_stat_buffer(path_item*      path_buffer,
                             // is unconditional or the source-file size <=
                             // chunk_at size
                             if (! o.different
-                                || (work_node.st.st_size <= o.chunk_at)) {
+                                || (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))) {
 
                                 if (! p_out->unlink() && (errno != ENOENT)) {
                                     errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
