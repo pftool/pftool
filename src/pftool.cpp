@@ -721,7 +721,8 @@ int manager(int             rank,
         get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
         ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
-        if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1){
+	// setup destination directory, if needed. Make sure -R has been specified!
+        if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1 && o.recurse){
             //// #ifdef PLFS
             ////                 if (dest_node.ftype == PLFSFILE){
             ////                     plfs_mkdir(dest_node.path, S_IRWXU);
@@ -821,6 +822,10 @@ int manager(int             rank,
             snprintf(errmsg, MESSAGESIZE, "parent doesn't exist: %s: %s", dest_path, err_cause);
             errsend(FATAL, errmsg);
         }
+
+	// check to make sure that if the source is a directory, then -R was specified. If not, error out.
+	if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
+	    errsend_fmt(NONFATAL,"%s is a directory, but no recursive operation specified\n",beginning_node.path);
     }
 
     //pack our list into a buffer:

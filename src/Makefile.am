@@ -11,23 +11,8 @@ pftool.cpp pftool.h \
 Path.cpp Path.h
 
 if SYNDATA
-__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h 
+__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h
 syndata_cflags=-DGEN_SYNDATA
-endif
-
-if HPSS
-#__top_builddir__bin_pftool_SOURCES += hpss.c hpss.h hpsstypes.h
-hpssroot=/opt/hpss
-
-hpss_cflags= \
-     -I$(hpssroot)/include -I$(hpssroot)/tools/unsupported/src/posix_api \
-     -DHPSS -D_LARGE_FILES -D_LARGE_FILE_SUPPORT=1 -D_FILE_OFFSET_BITS=64  
-
-hpss_ldflags=\
-     -m64 -DLITTLEEND -fPIC \
-     -Wl,-rpath,$(hpssroot)/tools/unsupported/lib \
-     -L$(hpssroot)/lib -L$(hpssroot)/tools/unsupported/lib \
-     -tirpc -lhpssposix -lhpsscs -lhpss
 endif
 
 if THREADS
