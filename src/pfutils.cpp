@@ -1918,6 +1918,10 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a MARFS path?
     if(! got_type) {
        fflush(stdout);
+       if ( under_mdfs_top(work_node->path) ) {
+           return -1;
+       }
+
        if ( (! strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len))
             && ((   work_node->path[marfs_config->mnt_top_len] == 0)
                 || (work_node->path[marfs_config->mnt_top_len] == '/'))) {
