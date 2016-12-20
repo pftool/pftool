@@ -452,16 +452,16 @@ int main(int argc, char *argv[]) {
 
     // take on the role appropriate to our rank.
     if (rank == MANAGER_PROC) {
-        manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
+        int ret_val;
+        ret_val = manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
+        MPI_Finalize();
+        return ret_val;
     }
     else {
         worker(rank, o);
+        MPI_Finalize();
+        return 0;
     }
-
-    //Program Finished
-    //printf("%d -- done.\n", rank);
-    MPI_Finalize();
-    return 0;
 }
 
 
@@ -493,7 +493,7 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
     return n;
 }
 
-void manager(int             rank,
+int manager(int             rank,
              struct options& o,
              int             nproc,
              path_list*      input_queue_head,
@@ -1069,6 +1069,12 @@ void manager(int             rank,
     }
     //free any allocated stuff
     free(proc_status);
+
+    // return nonzero for any errors
+    if (0 != non_fatal) {
+        return 1;
+    }
+    return 0;
 }
 
 // recv <path_count>, then a block of packed data.  Unpack to individual

@@ -9,9 +9,12 @@ def main():
   parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
   parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
-  parser.add_option("-n", dest="different", default=False, action="store_true", help="only copy files that have a different date or file size than the same files at the destination or not in the destination")
+  parser.add_option("-F", dest="different", default=True, action="store_false", help="copy all files even if they do not appear to have changed")
+  parser.add_option("-g", dest="debug", default=None, action="store_true", help="development only. Allows for gdb to attach")
   parser.add_option("-x", dest="synSize", default=None, metavar="SIZE", help="development only. Option may be used for future feature")
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
+  parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
+  parser.add_option("-t", dest="tryAttempts", default=1, type="int", help="Number of times to retry on non-fatal errors")
   
   (options, args) = parser.parse_args()
 
@@ -36,7 +39,12 @@ def main():
   if l.lower() == "true":
     logging = True
     commands.add("-l")
-  
+
+  if 0 >= options.tryAttempts:
+    parser.error("try attempts must be 1 or greater for pftool to run.")
+
+  if 1 < options.tryAttempts and not options.different:
+    parser.error("try attempts must be 1 if copy all files is set")
 
   if options.verbose:				# add verbose flag to PFTOOL command line
     commands.add("-v")
@@ -46,6 +54,8 @@ def main():
   if options.synPattern is not None:		# add synthetic pattern to PFTOOL command line
     commands.add("-X")
     commands.add(parser.values.synPattern)
+  if options.debug is not None:			# add debug flag to PFTOOL command line
+    commands.add("-g")
 
   base_name = os.path.dirname(src[0])
   if options.recurse:				# add recursive flag to PFTOOL command line
@@ -100,6 +110,11 @@ def main():
   #parse additional options
   if options.different:
     commands.add("-n")
+    
+  if options.exclude is not None:
+      commands.add("-e")
+      commands.add(parser.values.exclude)
+
 
   try:
     t = config.get("environment", "parallel_dest")
@@ -122,8 +137,8 @@ def main():
   src_full = []
   dest_full = []
   for i in src:
-      src_full.append(os.path.abspath(i))
-  dest_full.append(os.path.abspath(dest))
+      src_full.append(os.path.realpath(i))
+  dest_full.append(os.path.realpath(dest))
 
   src_fixed = []
   dest_fixed = []
@@ -144,7 +159,10 @@ def main():
 #  print "dest_fixed after = %s"%(dest_fixed)
 
   commands.add("-c", *dest_fixed)
-  commands.add("-p", *src_fixed)
+  if options.synSize:							# src_fixed has the last '/' shaved off, which is important for synthetic data sources
+     commands.add("-p", *src)
+  else:
+     commands.add("-p", *src_fixed)
 
   threaded = False
   try:
@@ -214,8 +232,15 @@ def main():
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
 
 
-#  print pfcmd.commands							# print the command out used to run PFTOOL
-  status = subprocess.call(pfcmd.commands)
+  if options.debug:
+    print pfcmd.commands						# print the command out used to run PFTOOL
+
+  for i in xrange(0, options.tryAttempts):
+    status = subprocess.call(pfcmd.commands)
+    # if we got nonfatal errors we can continue
+    if 1 != status:
+      break;
+
   if(status != 0):
     print "ERROR: %s failed"%sys.argv[0]
     if logging:
