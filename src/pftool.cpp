@@ -517,7 +517,7 @@ int main(int argc, char *argv[]) {
             // checking dest_path against src
             if(o.work_type == COPYWORK) {
                 if(0 == strcmp(dest_path, head->data.path)) {
-                    printf("The file \"%s\" is both a source and destiation\n", dest_path);
+                    printf("The file \"%s\" is both a source and destination\n", dest_path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             }
