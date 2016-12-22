@@ -111,6 +111,12 @@ m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 
+# set build environment, based on configuration options
+AS_IF([test x$enable_s3 == xyes],
+  [AC_SUBST([CPPFLAGS],  "${CPPFLAGS} -I$PWD/../aws4c-lanl -I/usr/include/libxml2")
+   AC_SUBST([LDFLAGS],  "${LDFLAGS} -L$PWD/../aws4c-lanl")]
+)
+
 # checks for libraries.
 # none at this point
 
@@ -120,7 +126,8 @@ AS_IF([test x$enable_plfs == xyes],
   [AC_CHECK_HEADERS([plfs.h])]
 )
 AS_IF([test x$enable_s3 == xyes],
-  [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
+  [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h], [],
+     [AC_MSG_ERROR([lanl version of aws library (aws4c-lanl) not found. cannot continue.])])]
 )
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]

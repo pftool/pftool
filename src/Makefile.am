@@ -35,6 +35,7 @@ plfs_ldflags=$(_plfs_ldflags) -lplfs
 endif
 
 if S3
+__top_builddir__bin_pftool_SOURCES += S3.cpp Path-s3.h
 s3_cflags=$(_s3_cflags) -DS3
 s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
