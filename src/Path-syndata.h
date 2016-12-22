@@ -171,14 +171,14 @@ public:
 
     virtual char *realpath(char *resolved_path) {
        if(NULL == resolved_path) {
-           resolved_path = malloc(strlen(_item->path)+1);
+           resolved_path = (char *) malloc(strlen(_item->path)+1);
            if(NULL == resolved_path) {
                _errno = errno;
                return NULL;
            }
        }
 
-       strcpy(resolved_path, item->path);
+       strcpy(resolved_path, _item->path);
    }
 
    // read/write to/from caller's buffer
