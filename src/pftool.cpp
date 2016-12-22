@@ -40,6 +40,8 @@
 #include <vector>
 using namespace std;
 
+int outproc_running = false;			// a hack of a flag to let write_output() know if it is OK to send messages to OUTPUT_PROC
+
 int main(int argc, char *argv[]) {
 
     //general variables
@@ -782,6 +784,7 @@ int manager(int             rank,
     if (mpi_ret_code < 0) {
         errsend(FATAL, "Failed to Bcast base_path");
     }
+    outproc_running = true;					// At this point it should be alright to send messages to the OUTPUT_PROC process
     
 
     // Make sure there are no multiple roots for a recursive operation
@@ -1393,6 +1396,7 @@ void worker(int rank, struct options& o) {
     if (mpi_ret_code < 0) {
         errsend(FATAL, "Failed to Receive Bcast base_path");
     }
+    outproc_running = true;					// At this point it should be alright to send messages to the OUTPUT_PROC process
     get_stat_fs_info(base_path, &o.sourcefs);
     if (o.parallel_dest == 0 && o.work_type != LSWORK) {
         get_stat_fs_info(dest_node.path, &o.destfs);

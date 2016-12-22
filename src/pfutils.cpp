@@ -30,6 +30,7 @@
 #define MPI_Unpack MPY_Unpack
 #endif
 
+extern int outproc_running;				// a hack of a flag to let write_output() know if it is OK to send messages to OUTPUT_PROC
 
 void usage () {
     // print usage statement
@@ -1638,6 +1639,12 @@ void update_chunk(path_item *buffer, int *buffer_count) {
 }
 
 void write_output(const char *message, int log) {
+
+    if(!outproc_running) {				// worker() needs to be redesigned to handle the output_proc function correctly.
+       fprintf(stderr,"%s\n",message);			// until then the external flag inticates if it is alright to send a command or not.
+       return;						// if not, write to stderr ....
+    }
+
     //write a single line using the outputproc
     //set the command type
     if (log == 0) {

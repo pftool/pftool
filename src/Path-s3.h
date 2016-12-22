@@ -113,18 +113,20 @@ protected:
 
    // return true for success, false for failure.
    virtual bool do_stat_internal() {
-      fake_stat(_item->path, &_item->st);
+      return fake_stat(_item->path, &_item->st);
    }
 
    // Intercept path-changes, so we can parse the new host, bucket, etc.
    // These parsed values are useful for quick determination of whether we
    // are dealing with a bucket or an object.
    virtual void path_change_post() {
-      parse_host_bucket_object(_host, _bucket, _obj, _item->path);
-      if (! _host.size()) {
-         errsend_fmt(FATAL,
+      if (!strIsBlank(_item->path)) {					// may be blank if oject/container does not exist ...
+         parse_host_bucket_object(_host, _bucket, _obj, _item->path);
+         if (! _host.size()) {						// If path is not blank -> host better be populated!
+            errsend_fmt(FATAL,
                      "S3_Path::path_change_post -- no host in '%s'\n",
                      _item->path);
+         }
       }
 
       // pass method-call on, to the base-class
@@ -195,11 +197,11 @@ public:
       bucket.clear();
       obj.clear();
 
-
       // Parse host (and maybe bucket (and maybe object)) from the URL/path.
       // Strip off the leading and trailing '/' from each.
-      char* host_begin = (char*)strstr(path, "://") +3; // factory found this, so it exists
-      if (*host_begin) {
+      char* host_start = (char*)strstr(path, "://");			// factory found this, so it exists
+      if (host_start && *host_start) {
+	 char*			host_begin = host_start +3;		// start after initial "://"
          char*                  host_end   = strchr(host_begin, '/');
          std::string::size_type host_size = (host_end
                                              ? (host_end - host_begin)

@@ -59,8 +59,9 @@ def main():
         parser.error("All sources for a recursive copy must be contained within the same directory.")
 
   base_dest_name = os.path.dirname(dest)
-  if base_dest_name and not os.path.exists(base_dest_name):
-   parser.error("%s - No such file or directory"%(dest)) 
+  if not base_dest_name.startswith("http"):
+    if base_dest_name and not os.path.exists(base_dest_name):
+      parser.error("%s - No such file or directory"%(dest)) 
   
   #for i in src:
   #  if not os.path.exists(i):
@@ -106,21 +107,22 @@ def main():
     commands.add("-n")
     
   if options.exclude is not None:
-      commands.add("-e")
-      commands.add(parser.values.exclude)
+    commands.add("-e")
+    commands.add(parser.values.exclude)
 
 
-  try:
-    t = config.get("environment", "parallel_dest")
-    if t.lower() == "true":
+  if not dest.startswith("http"):
+    try:
+      t = config.get("environment", "parallel_dest")
+      if t.lower() == "true":
         commands.add("-P")
         dest_dir = os.path.dirname(dest)
         if dest_dir == "":
           dest_dir = "."
         dest_fstype = subprocess.Popen("df -TP " + dest_dir + " | grep -v Filesystem | awk -F ' ' '{print $2}'", stdout=subprocess.PIPE, shell=True).stdout.read()
         commands.add("-t", dest_fstype.rstrip())			# specify the filesystem type for the destination on parallel transfers. In may make a difference! - cds 6/2014
-  except:
-    pass
+    except:
+      pass
 
 #  The updates below expand relative paths to avoid hitting bugs with odd src/dst paths.  /var/lib/perceus/vnfs is likely safe to remove from *any* path...
 #  commands.add("-c", dest)
@@ -132,7 +134,10 @@ def main():
   dest_full = []
   for i in src:
       src_full.append(os.path.realpath(i))
-  dest_full.append(os.path.realpath(dest))
+  if not dest.startswith("http"):
+    dest_full.append(os.path.realpath(dest))
+  else:
+    dest_full.append(dest)
 
   src_fixed = []
   dest_fixed = []

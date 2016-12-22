@@ -143,18 +143,21 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    std::string  acl_path(obj + "?acl");
 #endif
    
-   const size_t xml_buf_size = 1024 * 256;   // plenty for ACL-XML or error response (?)
+   const size_t xml_buf_size = 1024 * 256;		// plenty for ACL-XML or error response (?)
    char xml_buf[xml_buf_size];
    aws_iobuf_reset(b);
    aws_iobuf_extend_static(b, xml_buf, xml_buf_size);
-   aws_iobuf_growth_size(b, xml_buf_size); // in case we overflow
+   aws_iobuf_growth_size(b, xml_buf_size); 		// in case we overflow
 
    AWS4C_CHECK( s3_get(b, (char*)acl_path.c_str()) );
 
    ///   AWS4C_CHECK_OK( b );
-   if (b->code != 200)
-      return false;             // e.g. 404 'Not Found'
-
+   if (b->code != 200) {
+      if(b->code != 404)				 // e.g. 404 'Not Found'
+//        errsend_fmt(NONFATAL, "unexpected AWS query result for %s: %d (%s)\n", path_name, b->code, b->result);
+        fprintf(stderr, "unexpected AWS query result for %s: %d (%s)\n", path_name, b->code, b->result);
+      return false; 
+   }
    // prepare to parse response-XML
    aws_iobuf_realloc(b);
    xmlDocPtr doc = xmlReadMemory(b->first->buf, b->first->len, NULL, NULL, 0);
