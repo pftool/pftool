@@ -752,6 +752,9 @@ public:
    virtual ssize_t read( char* buf, size_t count, off_t offset)   = 0; // e.g. pread()
    virtual ssize_t write(char* buf, size_t count, off_t offset)   = 0; // e.g. pwrite()
 
+   // get the realpath of the path
+   virtual char *realpath(char *resolved_path) = 0;
+
    // return false only to indicate errors (e.g. not end-of-data for readdir())
    // At EOF, readdir() returns true, but sets path[0] == 0.
    virtual bool    opendir()              = 0;
@@ -984,6 +987,15 @@ public:
       return true;
    }
 
+   virtual char *realpath(char *resolved_path) {
+       char *ret;
+       ret = ::realpath(_item->path, resolved_path);
+       if(NULL == ret) {
+         _errno = errno;
+       }
+       return ret;
+   }
+
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       ssize_t bytes = pread(_fd, buf, count, offset);
@@ -1187,6 +1199,17 @@ public:
       return true;
    }
 
+   virtual char *realpath(char *resolved_path) {
+       if(NULL == resolved_path) {
+           resolved_path = (char *)malloc(strlen(_item->path)+1);
+           if(NULL == resolved_path) {
+               _errno = errno;
+               return NULL;
+           }
+       }
+
+       strcpy(resolved_path, _item->path);
+   }
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       return count;
@@ -1379,6 +1402,17 @@ public:
       return(_plfs_rc == PLFS_SUCCESS);
    }
 
+   virtual char *realpath(char *resolved_path) {
+       if(NULL == resolved_path) {
+           resolved_path = (char *)malloc(strlen(_item->path)+1);
+           if(NULL == resolved_path) {
+               _errno = errno;
+               return NULL;
+           }
+       }
+
+       strcpy(resolved_path, _item->path);
+   }
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
       ssize_t bytes_read = 0;
@@ -1788,7 +1822,17 @@ public:
    }
 
 
+   virtual char *realpath(char *resolved_path) {
+       if(NULL == resolved_path) {
+           resolved_path = malloc(strlen(_item->path)+1);
+           if(NULL == resolved_path) {
+               _errno = errno;
+               return NULL;
+           }
+       }
 
+       strcpy(resolved_path, _item->path);
+   }
 
    // read/write to/from caller's buffer
    // TBD: fix the malloc/free in aws_iobuf_extend/aws_iobuf_reset (see TBD.txt).
@@ -2506,8 +2550,17 @@ public:
       return true;
    }
 
+   virtual char *realpath(char *resolved_path) {
+       if(NULL == resolved_path) {
+           resolved_path = (char *)malloc(strlen(_item->path)+1);
+           if(NULL == resolved_path) {
+               _errno = errno;
+               return NULL;
+           }
+       }
 
-
+       strcpy(resolved_path, _item->path);
+   }
 
    // read/write to/from caller's buffer
    // TBD: fix the malloc/free in aws_iobuf_extend/aws_iobuf_reset (see TBD.txt).

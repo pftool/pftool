@@ -2117,6 +2117,18 @@ int stat_item(path_item *work_node, struct options& o) {
     }
 #endif
 
+    // resolve to absoulte path
+    {
+        char buf[PATHSIZE_PLUS];
+
+        PathPtr p(PathFactory::create_shallow(work_node));
+        if(NULL == p->realpath(buf)) {
+            snprintf(errmsg, MESSAGESIZE, "stat_item -- Failed to realpath %s", work_node->path);
+            errsend(FATAL, errmsg);
+        }
+        strcpy(work_node->path, buf);
+    }
+
     return 0;
 }
 

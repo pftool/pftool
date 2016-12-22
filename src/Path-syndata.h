@@ -169,6 +169,18 @@ public:
       return true;
    }
 
+    virtual char *realpath(char *resolved_path) {
+       if(NULL == resolved_path) {
+           resolved_path = malloc(strlen(_item->path)+1);
+           if(NULL == resolved_path) {
+               _errno = errno;
+               return NULL;
+           }
+       }
+
+       strcpy(resolved_path, item->path);
+   }
+
    // read/write to/from caller's buffer
    virtual ssize_t read(char* buf, size_t count, off_t offset) {
       int rc = syndataFill(_synbuf, buf, count);
