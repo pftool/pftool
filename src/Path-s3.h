@@ -285,7 +285,8 @@ public:
    virtual bool    access(int mode, int flags) {
       return true; // untested
    }
-   virtual bool    faccessat(int mode, int flags) { NO_IMPL(faccessat); }
+//   virtual bool    faccessat(int mode, int flags) { NO_IMPL(faccessat); }
+   virtual bool    faccessat(int mode, int flags) { return true; }
 
    // Should we replicate POSIX behavior, where open() fails if you try it
    // multiple times?

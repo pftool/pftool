@@ -133,7 +133,11 @@ def main():
   src_full = []
   dest_full = []
   for i in src:
-      src_full.append(os.path.realpath(i))
+      if not i.startswith("http"):
+        src_full.append(os.path.realpath(i))
+      else:
+         src_full.append(i)
+
   if not dest.startswith("http"):
     dest_full.append(os.path.realpath(dest))
   else:

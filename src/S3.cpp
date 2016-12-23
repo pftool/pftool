@@ -334,7 +334,7 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    // .................................................................
    // block-count
    // .................................................................
-   st->st_size = b->contentLen / 512;
+   st->st_blocks = b->contentLen / 512;
    if (b->contentLen & (512 -1))
       ++ st->st_blocks;         // ... all the bridge tolls would go to you!
 
