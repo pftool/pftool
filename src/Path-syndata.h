@@ -179,6 +179,7 @@ public:
        }
 
        strcpy(resolved_path, _item->path);
+       return resolved_path;
    }
 
    // read/write to/from caller's buffer

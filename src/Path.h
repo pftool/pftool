@@ -1209,6 +1209,7 @@ public:
        }
 
        strcpy(resolved_path, _item->path);
+       return resolved_path;
    }
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
@@ -1412,6 +1413,7 @@ public:
        }
 
        strcpy(resolved_path, _item->path);
+       return resolved_path;
    }
 
    virtual ssize_t read( char* buf, size_t count, off_t offset) {
@@ -1832,6 +1834,7 @@ public:
        }
 
        strcpy(resolved_path, _item->path);
+       return resolved_path;
    }
 
    // read/write to/from caller's buffer
@@ -2560,6 +2563,7 @@ public:
        }
 
        strcpy(resolved_path, _item->path);
+       return resolved_path;
    }
 
    // read/write to/from caller's buffer
