@@ -2127,7 +2127,6 @@ int stat_item(path_item *work_node, struct options& o) {
             errsend(FATAL, errmsg);
         }
         if(0 != strcmp(work_node->path, buf)) {
-            printf("here\n");
             strcpy(work_node->path, buf);
             memset(&work_node->st, 0, sizeof(struct stat));
             return stat_item(work_node, o);
