@@ -688,7 +688,7 @@ int copy_file(PathPtr       p_src,
         // <link_path> = name of link-destination
         numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
-	    errsend_fmt(NONFATAL, "Failed to read link %s", p_src->path());
+	    errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
             return -1;
         }
         else if (numchars >= PATHSIZE_PLUS) {
@@ -1777,7 +1777,7 @@ void set_fuse_chunk_data(path_item *work_node) {
     // memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
     numchars = p->readlink(linkname, PATHSIZE_PLUS);
     if (numchars < 0) {
-        sprintf(errormsg, "Failed to read link %s", work_node->path);
+        sprintf(errormsg, "Failed to read link %s\n", work_node->path);
         errsend(NONFATAL, errormsg);
         return;
     }
@@ -2073,7 +2073,7 @@ int stat_item(path_item *work_node, struct options& o) {
         // <linkname> = name of the link-destination
         numchars = p->readlink(linkname, PATHSIZE_PLUS);
         if (numchars < 0) {
-            snprintf(errmsg, MESSAGESIZE, "Failed to read link %s", work_node->path);
+            snprintf(errmsg, MESSAGESIZE, "Failed to read link %s\n", work_node->path);
             errsend(NONFATAL, errmsg);
             return -1;
         }
@@ -2126,7 +2126,12 @@ int stat_item(path_item *work_node, struct options& o) {
             snprintf(errmsg, MESSAGESIZE, "stat_item -- Failed to realpath %s", work_node->path);
             errsend(FATAL, errmsg);
         }
-        strcpy(work_node->path, buf);
+        if(0 != strcmp(work_node->path, buf)) {
+            printf("here\n");
+            strcpy(work_node->path, buf);
+            memset(&work_node->st, 0, sizeof(struct stat));
+            return stat_item(work_node, o);
+        }
     }
 
     return 0;

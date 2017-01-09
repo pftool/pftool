@@ -2389,7 +2389,7 @@ void process_stat_buffer(path_item*      path_buffer,
                                 numchars = p_out->readlink(linkname, PATHSIZE_PLUS);
                                 if (numchars < 0) {
                                     snprintf(errmsg, MESSAGESIZE,
-                                             "Failed to read link %s",
+                                             "Failed to read link %s\n",
                                              out_node.path);
                                     errsend(FATAL, errmsg);
                                 }
