@@ -494,6 +494,18 @@ int main(int argc, char *argv[]) {
         } else
             enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
 
+        // run realpath on output dir
+        char buf[PATHSIZE_PLUS];
+        strcpy(buf, dest_path);
+        do {
+            strcpy(dest_path, buf);
+            PathPtr p_dest(PathFactory::create(dest_path));
+            if(NULL == p_dest->realpath(buf)) {
+                fprintf(stderr, "stat_item -- Failed to realpath %s", dest_path);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+        } while(0 != strcmp(dest_path, buf));
+
         if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
             //// struct stat dest_stat;
             //// int         statrc = lstat(dest_path, &dest_stat);
@@ -501,7 +513,8 @@ int main(int argc, char *argv[]) {
             ////     printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
             ////     MPI_Abort(MPI_COMM_WORLD, -1);
             //// }
-            PathPtr p_dest(PathFactory::create(dest_path));
+
+                        PathPtr p_dest(PathFactory::create(dest_path));
             if (!p_dest->exists() || !p_dest->is_dir()) {
                 printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
@@ -513,6 +526,18 @@ int main(int argc, char *argv[]) {
         path_list *prev = NULL;
         path_list *head = input_queue_head;
         while(head != NULL) {
+
+            // realpath the src
+            char buf[PATHSIZE_PLUS];
+            strcpy(buf, head->data.path);
+            do {
+                strcpy(head->data.path, buf);
+                PathPtr p_src(PathFactory::create(head->data.path));
+                if(NULL == p_src->realpath(buf)) {
+                    fprintf(stderr, "stat_item -- Failed to realpath %s", head->data.path);
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+            } while(0 != strcmp(head->data.path, buf));
 
             // checking dest_path against src
             if(o.work_type == COPYWORK) {
