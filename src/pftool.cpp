@@ -501,7 +501,7 @@ int main(int argc, char *argv[]) {
             strcpy(dest_path, buf);
             PathPtr p_dest(PathFactory::create(dest_path));
             if(NULL == p_dest->realpath(buf) && ENOENT != errno) {
-                fprintf(stderr, "Failed to realpath dest_path: %s", dest_path);
+                fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
         } while(0 != strcmp(dest_path, buf));
@@ -534,7 +534,7 @@ int main(int argc, char *argv[]) {
                 strcpy(head->data.path, buf);
                 PathPtr p_src(PathFactory::create(head->data.path));
                 if(NULL == p_src->realpath(buf)) {
-                    fprintf(stderr, "Failed to realpath src: %s", head->data.path);
+                    fprintf(stderr, "Failed to realpath src: %s\n", head->data.path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             } while(0 != strcmp(head->data.path, buf));
