@@ -4,7 +4,7 @@ from socket import gethostname
 from syslog import *
 
 import ConfigParser
-
+import socket
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
@@ -159,6 +159,19 @@ def get_nodeallocation():
       numprocs = 0
 
   return(nodelist,numprocs)
+
+def is_ssh_running(host):
+    reachable = False
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(.1)
+
+    try:
+        s.connect((host, 22))
+        reachable = True
+    except socket.error as e:
+        remove = 1
+    s.close()
+    return reachable
 
 def add_darshan(pfconfig, mpicmd):
     # If darshan is specified in the environment and valid, add it to the mpi command line

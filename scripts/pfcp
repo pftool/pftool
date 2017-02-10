@@ -190,7 +190,14 @@ def main():
       except:
         parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
       procs = int(config.get("num_procs", "pfcp"))
-      
+    
+    up_host = []
+    for host in host_list:
+      if is_ssh_running(host):
+        up_host.append(host)
+
+    host_list = up_host
+  
     if "all" not in host_list:						# chance are that host_list came from job control variables ...
       try:
         min_procs = int(config.get("num_procs", "min_per_node"))
