@@ -111,8 +111,6 @@ m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 
-# checks for libraries.
-# none at this point
 
 # checks for header files.
 AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
@@ -125,17 +123,24 @@ AS_IF([test x$enable_s3 == xyes],
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
+
+
+# checks for libraries.
+# NOTE: each test *prepends* its library to LIBS, so test for the
+#       depended-on libs before the libs that depend on them.
 AS_IF([test x"$enable_marfs" == xyes],
   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
-   AC_CHECK_LIB([aws4c_extra], [s3_create_bucket], [], [], [-laws4c])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
-   AC_CHECK_LIB([marfs], [mc_put],
-                [LIBS="-lmarfs $LIBS -lisal -lne"
-                 AC_DEFINE(HAVE_LIBMARFS)],
+   AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
+   AC_CHECK_LIB([rdmacm], [rdma_getaddrinfo] )
+   AC_CHECK_LIB([rdma_sockets], [skt_open])
+   AC_CHECK_LIB([isal], [ec_encode_data])
+   AC_CHECK_LIB([ne],   [ne_write])
+   AC_CHECK_LIB([marfs], [mc_put], [],
                 [AC_CHECK_LIB([marfs], [marfs_open], [],
-                              [AC_ERROR([could not find libmarfs])])],
-                [-lisal -lne])])
+                              [AC_ERROR([could not find libmarfs])])])
+  ])
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
