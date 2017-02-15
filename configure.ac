@@ -147,8 +147,11 @@ AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 
 # checks for library functions.
-AC_FUNC_MALLOC
 AC_CHECK_FUNCS([memset strerror strtoul])
+
+# AC_FUNC_MALLOC
+AC_CHECK_FUNCS([malloc])
+
 
 AC_CONFIG_FILES([Makefile
                  libs/Makefile
