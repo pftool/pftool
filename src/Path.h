@@ -2420,12 +2420,17 @@ public:
 
       // if offset is zero we will try to open the file in packed mode. if we
       // get an error we will revert to regular mode
-      rc = -2;
+      rc = ENOTPACKABLE;
       if(!packedFhInUse && 0 == _open_offset) {
          rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
+         if(EFHFULL == rc) {
+            // clear up the file handle
+            close_fh();
+            return open(flags, mode);
+         }
       }
 
-      if(-2 == rc) {
+      if(ENOTPACKABLE == rc) {
          // providing open_size allows internals to create request with appropriate
          // byte range, which is faster than chunked-transfer-encoding (for sproxyd).
          rc = marfs_open_at_offset(marPath, &fh, flags, _open_offset, _open_size);
@@ -2523,6 +2528,7 @@ public:
    // closes the underlying fh stream for packed files
    static bool close_fh() {
       int rc = 0;
+      size_t packedPathsCount;
 
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
@@ -2530,11 +2536,15 @@ public:
       }
 
       if(0 != rc) {
+          // we need to clear out the packPaths so they don't get marked as
+          // successful later
+          packedPaths.clear();
           return false;
       }
 
+      packedPathsCount = packedPaths.size();
       while(!packedPaths.empty()) {
-         marfs_clear_restart(marfs_sub_path(packedPaths.back().path));
+         marfs_packed_cleanup(marfs_sub_path(packedPaths.back().path), packedPathsCount);
          packedPaths.pop_back();
       }
 
