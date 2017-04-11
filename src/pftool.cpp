@@ -917,21 +917,6 @@ int manager(int             rank,
                     PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status.inuse[i]);
                 }
                 PRINT_PROC_DEBUG("=============\n");
-                if(-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
-                    work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
-                    if (work_rank >= 0) {
-                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
-                            proc_status[work_rank].inuse = 1;
-                            proc_status[work_rank].readdir = 1;
-                            readdir_rank_count += 1;
-                            send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
-                            start = 0;
-                        }
-                        else if (!o.recurse) {
-                            delete_buf_list(&dir_buf_list, &dir_buf_list_size);
-                        }
-                    }
-                }
 #ifdef TAPE
                 //handle tape
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
@@ -964,6 +949,22 @@ int manager(int             rank,
 #ifdef TAPE
                     delete_buf_list(&tape_buf_list, &tape_buf_list_size);
 #endif
+                }
+
+                if(-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
+                    work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                    if (work_rank >= 0) {
+                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
+                            proc_status[work_rank].inuse = 1;
+                            proc_status[work_rank].readdir = 1;
+                            readdir_rank_count += 1;
+                            send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
+                            start = 0;
+                        }
+                        else if (!o.recurse) {
+                            delete_buf_list(&dir_buf_list, &dir_buf_list_size);
+                        }
+                    }
                 }
 
 
