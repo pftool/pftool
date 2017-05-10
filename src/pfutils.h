@@ -157,9 +157,10 @@ typedef unsigned long long int uint_64;
 enum cmd_opcode {
     EXITCMD,
     UPDCHUNKCMD,
-    OUTCMD,
     BUFFEROUTCMD,
+    OUTCMD,
     LOGCMD,
+    LOGONLYCMD,
     QUEUESIZECMD,
     STATCMD,
     COMPARECMD,
@@ -398,6 +399,7 @@ void send_manager_work_done(int ignored);
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(const char *message, int log);
+void write_output_fmt(int log, const char *fmt, ...);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);

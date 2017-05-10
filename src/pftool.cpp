@@ -1477,14 +1477,17 @@ void worker(int rank, struct options& o) {
         PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n", rank, cmd2str((OpCode)type_cmd), sending_rank);
         //do operations based on the message
         switch(type_cmd) {
-            case OUTCMD:
-                worker_output(rank, sending_rank, 0, output_buffer, &output_count, o);
-                break;
             case BUFFEROUTCMD:
                 worker_buffer_output(rank, sending_rank, output_buffer, &output_count, o);
                 break;
+            case OUTCMD:
+                worker_output(rank, sending_rank, 0, output_buffer, &output_count, o);
+                break;
             case LOGCMD:
                 worker_output(rank, sending_rank, 1, output_buffer, &output_count, o);
+                break;
+            case LOGONLYCMD:
+                worker_output(rank, sending_rank, 2, output_buffer, &output_count, o);
                 break;
             case UPDCHUNKCMD:
                 worker_update_chunk(rank, sending_rank, &chunk_hash, &hash_count, base_path, &dest_node, o);
@@ -1717,30 +1720,40 @@ void worker_update_chunk(int            rank,
     send_manager_work_done(rank);
 }
 
+// log == 0    output to stdout
+// log == 1    output to syslog (AND stdout)
+// log == 2    output to syslog (ONLY)
+//
 void worker_output(int rank, int sending_rank, int log, char *output_buffer, int *output_count, struct options& o) {
     //have a worker receive and print a single message
     MPI_Status status;
     char msg[MESSAGESIZE];
     char sysmsg[MESSAGESIZE + 50];
 
+    static int needs_open = 1;
+    if (needs_open) {
+        sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+        openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
+        needs_open = 0;
+    }
+
     //gather the message to print
     if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive msg\n");
     }
     PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from rank %d\n", rank, sending_rank);
-    if (o.logging == 1 && log == 1) {
-        openlog ("PFTOOL-LOG", LOG_PID | LOG_CONS, LOG_USER);
-        sprintf(sysmsg, "[pftool] [%s] - %s", o.jid, msg);
-        syslog (LOG_ERR | LOG_USER, "%s", sysmsg);
-        closelog();
+    if (o.logging == 1 && log) {
+        syslog (LOG_INFO, "%s", msg);
     }
-    if (sending_rank == MANAGER_PROC){
-        printf("%s", msg);
+    if (log < 2) {
+        if (sending_rank == MANAGER_PROC){
+            printf("%s", msg);
+        }
+        else{
+            printf("RANK %3d: %s", sending_rank, msg);
+        }
+        fflush(stdout);
     }
-    else{
-        printf("RANK %3d: %s", sending_rank, msg);
-    }
-    fflush(stdout);
 }
 
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options& o) {

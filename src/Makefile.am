@@ -41,6 +41,7 @@ endif
 
 if MARFS
 marfs_cflags=-DMARFS
+marfs_ldflags=-lisal
 install-exec-local:
 	chmod u+s $(bindir)/pftool
 	chmod g-s $(bindir)/pftool
@@ -54,8 +55,8 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
-__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(s3_cflags) $(marfs_cflags)
+__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
 
 __top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(hpss_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
 

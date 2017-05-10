@@ -54,7 +54,7 @@ void usage () {
     printf (" [-n]         operate on file if different\n");
     printf (" [-r]         recursive operation down directory tree\n");
     printf (" [-t]         specify file system type of destination file/directory\n");
-    printf (" [-l]         turn on logging to /var/log/mesages\n");
+    printf (" [-l]         turn on logging to syslog\n");
     printf (" [-P]         force destination filesystem to be treated as parallel\n");
     printf (" [-M]         perform block-compare, default: metadata-compare\n");
     printf (" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
@@ -93,9 +93,10 @@ const char *cmd2str(OpCode cmdidx) {
 	static const char *CMDSTR[] = {
 			 "EXITCMD"
 			,"UPDCHUNKCMD"
-			,"OUTCMD"
 			,"BUFFEROUTCMD"
+			,"OUTCMD"
 			,"LOGCMD"
+			,"LOGONLYCMD"
 			,"QUEUESIZECMD"
 			,"STATCMD"
 			,"COMPARECMD"
@@ -688,7 +689,7 @@ int copy_file(PathPtr       p_src,
         // <link_path> = name of link-destination
         numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
         if (numchars < 0) {
-	    errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
+            errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
             return -1;
         }
         else if (numchars >= PATHSIZE_PLUS) {
@@ -751,8 +752,7 @@ int copy_file(PathPtr       p_src,
         ////            errsend(NONFATAL, errormsg);
         ////            return -1;
         ////        }
-//int m = p_src->mode();
-//if (! p_src->open(O_RDONLY, m)) {
+
        if (! p_src->open(O_RDONLY, p_src->mode())) {
            errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
            if (buf)
@@ -825,6 +825,10 @@ int copy_file(PathPtr       p_src,
     // copy contents from source to destination
     while (completed != length) {
 
+        // .................................................................
+        // READ data from source (or generate it synthetically)
+        // .................................................................
+
         //1 MB is too big
         if ((length - completed) < blocksize) {
             blocksize = (length - completed);
@@ -837,12 +841,6 @@ int copy_file(PathPtr       p_src,
         //        memset(buf, '\0', blocksize);
 
 
-        // READ data from source (or generate it synthetically)
-        //
-        //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-
-        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
-                       rank, bytes_processed, p_dest->path());
 //#ifdef GEN_SYNDATA
 //        if (syndataExists(synbuf)) {
 //           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
@@ -859,6 +857,9 @@ int copy_file(PathPtr       p_src,
 //        else {
 //#endif
 
+        //
+        //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
+
            ////#ifdef PLFS
            ////           if (src_file->ftype == PLFSFILE) {
            ////              // ported to PLFS 2.5
@@ -872,6 +873,10 @@ int copy_file(PathPtr       p_src,
            ////           }
            ////#endif
            bytes_processed = p_src->read(buf, blocksize, offset+completed);
+
+           PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
+                          rank, bytes_processed, p_dest->path());
+
 
            // ---------------------------------------------------------------------------
            // MARFS EXPERIMENT.  We are seeing stalls on some reads from
@@ -891,21 +896,19 @@ int copy_file(PathPtr       p_src,
            // object-servers, we're skipping straight to what the problem
            // seems to be, there, which is that we need to issue a fresh
            // request, which is done implicitly by closing and re-opening.
+           //
+           // UPDATE: don't print warnings (or count non-fatal errors) for
+           // every retry.  If the set of retries fail, register one
+           // non-fatal error.  Otherwise, keep quiet.
            // ---------------------------------------------------------------------------
+
            retry_count = 0;
-           while ((bytes_processed != blocksize) && (retry_count++ < 5)) {
+           while ((bytes_processed != blocksize) && (retry_count < 5)) {
 
-              errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
-                          p_src->path(), offset, completed, blocksize);
-
-              if (! p_src->close()) {
-                 errsend_fmt(NONFATAL, "(RETRY) Failed to close src file: %s (%s)\n",
-                             p_src->path(), p_src->strerror());
-                 // err = 1;
-              }
+              p_src->close();   // best effort
 
               if (! p_src->open(O_RDONLY, p_src->mode(), offset+completed, length-completed)) {
-                 errsend_fmt(NONFATAL, "(RETRY) Failed to open %s for read, off %lu+%lu\n",
+                 errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
                              p_src->path(), offset, completed);
                  if (buf)
                     free(buf);
@@ -914,10 +917,7 @@ int copy_file(PathPtr       p_src,
 
               // try again ...
               bytes_processed = p_src->read(buf, blocksize, offset+completed);
-           }
-           if (retry_count && (bytes_processed == blocksize)) {
-              errsend_fmt(NONFATAL, "(RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                          p_src->path(), offset, completed, retry_count);
+              retry_count ++;
            }
            // END of EXPERIMENT
 
@@ -928,14 +928,26 @@ int copy_file(PathPtr       p_src,
 
 
         if (bytes_processed != blocksize) {
-            errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd (%s)",
-                    p_src->path(), bytes_processed, blocksize, p_src->strerror());
-            err = 1; break;  // return -1
+           char retry_msg[128];
+           retry_msg[0] = 0;
+           if (retry_count)
+              sprintf(retry_msg, " (retries = %d)", retry_count);
+
+           errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd%s: %s\n",
+                       p_src->path(), bytes_processed, blocksize, retry_msg, p_src->strerror());
+           err = 1; break;  // return -1
+        }
+        else if (retry_count) {
+           write_output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                            p_dest->path(), offset, completed, retry_count);
         }
 
 
+
+        // .................................................................
         // WRITE data to destination
-        //
+        // .................................................................
+
         //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
 
         ////#ifdef PLFS
@@ -985,20 +997,16 @@ int copy_file(PathPtr       p_src,
         // which is that we need to issue a fresh request, which is done
         // implicitly by closing and re-opening.
         // ---------------------------------------------------------------------------
-        while ((bytes_processed != blocksize) && (retry_count++ < 5)
+
+        retry_count = 0;
+        while ((bytes_processed != blocksize)
+               && (retry_count < 5)
                && (completed == 0)) {
 
-           errsend_fmt(NONFATAL, "(RETRY) %s, at %lu+%lu, len %lu\n",
-                       p_dest->path(), offset, completed, blocksize);
-
-           if (! p_dest->close()) {
-              errsend_fmt(NONFATAL, "(RETRY) Failed to close dest file: %s (%s)\n",
-                          p_dest->path(), p_dest->strerror());
-              // err = 1;
-           }
+           p_dest->close();     // best effort
 
            if (! p_dest->open(flags, 0600, offset, length)) {
-              errsend_fmt(NONFATAL, "(RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
+              errsend_fmt(NONFATAL, "(write-RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
                           p_dest->path(), offset, completed, p_dest->strerror());
 
               p_src->close();
@@ -1009,13 +1017,9 @@ int copy_file(PathPtr       p_src,
 
            // try again ...
            bytes_processed = p_dest->write(buf, blocksize, offset+completed);
-        }
-        if (retry_count && (bytes_processed == blocksize)) {
-           errsend_fmt(NONFATAL, "(RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                       p_dest->path(), offset, completed, retry_count);
+           retry_count ++;
         }
         // END of EXPERIMENT
-
 
 
         // see "DEEMED SUCCESS", above
@@ -1028,15 +1032,27 @@ int copy_file(PathPtr       p_src,
            // err = 0; break;  // return -1;
         }
         else if (bytes_processed != blocksize) {
-           errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd (%s)\n",
-                       p_dest->path(), offset, bytes_processed, blocksize, p_dest->strerror());
+           char retry_msg[128];
+           retry_msg[0] = 0;
+           if (retry_count)
+              sprintf(retry_msg, " (retries = %d)", retry_count);
+
+           errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd%s: %s\n",
+                       p_dest->path(), offset, bytes_processed, blocksize, retry_msg, p_dest->strerror());
            err = 1; break;  // return -1;
         }
+        else if (retry_count) {
+           write_output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                            p_dest->path(), offset, completed, retry_count);
+        }
+
         completed += blocksize;
     }
 
 
+    // .................................................................
     // CLOSE source and destination
+    // .................................................................
 
 //#ifdef GEN_SYNDATA
 //    if(!syndataExists(synbuf)) {
@@ -1646,11 +1662,32 @@ void write_output(const char *message, int log) {
     else if (log == 1) {
         send_command(OUTPUT_PROC, LOGCMD);
     }
+    else if (log == 2) {
+        send_command(OUTPUT_PROC, LOGONLYCMD);
+    }
+
     //send the message
     if (MPI_Send((void*)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
+}
+
+
+// This allows caller to use inline formatting, without first snprintf() to
+// a local errmsg-buffer.  Like so:
+//
+//    write_output_fmt(1, "rank %d hello!", rank);
+//
+void write_output_fmt(int log, const char* format, ...) {
+   char     msg[MESSAGESIZE];
+   va_list  args;
+
+   va_start(args, format);
+   vsnprintf(msg, MESSAGESIZE, format, args);
+   va_end(args);
+
+   write_output(msg, log);
 }
 
 
