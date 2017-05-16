@@ -2543,10 +2543,26 @@ public:
       }
 
       packedPathsCount = packedPaths.size();
-      while(!packedPaths.empty()) {
-         marfs_packed_cleanup(marfs_sub_path(packedPaths.back().path), packedPathsCount);
-         packedPaths.pop_back();
+
+      // set the post xattr for the files
+      for(
+              std::vector<path_item>::iterator it = packedPaths.begin();
+              it < packedPaths.end();
+              it++
+         ) {
+         marfs_packed_set_post(marfs_sub_path(it->path), packedPathsCount);
       }
+
+      // clear the restart xattr for the files
+      for(
+              std::vector<path_item>::iterator it = packedPaths.begin();
+              it < packedPaths.end();
+              it++
+         ) {
+         marfs_packed_clear_restart(marfs_sub_path(it->path));
+      }
+
+      packedPaths.clear();
 
       return true;
    }
