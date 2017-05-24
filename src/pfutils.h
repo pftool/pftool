@@ -85,9 +85,12 @@
 #define MESSAGESIZE    PATHSIZE_PLUS
 #define MESSAGEBUFFER  400
 
+// if you are trying to increase max pack size, STATBUFFER must be >= to
+// COPYBUFFER because it only collets one stat buffer worth of things before
+// shipping off.
 #define DIRBUFFER      5
-#define STATBUFFER     128
-#define COPYBUFFER     128
+#define STATBUFFER     4096
+#define COPYBUFFER     4096
 #define CHUNKBUFFER    COPYBUFFER
 #define TAPEBUFFER     5
 
