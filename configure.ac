@@ -142,6 +142,9 @@ AS_IF([test x"$enable_marfs" == xyes],
                               [AC_ERROR([could not find libmarfs])])])
   ])
 
+AC_CHECK_LIB([crypto], [MD5_Final])
+AC_CHECK_LIB([rt], [timer_settime])
+
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T

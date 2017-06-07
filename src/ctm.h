@@ -20,7 +20,10 @@
 #define      __CTM_H
 
 #include "config.h"
-#include <xfs/xfs.h>					// include because of BITS_PER_LONG define
+#include <attr/xattr.h>
+#include <asm/bitsperlong.h>
+
+#define BITS_PER_LONG __BITS_PER_LONG
 
 // configuration (via config.h) will define CTM_MODE to one of these values.
 // Use './configure --enable-ctm=value', where <value> is { xattrs | files | no }
