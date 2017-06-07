@@ -124,6 +124,8 @@ AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
 
+AC_CHECK_LIB([crypto], [MD5_Final])
+AC_CHECK_LIB([rt], [timer_settime])
 
 # checks for libraries.
 # NOTE: each test *prepends* its library to LIBS, so test for the
@@ -137,13 +139,11 @@ AS_IF([test x"$enable_marfs" == xyes],
    AC_CHECK_LIB([rdma_sockets], [skt_open])
    AC_CHECK_LIB([isal], [ec_encode_data])
    AC_CHECK_LIB([ne],   [ne_write])
+   AC_CHECK_LIB([dl], [dlclose])
    AC_CHECK_LIB([marfs], [mc_put], [],
                 [AC_CHECK_LIB([marfs], [marfs_open], [],
                               [AC_ERROR([could not find libmarfs])])])
   ])
-
-AC_CHECK_LIB([crypto], [MD5_Final])
-AC_CHECK_LIB([rt], [timer_settime])
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T
