@@ -203,9 +203,9 @@ int main(int argc, char *argv[]) {
         o.work_type = LSWORK;   // default op is to do a listing (not printed)
 
 #ifdef GEN_SYNDATA
-        o.syn_pattern[0] = '\0';	// Make sure synthetic data pattern file or name is clear
-        o.syn_size = 0;			// Clear the synthetic data size
-	o.syn_suffix[0] = '\0';		// Clear the synthetic data suffix
+        o.syn_pattern[0] = '\0'; // Make sure synthetic data pattern file or name is clear
+        o.syn_size = 0;          // Clear the synthetic data size
+        o.syn_suffix[0] = '\0';  // Clear the synthetic data suffix
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
@@ -257,13 +257,15 @@ int main(int argc, char *argv[]) {
 
             case 'x':
 #ifdef GEN_SYNDATA
-		int slen;
+                int slen;
 
                 o.syn_size = str2Size(optarg);
-		strncpy(o.syn_suffix,optarg,SYN_SUFFIX_MAX-2);			// two less, so that we can add a 'b' if needed
-		if (isdigit(o.syn_suffix[(slen=strlen(o.syn_suffix))-1])) {	// if last character is a digit -> add a 'b' for bytes
-		    o.syn_suffix[slen] = 'b'; o.syn_suffix[slen+1] = '\0';
-		}
+                strncpy(o.syn_suffix,optarg,SYN_SUFFIX_MAX-2); // two less, so that we can add a 'b' if needed
+
+                // if last character is a digit -> add a 'b' for bytes
+                if (isdigit(o.syn_suffix[(slen=strlen(o.syn_suffix))-1])) {
+                    o.syn_suffix[slen] = 'b'; o.syn_suffix[slen+1] = '\0';
+                }
 #else
                 errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
 #endif
@@ -667,7 +669,7 @@ int manager(int             rank,
 
     struct stat st;
 
-    path_item   beginning_node;
+    path_item   beginning_node = {0};
     path_item   dest_node;
     path_list*  iter = NULL;
     int         num_copied_files = 0;
@@ -746,7 +748,7 @@ int manager(int             rank,
         get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
         ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
-	// setup destination directory, if needed. Make sure -R has been specified!
+        // setup destination directory, if needed. Make sure -R has been specified!
         if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1 && o.recurse){
             //// #ifdef PLFS
             ////                 if (dest_node.ftype == PLFSFILE){
@@ -848,9 +850,9 @@ int manager(int             rank,
             errsend(FATAL, errmsg);
         }
 
-	// check to make sure that if the source is a directory, then -R was specified. If not, error out.
-	if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
-	    errsend_fmt(NONFATAL,"%s is a directory, but no recursive operation specified\n",beginning_node.path);
+        // check to make sure that if the source is a directory, then -R was specified. If not, error out.
+        if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
+            errsend_fmt(NONFATAL,"%s is a directory, but no recursive operation specified\n",beginning_node.path);
     }
 
     //pack our list into a buffer:
@@ -1680,8 +1682,8 @@ void worker_update_chunk(int            rank,
             hash_value = hashtbl_remove(*chunk_hash, out_node.path);               // remove structure for File from hash table
             hashdata_destroy(&hash_value);                          // we are done with the data
 
-	    PathPtr p_work(PathFactory::create_shallow(&work_node));
-	    PathPtr p_out(PathFactory::create_shallow(&out_node));
+            PathPtr p_work(PathFactory::create_shallow(&work_node));
+            PathPtr p_out(PathFactory::create_shallow(&out_node));
             update_stats(p_work, p_out, o);
         }
     }
@@ -3014,9 +3016,10 @@ void worker_copylist(int             rank,
 
         get_output_path(&out_node, base_path, &work_node, dest_node, o);
         out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
-	// Need Path objects for the copy_file at this point ...
-	PathPtr p_work( PathFactory::create_shallow(&work_node));
-	PathPtr p_out(PathFactory::create_shallow(&out_node));
+
+        // Need Path objects for the copy_file at this point ...
+        PathPtr p_work( PathFactory::create_shallow(&work_node));
+        PathPtr p_out(PathFactory::create_shallow(&out_node));
 
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
