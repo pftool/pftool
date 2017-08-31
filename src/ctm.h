@@ -21,9 +21,11 @@
 
 #include "config.h"
 #include <attr/xattr.h>
-#include <asm/bitsperlong.h>
 
-#define BITS_PER_LONG __BITS_PER_LONG
+#include <asm/bitsperlong.h>
+#ifndef BITS_PER_LONG
+#  define BITS_PER_LONG __BITS_PER_LONG
+#endif
 
 // configuration (via config.h) will define CTM_MODE to one of these values.
 // Use './configure --enable-ctm=value', where <value> is { xattrs | files | no }
