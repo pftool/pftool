@@ -14,31 +14,40 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
 
 
 # lets add some options to our CFLAGS variable
-AC_ARG_ENABLE(threads, [  --enable-threads]  [Run in threading mode])
+AC_ARG_ENABLE(threads,
+   AS_HELP_STRING([  --enable-threads], [Run in threading mode]))
 AM_CONDITIONAL([THREADS], [test x$enable_threads = xyes])
 
-AC_ARG_ENABLE(tape, [  --enable-tape]  [enable tape support])
+AC_ARG_ENABLE(tape,
+   AS_HELP_STRING([  --enable-tape], [enable tape support]))
 AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
 
-AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [enable fusechunker support])
+AC_ARG_ENABLE(fusechunker,
+   AS_HELP_STRING([  --enable-fusechunker], [enable fusechunker support]))
 AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
 
-AC_ARG_ENABLE(syndata, [  --enable-syndata]  [enable synthetic data generation support])
+AC_ARG_ENABLE(syndata,
+   AS_HELP_STRING([  --enable-syndata], [enable synthetic data generation support]))
 AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
 
-AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
+AC_ARG_ENABLE(plfs,
+   AS_HELP_STRING([  --enable-plfs], [enable plfs support]))
 AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
-AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
+AC_ARG_ENABLE(s3,
+   AS_HELP_STRING([  --enable-s3], [enable S3 support]))
 AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
 
-AC_ARG_ENABLE(marfs, [  --enable-marfs]  [enable marfs support])
+AC_ARG_ENABLE(marfs,
+   AS_HELP_STRING([  --enable-marfs], [enable marfs support]))
 AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
 
-AC_ARG_ENABLE(allstatic, [  --enable-allstatic]  [enable static linking of all libs])
+AC_ARG_ENABLE(allstatic,
+   AS_HELP_STRING([  --enable-allstatic], [enable static linking of all libs]))
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 
-AC_ARG_ENABLE(CTM, [  --enable-ctm]  [choose CTM mode = {xattrs | files | no}, default=files])
+AC_ARG_ENABLE(CTM,
+   AS_HELP_STRING([  --enable-ctm], [choose CTM mode = {xattrs | files | no}, default=files]))
 
 AC_CONFIG_HEADER([config.h])
 
@@ -131,13 +140,17 @@ AC_CHECK_LIB([rt], [timer_settime])
 # NOTE: each test *prepends* its library to LIBS, so test for the
 #       depended-on libs before the libs that depend on them.
 AS_IF([test x"$enable_marfs" == xyes],
-  [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
+  [AC_CHECK_LIB([crypto], [MD5_Init])
+   AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
    AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
    AC_CHECK_LIB([rdmacm], [rdma_getaddrinfo] )
    AC_CHECK_LIB([rdma_sockets], [skt_open])
    AC_CHECK_LIB([isal], [ec_encode_data])
+   AC_CHECK_LIB([ft],   [fast_timer_inits])
+   AC_CHECK_LIB([rt],   [timer_settime])
+   AC_CHECK_LIB([dl],   [dlclose])
    AC_CHECK_LIB([ne],   [ne_write])
    AC_CHECK_LIB([dl], [dlclose])
    AC_CHECK_LIB([marfs], [mc_put], [],
