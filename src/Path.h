@@ -2152,7 +2152,7 @@ public:
    virtual bool incomplete()           {
       expand_path_info(&fh.info, marfs_sub_path(_item->path));
 #if 0
-      stat_xattrs(&fh.info);
+      stat_xattrs(&fh.info, 0);
       return (has_any_xattrs(&fh.info, XVT_RESTART));
 #else
       // cheaper ...
@@ -2253,7 +2253,7 @@ public:
       //     Therefore, we can't just leave the md_fd open and expect the
       //     Path destructor to do everything, in worker_update_chunk().
       expand_path_info(info, marfs_sub_path(_item->path));
-      stat_xattrs(info);
+      stat_xattrs(info, 0);
 
       // we don't expect to be opened, but, if so, assure FH_WRITING is set
       if (_flags & IS_OPEN) {
