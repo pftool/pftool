@@ -242,6 +242,7 @@ struct options {
     size_t  chunk_at;
     size_t  chunksize;
     int     preserve;           				// attempt to preserve ownership during copies.
+    int testRun;                                // don't acutally do anything
 
     char exclude[PATHSIZE_PLUS]; 				// pattern/list to exclude
 
@@ -274,6 +275,7 @@ struct options {
     SrcDstFSType  sourcefs;
     SrcDstFSType  destfs;
 };
+extern struct options o;
 
 struct worker_proc_status {
     char inuse;

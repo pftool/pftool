@@ -1,15 +1,15 @@
 /*
-*This material was prepared by the Los Alamos National Security, LLC (LANS) under
-*Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
-*in the material are reserved by DOE on behalf of the Government and LANS
-*pursuant to the contract. You are authorized to use the material for Government
-*purposes but it is not to be released or distributed to the public. NEITHER THE
-*UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
-*NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
-*OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
-*COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
-*DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
-*/
+ *This material was prepared by the Los Alamos National Security, LLC (LANS) under
+ *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
+ *in the material are reserved by DOE on behalf of the Government and LANS
+ *pursuant to the contract. You are authorized to use the material for Government
+ *purposes but it is not to be released or distributed to the public. NEITHER THE
+ *UNITED STATES NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR THE LOS ALAMOS
+ *NATIONAL SECURITY, LLC, NOR ANY OF THEIR EMPLOYEES, MAKES ANY WARRANTY, EXPRESS
+ *OR IMPLIED, OR ASSUMES ANY LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY,
+ *COMPLETENESS, OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT, OR PROCESS
+ *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
+ */
 
 #include "config.h"
 #include <fcntl.h>
@@ -62,6 +62,7 @@ void usage () {
     printf (" [-v]         output verbosity [specify multiple times, to increase]\n");
     printf (" [-g]         debugging-level  [specify multiple times, to increase]\n");
     printf (" [-D]         The maximum number of readdir ranks, -1 allows all ranks to be used\n");
+    printf (" [-T]         Trial Run (just see if a copy is possible without copyting anything)\n");
     printf (" [-h]         print Usage information\n");
 
     printf("\n");
@@ -82,40 +83,40 @@ void usage () {
 }
 
 /**
-* Returns the PFTOOL internal command in string format.
-* See pfutils.h for the list of commands.
-*
-* @param cmdidx		the command (or command type)
-*
-* @return a string representation of the command
-*/
+ * Returns the PFTOOL internal command in string format.
+ * See pfutils.h for the list of commands.
+ *
+ * @param cmdidx		the command (or command type)
+ *
+ * @return a string representation of the command
+ */
 const char *cmd2str(OpCode cmdidx) {
-	static const char *CMDSTR[] = {
-			 "EXITCMD"
-			,"UPDCHUNKCMD"
-			,"BUFFEROUTCMD"
-			,"OUTCMD"
-			,"LOGCMD"
-			,"LOGONLYCMD"
-			,"QUEUESIZECMD"
-			,"STATCMD"
-			,"COMPARECMD"
-			,"COPYCMD"
-			,"PROCESSCMD"
-			,"INPUTCMD"
-			,"DIRCMD"
+    static const char *CMDSTR[] = {
+        "EXITCMD"
+            ,"UPDCHUNKCMD"
+            ,"BUFFEROUTCMD"
+            ,"OUTCMD"
+            ,"LOGCMD"
+            ,"LOGONLYCMD"
+            ,"QUEUESIZECMD"
+            ,"STATCMD"
+            ,"COMPARECMD"
+            ,"COPYCMD"
+            ,"PROCESSCMD"
+            ,"INPUTCMD"
+            ,"DIRCMD"
 #ifdef TAPE
-			,"TAPECMD"
-			,"TAPESTATCMD"
+            ,"TAPECMD"
+            ,"TAPESTATCMD"
 #endif
-			,"WORKDONECMD"
-			,"NONFATALINCCMD"
-			,"CHUNKBUSYCMD"
-			,"COPYSTATSCMD"
-			,"EXAMINEDSTATSCMD"
-				};
+            ,"WORKDONECMD"
+            ,"NONFATALINCCMD"
+            ,"CHUNKBUSYCMD"
+            ,"COPYSTATSCMD"
+            ,"EXAMINEDSTATSCMD"
+    };
 
-	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+    return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -128,8 +129,8 @@ char *printmode (mode_t aflag, char *buf) {
     static int m3[] = { 1, S_IREAD  >> 3, 'r', '-' };
     static int m4[] = { 1, S_IWRITE >> 3, 'w', '-' };
     static int m5[] = { 3, S_ISGID | (S_IEXEC >> 3), 's',
-                        S_IEXEC >> 3, 'x', S_ISGID, 'S', '-'
-                      };
+        S_IEXEC >> 3, 'x', S_ISGID, 'S', '-'
+    };
     static int m6[] = { 1, S_IREAD  >> 6, 'r', '-' };
     static int m7[] = { 1, S_IWRITE >> 6, 'w', '-' };
     static int m8[] = { 3, S_ISVTX | (S_IEXEC >> 6), 't', S_IEXEC >> 6, 'x', S_ISVTX, 'T', '-' };
@@ -154,51 +155,55 @@ char *printmode (mode_t aflag, char *buf) {
 }
 
 /**
-* This function walks the path, and creates all elements in 
-* the path as a directory - if they do not exist. It
-* basically does a "mkdir -p" programatically.
-*
-* @param thePath	the path to test and create
-* @param perms		the permission mode to use when
-* 			creating directories in this path
-*
-* @return 0 if all directories are succesfully created.
-* 	errno (i.e. non-zero) if there is an error. 
-* 	See "man -s 2 mkdir" for error description.
-*/
+ * This function walks the path, and creates all elements in 
+ * the path as a directory - if they do not exist. It
+ * basically does a "mkdir -p" programatically.
+ *
+ * @param thePath	the path to test and create
+ * @param perms		the permission mode to use when
+ * 			creating directories in this path
+ *
+ * @return 0 if all directories are succesfully created.
+ * 	errno (i.e. non-zero) if there is an error. 
+ * 	See "man -s 2 mkdir" for error description.
+ */
 int mkpath(char *thePath, mode_t perms) {
-	char *slash = thePath;				// point at the current "/" in the path
-	struct stat sbuf;				// a buffer to hold stat information
-	int save_errno;					// errno from mkdir()
+    char *slash = thePath;				// point at the current "/" in the path
+    struct stat sbuf;				// a buffer to hold stat information
+    int save_errno;					// errno from mkdir()
 
-	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
-							// then thePath will be created relative to CWD of process.
-	while(slash = strchr(slash,'/')) {		// start parsing thePath
-	  *slash = '\0';
-	  
-	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
-	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
-	      save_errno = errno;			// save off errno - in case of error...
-	      *slash = '/';
-	      return(save_errno);
-	    }
-	  }
-	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
-	    *slash = '/';
-	    return(ENOTDIR);
-	  }
-	  *slash = '/';slash++;				// increment slash ...
-	  while( *slash == '/') slash++;		// burn through any blank path elements
-	} // end mkdir loop
+    if(0 == o.testRun) {
+        while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
+        // then thePath will be created relative to CWD of process.
+        while(slash = strchr(slash,'/')) {		// start parsing thePath
+            *slash = '\0';
 
-	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
-	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
-	    return(save_errno = errno);			// save off errno - just to be sure ...
-	}
-	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
-	  return(ENOTDIR);
+            if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
+                if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
+                    save_errno = errno;			// save off errno - in case of error...
+                    *slash = '/';
+                    return(save_errno);
+                }
+            }
+            else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
+                *slash = '/';
+                return(ENOTDIR);
+            }
+            *slash = '/';slash++;				// increment slash ...
+            while( *slash == '/') slash++;		// burn through any blank path elements
+        } // end mkdir loop
 
-	return(0);
+        if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
+            if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
+                return(save_errno = errno);			// save off errno - just to be sure ...
+        }
+        else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
+            return(ENOTDIR);
+    } else {
+        // TODO: check permissions somehow without creating tree?
+    }
+
+    return(0);
 }
 
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
@@ -218,33 +223,33 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
 }
 
 /**
-* Low Level utility function to write a field of a data
-* structure - any data structure.
-*
-* @param fd		the open file descriptor
-* @param start		the starting memory address
-* 			(pointer) of the field
-* @param len		the length of the filed in bytes
-*
-* @return number of bytes written, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
-*/
+ * Low Level utility function to write a field of a data
+ * structure - any data structure.
+ *
+ * @param fd		the open file descriptor
+ * @param start		the starting memory address
+ * 			(pointer) of the field
+ * @param len		the length of the filed in bytes
+ *
+ * @return number of bytes written, If return
+ * 	is < 0, then there were problems writing,
+ * 	and the number can be taken as the errno.
+ */
 ssize_t write_field(int fd, void *start, size_t len) {
-	size_t  n;					// number of bytes written for a given call to write()
-	ssize_t tot = 0;				// total number of bytes written
-	char*   wstart = (char*)start;				// the starting point in the buffer
-	size_t  wcnt = len;				// the running count of bytes to write
+    size_t  n;					// number of bytes written for a given call to write()
+    ssize_t tot = 0;				// total number of bytes written
+    char*   wstart = (char*)start;				// the starting point in the buffer
+    size_t  wcnt = len;				// the running count of bytes to write
 
-	while(wcnt > 0) {
-	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
-	    return((ssize_t)-errno);
-	  tot += n;
-	  wstart += n;					// increment the start address by n
-	  wcnt -= n;					// decreamnt byte count by n
-	}
+    while(wcnt > 0) {
+        if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
+            return((ssize_t)-errno);
+        tot += n;
+        wstart += n;					// increment the start address by n
+        wcnt -= n;					// decreamnt byte count by n
+    }
 
-	return(tot);
+    return(tot);
 }
 
 #ifdef TAPE
@@ -333,7 +338,7 @@ int dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf) {
     }
     /* I probably should get more managed regions and check them all but
        I dont know how to find out how many I will have total
-     */
+       */
     nelemr = 1;
     if (dm_get_region (dump_dmapi_session, dmhandle, dmhandle_len, DM_NO_TOKEN, nelemr, regbufpr, &nelempr) != 0) {
         printf ("dm_get_region failed\n");
@@ -396,7 +401,7 @@ done:
     /* I know this done goto is crap but I am tired
        we now free up the dmapi resources and set our uid back to
        the original user
-     */
+       */
     dm_handle_free (dmhandle, dmhandle_len);
     if (dm_destroy_session (dump_dmapi_session) != 0) {
     }
@@ -410,73 +415,73 @@ done:
 // remove trailing chars w/out repeated calls to strlen();
 // inline
 void trim_trailing(int ch, char* path) {
-   if (path) {
-      for (size_t pos=strlen(path) -1; ((pos >= 0) && (path[pos] == ch)); --pos) {
-         path[pos] = '\0';
-      }
-   }
+    if (path) {
+        for (size_t pos=strlen(path) -1; ((pos >= 0) && (path[pos] == ch)); --pos) {
+            path[pos] = '\0';
+        }
+    }
 }
 
 
 // Install path into <item>.
 // We assume <base_path> has size at least PATHSIZE_PLUS.
 void get_base_path(char*            base_path,
-                   const path_item* item,
-                   int              wildcard) { // (<wildcard> is boolean)
+        const path_item* item,
+        int              wildcard) { // (<wildcard> is boolean)
 
-    char dir_name[PATHSIZE_PLUS];
-    struct stat st;
-    int rc;
-    char* path = (char*)item->path;
+            char dir_name[PATHSIZE_PLUS];
+            struct stat st;
+            int rc;
+            char* path = (char*)item->path;
 
-    ////#ifdef PLFS
-    ////    rc = plfs_getattr(NULL, path, &st, 0);
-    ////    if (rc != 0){
-    ////#endif
-    ////        rc = lstat(path, &st);
-    ////#ifdef PLFS
-    ////    }
-    ////#endif
-    ////    if (rc < 0) {
-    ////        fprintf(stderr, "Failed to stat path %s\n", path);
-    ////        MPI_Abort(MPI_COMM_WORLD, -1);
-    ////    }
-    //    item->ftype = TBD;          // so PathFactory knows path hasn't been classified
-    PathPtr p(PathFactory::create(item));
-    if (! p->stat()) {
-       fprintf(stderr, "get_base_path -- Failed to stat path %s\n", path);
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    st = p->st();
+            ////#ifdef PLFS
+            ////    rc = plfs_getattr(NULL, path, &st, 0);
+            ////    if (rc != 0){
+            ////#endif
+            ////        rc = lstat(path, &st);
+            ////#ifdef PLFS
+            ////    }
+            ////#endif
+            ////    if (rc < 0) {
+            ////        fprintf(stderr, "Failed to stat path %s\n", path);
+            ////        MPI_Abort(MPI_COMM_WORLD, -1);
+            ////    }
+            //    item->ftype = TBD;          // so PathFactory knows path hasn't been classified
+            PathPtr p(PathFactory::create(item));
+            if (! p->stat()) {
+                fprintf(stderr, "get_base_path -- Failed to stat path %s\n", path);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+            st = p->st();
 
 
-    // dirname() may alter its argument
-    char* path_copy = strdup(path);
-    strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
-    free(path_copy);
+            // dirname() may alter its argument
+            char* path_copy = strdup(path);
+            strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
+            free(path_copy);
 
-    if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)) {
-        strncpy(base_path, path, PATHSIZE_PLUS);
-    }
-    else if (S_ISDIR(st.st_mode) && wildcard == 0) {
-        strncpy(base_path, path, PATHSIZE_PLUS);
-    }
-    else {
-        strncpy(base_path, dir_name, PATHSIZE_PLUS);
-    }
-    trim_trailing('/', base_path);
-}
+            if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)) {
+                strncpy(base_path, path, PATHSIZE_PLUS);
+            }
+            else if (S_ISDIR(st.st_mode) && wildcard == 0) {
+                strncpy(base_path, path, PATHSIZE_PLUS);
+            }
+            else {
+                strncpy(base_path, dir_name, PATHSIZE_PLUS);
+            }
+            trim_trailing('/', base_path);
+        }
 
 
 // To the tail of <dest_path>, add '/' if needed, then append the last part
 // of the path in <beginning_node> (i.e. what 'basename' would return).
 // Put the result into dest_node->path.
 void get_dest_path(path_item*        dest_node, // fill this in
-                   const char*       dest_path, // from command-line arg
-                   const path_item*  beginning_node,
-                   int               makedir,
-                   int               num_paths,
-                   struct options&   o) {
+        const char*       dest_path, // from command-line arg
+        const path_item*  beginning_node,
+        int               makedir,
+        int               num_paths,
+        struct options&   o) {
     int         rc;
     struct stat beg_st;
     struct stat dest_st;
@@ -493,8 +498,8 @@ void get_dest_path(path_item*        dest_node, // fill this in
 
     //recursion special cases
     if (o.recurse
-        && (strncmp(temp_path, "..", PATHSIZE_PLUS) != 0)
-        && (o.work_type != COMPAREWORK)) {
+            && (strncmp(temp_path, "..", PATHSIZE_PLUS) != 0)
+            && (o.work_type != COMPAREWORK)) {
 
         beg_st = beginning_node->st;
 
@@ -513,9 +518,9 @@ void get_dest_path(path_item*        dest_node, // fill this in
         PathPtr d_dest(PathFactory::create(dest_path));
         dest_st = d_dest->st();
         if (d_dest->exists()
-            && S_ISDIR(dest_st.st_mode)
-            && S_ISDIR(beg_st.st_mode)
-            && (num_paths == 1))
+                && S_ISDIR(dest_st.st_mode)
+                && S_ISDIR(beg_st.st_mode)
+                && (num_paths == 1))
 
         {
             // append '/' to result
@@ -557,10 +562,10 @@ void get_dest_path(path_item*        dest_node, // fill this in
 //
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
 void get_output_path(path_item*        out_node, // fill in out_node.path
-                     const char*       base_path,
-                     const path_item*  src_node,
-                     const path_item*  dest_node,
-                     struct options&   o) {
+        const char*       base_path,
+        const path_item*  src_node,
+        const path_item*  dest_node,
+        struct options&   o) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
@@ -605,7 +610,7 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
         strncat(out_node->path, path_slice, remain);
     }
     if (path_slice_duped) {
-       free((void*)path_slice);
+        free((void*)path_slice);
     }
 }
 
@@ -639,10 +644,10 @@ int one_byte_read(const char *path) {
 //success, -1 on failure.  [0 means copy succeeded, 1 means a "deemed"
 //success.]
 int copy_file(PathPtr       p_src,
-              PathPtr       p_dest,
-              size_t        blocksize,
-              int           rank,
-              struct options& o)
+        PathPtr       p_dest,
+        size_t        blocksize,
+        int           rank,
+        struct options& o)
 {
     //MPI_Status status;
     int         rc;
@@ -661,8 +666,8 @@ int copy_file(PathPtr       p_src,
     //    size_t      length = src_file->length;
     off_t offset = (p_src->node().chkidx * p_src->node().chksz);
     off_t length = (((offset + p_src->node().chksz) > p_src->size())
-                    ? (p_src->size() - offset)
-                    : p_src->node().chksz);
+            ? (p_src->size() - offset)
+            : p_src->node().chksz);
 
     ////#ifdef PLFS
     ////    int         pid = getpid();
@@ -699,11 +704,15 @@ int copy_file(PathPtr       p_src,
         link_path[numchars] = '\0';
 
 
-        ////        rc = symlink(link_path, dest_file->path);
-        ////        if (rc < 0)
-        if (! p_dest->symlink(link_path)) {
-           errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s", p_dest->path(), link_path);
-           return -1;
+        if(0 == o.testRun) {
+            ////        rc = symlink(link_path, dest_file->path);
+            ////        if (rc < 0)
+            if (! p_dest->symlink(link_path)) {
+                errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s", p_dest->path(), link_path);
+                return -1;
+            }
+        } else {
+            // TODO: make sure that we can still create the dest symlink
         }
 
         if (update_stats(p_src, p_dest, o) != 0) {
@@ -719,9 +728,9 @@ int copy_file(PathPtr       p_src,
     if (blocksize) {
         buf = (char*)malloc(blocksize * sizeof(char));
         if (! buf) {
-           errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                       blocksize, p_src->path());
-           return -1;
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                    blocksize, p_src->path());
+            return -1;
         }
 
         memset(buf, '\0', blocksize);
@@ -733,55 +742,55 @@ int copy_file(PathPtr       p_src,
     //rc = MPI_File_open(MPI_COMM_SELF, source_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &src_fd);
 
 
-//#ifdef GEN_SYNDATA
-//    if (!syndataExists(synbuf)) {
-//#endif
+    //#ifdef GEN_SYNDATA
+    //    if (!syndataExists(synbuf)) {
+    //#endif
 
-        ////#ifdef PLFS
-        ////        if (src_file->ftype == PLFSFILE){
-        ////            src_fd = plfs_open(&plfs_src_fd, src_file->path, O_RDONLY, pid+rank, src_file->st.st_mode, NULL);
-        ////        }
-        ////        else {
-        ////#endif
-        ////            src_fd = open(src_file->path, O_RDONLY);
-        ////#ifdef PLFS
-        ////        }
-        ////#endif
-        ////        if (src_fd < 0) {
-        ////            sprintf(errormsg, "Failed to open file %s for read", src_file->path);
-        ////            errsend(NONFATAL, errormsg);
-        ////            return -1;
-        ////        }
+    ////#ifdef PLFS
+    ////        if (src_file->ftype == PLFSFILE){
+    ////            src_fd = plfs_open(&plfs_src_fd, src_file->path, O_RDONLY, pid+rank, src_file->st.st_mode, NULL);
+    ////        }
+    ////        else {
+    ////#endif
+    ////            src_fd = open(src_file->path, O_RDONLY);
+    ////#ifdef PLFS
+    ////        }
+    ////#endif
+    ////        if (src_fd < 0) {
+    ////            sprintf(errormsg, "Failed to open file %s for read", src_file->path);
+    ////            errsend(NONFATAL, errormsg);
+    ////            return -1;
+    ////        }
 
-       if (! p_src->open(O_RDONLY, p_src->mode())) {
-           errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
-           if (buf)
-              free(buf);
-           return -1;
-        }
+    if (! p_src->open(O_RDONLY, p_src->mode())) {
+        errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
+        if (buf)
+            free(buf);
+        return -1;
+    }
 
-//#ifdef GEN_SYNDATA
-//    }
-//#endif
+    //#ifdef GEN_SYNDATA
+    //    }
+    //#endif
     PRINT_IO_DEBUG("rank %d: copy_file() Copying chunk "
-                   "index %d. offset = %ld   length = %ld   blocksize = %ld\n",
-                   rank, p_src->node().chkidx, offset, length, blocksize);
+            "index %d. offset = %ld   length = %ld   blocksize = %ld\n",
+            rank, p_src->node().chkidx, offset, length, blocksize);
     // OPEN destination for writing
     //
     //rc = MPI_File_open(MPI_COMM_SELF, destination_file, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &dest_fd);
 
     // create appropriate flags
     if ((p_src->size() <= length) || (p_dest->node().fstype != PAN_FS)) {
-       // no chunking or not writing to PANFS - cds 6/2014
-       flags = O_WRONLY | O_CREAT;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT",
-                       p_dest->fstype_to_str());
+        // no chunking or not writing to PANFS - cds 6/2014
+        flags = O_WRONLY | O_CREAT;
+        PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT",
+                p_dest->fstype_to_str());
     }
     else {
-       // Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
-       flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
-       PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE",
-                       p_dest->fstype_to_str());
+        // Panasas FS needs O_CONCURRENT_WRITE set for file writes - cds 6/2014
+        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
+        PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE",
+                p_dest->fstype_to_str());
     }
 
     // do the open
@@ -811,319 +820,278 @@ int copy_file(PathPtr       p_src,
 
     // give destination the same mode as src, (access-bits only)
     mode_t dest_mode = p_src->mode() & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO);
-    if (! p_dest->open(flags, dest_mode, offset, length)) {
-       errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
-                   p_dest->path(), p_dest->strerror());
+    if(0 == o.testRun) {
+        if (! p_dest->open(flags, dest_mode, offset, length)) {
+            errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
+                    p_dest->path(), p_dest->strerror());
 
-       p_src->close();
-       if (buf)
-          free(buf);
-       return -1;
+            p_src->close();
+            if (buf)
+                free(buf);
+            return -1;
+        }
+
+
+        // copy contents from source to destination
+        while (completed != length) {
+
+            // .................................................................
+            // READ data from source (or generate it synthetically)
+            // .................................................................
+
+            //1 MB is too big
+            if ((length - completed) < blocksize) {
+                blocksize = (length - completed);
+            }
+
+            // Wasteful?  If we fail to read blocksize, we'll have a problem
+            // anyhow.  And if we succeed, then we'll wipe this all out with
+            // the data, anyhow.  [See also memsets in compare_file()]
+            //
+            //        memset(buf, '\0', blocksize);
+
+
+            //#ifdef GEN_SYNDATA
+            //        if (syndataExists(synbuf)) {
+            //           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
+            //
+            //           // Fill the buffer each time with new random data.
+            //           // -- I like my synthetic data random - cds 8/2016
+            //           if(rc = syndataFill(synbuf,buf,buflen)) {
+            //              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
+            //              errsend(NONFATAL, errormsg);
+            //             err = 1; break;  // return -1
+            //           }
+            //           bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
+            //        }
+            //        else {
+            //#endif
+
+            //
+            //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
+
+            ////#ifdef PLFS
+            ////           if (src_file->ftype == PLFSFILE) {
+            ////              // ported to PLFS 2.5
+            ////              /// bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, offset+completed);
+            ////              plfs_error_t err = plfs_read(plfs_src_fd, buf, blocksize, offset+completed, &bytes_processed);
+            ////           }
+            ////           else {
+            ////#endif
+            ////              bytes_processed = pread(src_fd, buf, blocksize, offset+completed);
+            ////#ifdef PLFS
+            ////           }
+            ////#endif
+            bytes_processed = p_src->read(buf, blocksize, offset+completed);
+
+            PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
+                    rank, bytes_processed, p_dest->path());
+
+
+            // ---------------------------------------------------------------------------
+            // MARFS EXPERIMENT.  We are seeing stalls on some reads from
+            // object-servers, in the case of many concurrent requests.  To
+            // deal with that, we'll try sending a new request for the part
+            // of the data we haven't received.  Large number of retries
+            // allows more-aggressive (i.e. shorter) timeouts waiting for a
+            // blocksize read from the stream.
+            //
+            // This problem could also be a single object-server that is
+            // unresponsive.  In the case of a MarFS configuration using
+            // host-randomization, retrying the read will also have the
+            // chance of targeting a different server.
+            //
+            // TBD: In a POSIX context, this is overkill.  You'd rather just
+            // retry the read.  For the case we're seeing with
+            // object-servers, we're skipping straight to what the problem
+            // seems to be, there, which is that we need to issue a fresh
+            // request, which is done implicitly by closing and re-opening.
+            //
+            // UPDATE: don't print warnings (or count non-fatal errors) for
+            // every retry.  If the set of retries fail, register one
+            // non-fatal error.  Otherwise, keep quiet.
+            // ---------------------------------------------------------------------------
+
+            retry_count = 0;
+            while ((bytes_processed != blocksize) && (retry_count < 5)) {
+
+                p_src->close();   // best effort
+
+                if (! p_src->open(O_RDONLY, p_src->mode(), offset+completed, length-completed)) {
+                    errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
+                            p_src->path(), offset, completed);
+                    if (buf)
+                        free(buf);
+                    return -1;
+                }
+
+                // try again ...
+                bytes_processed = p_src->read(buf, blocksize, offset+completed);
+                retry_count ++;
+            }
+            // END of EXPERIMENT
+
+
+            //#ifdef GEN_SYNDATA
+            //        }
+            //#endif
+
+
+            if (bytes_processed != blocksize) {
+                char retry_msg[128];
+                retry_msg[0] = 0;
+                if (retry_count)
+                    sprintf(retry_msg, " (retries = %d)", retry_count);
+
+                errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd%s: %s\n",
+                        p_src->path(), bytes_processed, blocksize, retry_msg, p_src->strerror());
+                err = 1; break;  // return -1
+            }
+            else if (retry_count) {
+                write_output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                        p_dest->path(), offset, completed, retry_count);
+            }
+
+
+
+            // .................................................................
+            // WRITE data to destination
+            // .................................................................
+
+            //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
+
+            ////#ifdef PLFS
+            ////        if (src_file->dest_ftype == PLFSFILE) {
+            ////           // ported to PLFS 2.5
+            ////           /// bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
+            ////           plfs_error_t err = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid, &bytes_processed);
+            ////        }
+            ////        else {
+            ////#endif
+            ////            bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
+            ////#ifdef PLFS
+            ////        }
+            ////#endif
+            bytes_processed = p_dest->write(buf, blocksize, offset+completed);
+
+            // ---------------------------------------------------------------------------
+            // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
+            // object-servers.  However, in the case of writes, we can't assume
+            // that a retry is even feasible.  For example, if some data was
+            // successfully written, then we can't necessarily resume writing
+            // after that.  pftool arranges with MarFS that N:1 writes will all
+            // start on object boundaries.  Therefore, *IFF* we are on the very
+            // first write, we can conceivably close, re-open, and retry.
+            //
+            // This approach will at least allow host-randomization to make us
+            // robust against unresponsive individual servers, provided they
+            // are unresponsive when we first try to write to them.
+            //
+            // DEEMED SUCCESS: Another thing that could be going on is a
+            // restart of an N:1 copy, where the destination is a newer Scality
+            // sproxyd install, where overwrites of an existing object-ID are
+            // forbidden.  In this case, the CTM bitmap, which is only updated
+            // periodically, might not yet know that this particular chunk was
+            // already written successfully.  In that case, provided the
+            // existing object has the correct length, we "deem" the write a
+            // success despite the fact that it failed.  Note that the error is
+            // not reported (i.e. the PUT doesn't fail, and writes appear to be
+            // succeeding) until we've written the LAST byte, perhaps because
+            // PUTs from pftool have a length field, and the server doesn't
+            // bother complaining about anything until the full-length request
+            // has been received.
+            //
+            // TBD: In a POSIX context, this is overkill.  You'd rather just
+            // retry the write.  For the case we're seeing with object-servers,
+            // we're skipping straight to what the problem seems to be, there,
+            // which is that we need to issue a fresh request, which is done
+            // implicitly by closing and re-opening.
+            // ---------------------------------------------------------------------------
+
+            retry_count = 0;
+            while ((bytes_processed != blocksize)
+                    && (retry_count < 5)
+                    && (completed == 0)) {
+
+                p_dest->close();     // best effort
+
+                if (! p_dest->open(flags, 0600, offset, length)) {
+                    errsend_fmt(NONFATAL, "(write-RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
+                            p_dest->path(), offset, completed, p_dest->strerror());
+
+                    p_src->close();
+                    if (buf)
+                        free(buf);
+                    return -1;
+                }
+
+                // try again ...
+                bytes_processed = p_dest->write(buf, blocksize, offset+completed);
+                retry_count ++;
+            }
+            // END of EXPERIMENT
+
+
+            // see "DEEMED SUCCESS", above
+            if ((bytes_processed == -blocksize)
+                    && (blocksize != 1) // TBD: how to distinguish this from an error?
+                    && ((completed + blocksize) == length)) {
+
+                bytes_processed = -bytes_processed; // "deemed success"
+                success = 1;        // caller can distinguish actual/deemed success
+                // err = 0; break;  // return -1;
+            }
+            else if (bytes_processed != blocksize) {
+                char retry_msg[128];
+                retry_msg[0] = 0;
+                if (retry_count)
+                    sprintf(retry_msg, " (retries = %d)", retry_count);
+
+                errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd%s: %s\n",
+                        p_dest->path(), offset, bytes_processed, blocksize, retry_msg, p_dest->strerror());
+                err = 1; break;  // return -1;
+            }
+            else if (retry_count) {
+                write_output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                        p_dest->path(), offset, completed, retry_count);
+            }
+
+            completed += blocksize;
+        }
+
+        // .................................................................
+        // CLOSE source and destination
+        // .................................................................
+        if (! p_dest->close()) {
+            errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
+                    p_dest->path(), p_dest->strerror());
+            err = 1;
+        }
+    } else {
+        // TODO: make sure we can still create the file on a dry run (testRun)
+        completed = length;
+    }
+
+    if (! p_src->close()) {
+        errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
+                p_src->path(), p_src->strerror());
+
+        // // This failure doesn't mean the copy failed.
+        // err = 1;
     }
 
 
-    // copy contents from source to destination
-    while (completed != length) {
-
-        // .................................................................
-        // READ data from source (or generate it synthetically)
-        // .................................................................
-
-        //1 MB is too big
-        if ((length - completed) < blocksize) {
-            blocksize = (length - completed);
-        }
-
-        // Wasteful?  If we fail to read blocksize, we'll have a problem
-        // anyhow.  And if we succeed, then we'll wipe this all out with
-        // the data, anyhow.  [See also memsets in compare_file()]
-        //
-        //        memset(buf, '\0', blocksize);
-
-
-//#ifdef GEN_SYNDATA
-//        if (syndataExists(synbuf)) {
-//           int buflen = blocksize * sizeof(char); // Make sure buffer length is the right size!
-//
-//           // Fill the buffer each time with new random data.
-//           // -- I like my synthetic data random - cds 8/2016
-//           if(rc = syndataFill(synbuf,buf,buflen)) {
-//              sprintf(errormsg, "Failed to copy from synthetic data buffer. err = %d", rc);
-//              errsend(NONFATAL, errormsg);
-//             err = 1; break;  // return -1
-//           }
-//           bytes_processed = buflen; // On a successful call to syndataFill(), bytes_processed equals 0
-//        }
-//        else {
-//#endif
-
-        //
-        //rc = MPI_File_read_at(src_fd, completed, buf, blocksize, MPI_BYTE, &status);
-
-           ////#ifdef PLFS
-           ////           if (src_file->ftype == PLFSFILE) {
-           ////              // ported to PLFS 2.5
-           ////              /// bytes_processed = plfs_read(plfs_src_fd, buf, blocksize, offset+completed);
-           ////              plfs_error_t err = plfs_read(plfs_src_fd, buf, blocksize, offset+completed, &bytes_processed);
-           ////           }
-           ////           else {
-           ////#endif
-           ////              bytes_processed = pread(src_fd, buf, blocksize, offset+completed);
-           ////#ifdef PLFS
-           ////           }
-           ////#endif
-           bytes_processed = p_src->read(buf, blocksize, offset+completed);
-
-           PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
-                          rank, bytes_processed, p_dest->path());
-
-
-           // ---------------------------------------------------------------------------
-           // MARFS EXPERIMENT.  We are seeing stalls on some reads from
-           // object-servers, in the case of many concurrent requests.  To
-           // deal with that, we'll try sending a new request for the part
-           // of the data we haven't received.  Large number of retries
-           // allows more-aggressive (i.e. shorter) timeouts waiting for a
-           // blocksize read from the stream.
-           //
-           // This problem could also be a single object-server that is
-           // unresponsive.  In the case of a MarFS configuration using
-           // host-randomization, retrying the read will also have the
-           // chance of targeting a different server.
-           //
-           // TBD: In a POSIX context, this is overkill.  You'd rather just
-           // retry the read.  For the case we're seeing with
-           // object-servers, we're skipping straight to what the problem
-           // seems to be, there, which is that we need to issue a fresh
-           // request, which is done implicitly by closing and re-opening.
-           //
-           // UPDATE: don't print warnings (or count non-fatal errors) for
-           // every retry.  If the set of retries fail, register one
-           // non-fatal error.  Otherwise, keep quiet.
-           // ---------------------------------------------------------------------------
-
-           retry_count = 0;
-           while ((bytes_processed != blocksize) && (retry_count < 5)) {
-
-              p_src->close();   // best effort
-
-              if (! p_src->open(O_RDONLY, p_src->mode(), offset+completed, length-completed)) {
-                 errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
-                             p_src->path(), offset, completed);
-                 if (buf)
-                    free(buf);
-                 return -1;
-              }
-
-              // try again ...
-              bytes_processed = p_src->read(buf, blocksize, offset+completed);
-              retry_count ++;
-           }
-           // END of EXPERIMENT
-
-
-//#ifdef GEN_SYNDATA
-//        }
-//#endif
-
-
-        if (bytes_processed != blocksize) {
-           char retry_msg[128];
-           retry_msg[0] = 0;
-           if (retry_count)
-              sprintf(retry_msg, " (retries = %d)", retry_count);
-
-           errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd%s: %s\n",
-                       p_src->path(), bytes_processed, blocksize, retry_msg, p_src->strerror());
-           err = 1; break;  // return -1
-        }
-        else if (retry_count) {
-           write_output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
-        }
-
-
-
-        // .................................................................
-        // WRITE data to destination
-        // .................................................................
-
-        //rc = MPI_File_write_at(dest_fd, completed, buf, blocksize, MPI_BYTE, &status );
-
-        ////#ifdef PLFS
-        ////        if (src_file->dest_ftype == PLFSFILE) {
-        ////           // ported to PLFS 2.5
-        ////           /// bytes_processed = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid);
-        ////           plfs_error_t err = plfs_write(plfs_dest_fd, buf, blocksize, completed+offset, pid, &bytes_processed);
-        ////        }
-        ////        else {
-        ////#endif
-        ////            bytes_processed = pwrite(dest_fd, buf, blocksize, completed+offset);
-        ////#ifdef PLFS
-        ////        }
-        ////#endif
-        bytes_processed = p_dest->write(buf, blocksize, offset+completed);
-
-        // ---------------------------------------------------------------------------
-        // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
-        // object-servers.  However, in the case of writes, we can't assume
-        // that a retry is even feasible.  For example, if some data was
-        // successfully written, then we can't necessarily resume writing
-        // after that.  pftool arranges with MarFS that N:1 writes will all
-        // start on object boundaries.  Therefore, *IFF* we are on the very
-        // first write, we can conceivably close, re-open, and retry.
-        //
-        // This approach will at least allow host-randomization to make us
-        // robust against unresponsive individual servers, provided they
-        // are unresponsive when we first try to write to them.
-        //
-        // DEEMED SUCCESS: Another thing that could be going on is a
-        // restart of an N:1 copy, where the destination is a newer Scality
-        // sproxyd install, where overwrites of an existing object-ID are
-        // forbidden.  In this case, the CTM bitmap, which is only updated
-        // periodically, might not yet know that this particular chunk was
-        // already written successfully.  In that case, provided the
-        // existing object has the correct length, we "deem" the write a
-        // success despite the fact that it failed.  Note that the error is
-        // not reported (i.e. the PUT doesn't fail, and writes appear to be
-        // succeeding) until we've written the LAST byte, perhaps because
-        // PUTs from pftool have a length field, and the server doesn't
-        // bother complaining about anything until the full-length request
-        // has been received.
-        //
-        // TBD: In a POSIX context, this is overkill.  You'd rather just
-        // retry the write.  For the case we're seeing with object-servers,
-        // we're skipping straight to what the problem seems to be, there,
-        // which is that we need to issue a fresh request, which is done
-        // implicitly by closing and re-opening.
-        // ---------------------------------------------------------------------------
-
-        retry_count = 0;
-        while ((bytes_processed != blocksize)
-               && (retry_count < 5)
-               && (completed == 0)) {
-
-           p_dest->close();     // best effort
-
-           if (! p_dest->open(flags, 0600, offset, length)) {
-              errsend_fmt(NONFATAL, "(write-RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
-                          p_dest->path(), offset, completed, p_dest->strerror());
-
-              p_src->close();
-              if (buf)
-                 free(buf);
-              return -1;
-           }
-
-           // try again ...
-           bytes_processed = p_dest->write(buf, blocksize, offset+completed);
-           retry_count ++;
-        }
-        // END of EXPERIMENT
-
-
-        // see "DEEMED SUCCESS", above
-        if ((bytes_processed == -blocksize)
-            && (blocksize != 1) // TBD: how to distinguish this from an error?
-            && ((completed + blocksize) == length)) {
-
-           bytes_processed = -bytes_processed; // "deemed success"
-           success = 1;        // caller can distinguish actual/deemed success
-           // err = 0; break;  // return -1;
-        }
-        else if (bytes_processed != blocksize) {
-           char retry_msg[128];
-           retry_msg[0] = 0;
-           if (retry_count)
-              sprintf(retry_msg, " (retries = %d)", retry_count);
-
-           errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd%s: %s\n",
-                       p_dest->path(), offset, bytes_processed, blocksize, retry_msg, p_dest->strerror());
-           err = 1; break;  // return -1;
-        }
-        else if (retry_count) {
-           write_output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
-        }
-
-        completed += blocksize;
-    }
-
-
-    // .................................................................
-    // CLOSE source and destination
-    // .................................................................
-
-//#ifdef GEN_SYNDATA
-//    if(!syndataExists(synbuf)) {
-//#endif
-
-       ////#ifdef PLFS
-       ////       if (src_file->ftype == PLFSFILE) {
-       ////           // ported to PLFS 2.5
-       ////           /// rc = plfs_close(plfs_src_fd, pid+rank, src_file->st.st_uid, O_RDONLY, NULL);
-       ////           int num_ref;
-       ////           rc = plfs_close(plfs_src_fd, pid+rank, src_file->st.st_uid, O_RDONLY, NULL, &num_ref);
-       ////       }
-       ////       else {
-       ////#endif
-       ////           rc = close(src_fd);
-       ////           if (rc != 0) {
-       ////               sprintf(errormsg, "Failed to close file: %s", src_file->path);
-       ////               errsend(NONFATAL, errormsg);
-       ////               err = 1; // return -1;
-       ////           }
-       ////#ifdef PLFS
-       ////       }
-       ////#endif
-       if (! p_src->close()) {
-          errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
-                      p_src->path(), p_src->strerror());
-
-          // // This failure doesn't mean the copy failed.
-          // err = 1;
-       }
-
-//#ifdef GEN_SYNDATA
-//    }
-//#endif
-
-
-
-    ////#ifdef PLFS
-    ////    if (src_file->dest_ftype == PLFSFILE) {
-    ////       // ported to PLFS 2.5
-    ////       /// rc = plfs_close(plfs_dest_fd, pid+rank, src_file->st.st_uid, flags, NULL);
-    ////       int num_ref;
-    ////       rc = plfs_close(plfs_dest_fd, pid+rank, src_file->st.st_uid, flags, NULL, &num_ref);
-    ////    }
-    ////    else {
-    ////#endif
-    ////        rc = close(dest_fd);
-    ////        if (rc != 0) {
-    ////            sprintf(errormsg, "Failed to close file: %s", dest_file->path);
-    ////            errsend(NONFATAL, errormsg);
-    ////            return -1;
-    ////        }
-    ////#ifdef PLFS
-    ////    }
-    ////#endif
-    if (! p_dest->close()) {
-       errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
-                   p_dest->path(), p_dest->strerror());
-       err = 1;
-    }
 
     if (buf)
-       free(buf);
+        free(buf);
 
     // even error-situations have now done clean-up
     if (err)
-       return -1;
+        return -1;
 
     if (offset == 0 && length == p_src->size()) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
-                       rank, p_dest->path());
+                rank, p_dest->path());
         if (update_stats(p_src, p_dest, o)) {
             return -1;
         }
@@ -1133,1415 +1101,1415 @@ int copy_file(PathPtr       p_src,
 }
 
 int compare_file(path_item*      src_file,
-                 path_item*      dest_file,
-                 size_t          blocksize,
-                 int             meta_data_only,
-                 struct options& o) {
+        path_item*      dest_file,
+        size_t          blocksize,
+        int             meta_data_only,
+        struct options& o) {
 
-   ////    struct stat  dest_st;
-   size_t       completed = 0;
-   char*        ibuf;
-   char*        obuf;
-   size_t       bytes_processed;
-   char         errormsg[MESSAGESIZE];
-   int          rc;
-   int          crc;
-   //    off_t        offset = src_file->offset;
-   //    size_t       length = src_file->length;
-   ////    off_t offset = (src_file->chkidx * src_file->chksz);
-   ////    off_t length = src_file->st.st_size;
-   off_t offset = (src_file->chkidx * src_file->chksz);
-   off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
-                   ? (src_file->st.st_size - offset)
-                   : src_file->chksz);
+    ////    struct stat  dest_st;
+    size_t       completed = 0;
+    char*        ibuf;
+    char*        obuf;
+    size_t       bytes_processed;
+    char         errormsg[MESSAGESIZE];
+    int          rc;
+    int          crc;
+    //    off_t        offset = src_file->offset;
+    //    size_t       length = src_file->length;
+    ////    off_t offset = (src_file->chkidx * src_file->chksz);
+    ////    off_t length = src_file->st.st_size;
+    off_t offset = (src_file->chkidx * src_file->chksz);
+    off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
+            ? (src_file->st.st_size - offset)
+            : src_file->chksz);
 
-   PathPtr p_src( PathFactory::create_shallow(src_file));
-   PathPtr p_dest(PathFactory::create_shallow(dest_file));
-
-
-   // assure dest exists
-   ////#ifdef FUSE_CHUNKER
-   ////    if (dest_file->ftype == FUSEFILE){
-   ////      if (stat(dest_file->path, &dest_st) == -1){
-   ////         return 2;
-   ////      }
-   ////    }
-   ////    else{
-   ////#endif
-   ////      // WHY NO PLFS CASE HERE?
-   ////      if (lstat(dest_file->path, &dest_st) == -1) {
-   ////        return 2;
-   ////      }
-   ////#ifdef FUSE_CHUNKER
-   ////    }
-   ////#endif
-   if (! p_dest->stat())
-      return 2;
-
-   //   if (src_file->st.st_size == dest_file->st.st_size
-   //       && (src_file->st.st_mtime == dest_file->st.st_mtime  ||
-   //           S_ISLNK(src_file->st.st_mode))
-   //       && (src_file->st.st_mode == dest_file->st.st_mode)
-   //       && (src_file->st.st_uid == dest_file->st.st_uid)
-   //       && (src_file->st.st_gid == dest_file->st.st_gid)) {
-   if (samefile(p_src, p_dest, o)) {
-
-      //metadata compare
-      if (meta_data_only) {
-         return 0;
-      }
-
-      //byte compare
-      // allocate buffers and open files ...
-      ibuf = (char*)malloc(blocksize * sizeof(char));
-      if (! ibuf) {
-         errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                     blocksize, src_file->path);
-         return -1;
-      }
-
-      obuf = (char*)malloc(blocksize * sizeof(char));
-      if (! obuf) {
-         errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                     blocksize, dest_file->path);
-         free(ibuf);
-         return -1;
-      }
-
-      ////        src_fd = open(src_file->path, O_RDONLY);
-      ////        if (src_fd < 0) {
-      ////            sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
-      ////            errsend(NONFATAL, errormsg);
-      ////            return -1;
-      ////        }
-      if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset, length)) {
-         errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
-         free(ibuf);
-         free(obuf);
-         return -1;
-      }
-
-      ////        dest_fd = open(dest_file->path, O_RDONLY);
-      ////        if (dest_fd < 0) {
-      ////            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
-      ////            errsend(NONFATAL, errormsg);
-      ////            return -1;
-      ////        }
-      if (! p_dest->open(O_RDONLY, dest_file->st.st_mode, offset, length)) {
-         errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
-         free(ibuf);
-         free(obuf);
-         return -1;
-      }
-
-      //incase someone accidently set an offset+length that exceeds the file bounds
-      if ((src_file->st.st_size - offset) < length) {
-         length = src_file->st.st_size - offset;
-      }
-      //a file less than blocksize
-      if (length < blocksize) {
-         blocksize = length;
-      }
-      crc = 0;
-      while (completed != length) {
-
-         // Wasteful?  If we fail to read blocksize, we'll have a problem
-         // anyhow.  And if we succeed, then we'll wipe this all out with
-         // the data, anyhow.  [See also memsets in copy_file()]
-         //
-         //            memset(ibuf, 0, blocksize);
-         //            memset(obuf, 0, blocksize);
-
-         //blocksize is too big
-         if ((length - completed) < blocksize) {
-            blocksize = (length - completed);
-         }
-         ////            bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
-         bytes_processed = p_src->read(ibuf, blocksize, completed+offset);
-         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
-                    src_file->path, bytes_processed, blocksize);
-            errsend(NONFATAL, errormsg);
-            free(ibuf);
-            free(obuf);
-            return -1;
-         }
-         ////            bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
-         bytes_processed = p_dest->read(obuf, blocksize, completed+offset);
-         if (bytes_processed != blocksize) {
-            sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
-                    dest_file->path, bytes_processed, blocksize);
-            errsend(NONFATAL, errormsg);
-            free(ibuf);
-            free(obuf);
-            return -1;
-         }
-         //compare - if no compare crc=1 if compare crc=0 and get out of loop
-         crc = memcmp(ibuf,obuf,blocksize);
-         //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",
-         //       src_file, dest_file, completed+offset, blocksize, crc);
-         if (crc != 0) {
-            completed=length;
-         }
-         completed += blocksize;
-      }
-      ////        rc = close(src_fd);
-      ////        if (rc != 0) {
-      if (! p_src->close()) {
-         sprintf(errormsg, "Failed to close src file: %s", src_file->path);
-         errsend(NONFATAL, errormsg);
-         free(ibuf);
-         free(obuf);
-         return -1;
-      }
-      ////        rc = close(dest_fd);
-      ////        if (rc != 0) {
-      if (! p_dest->close()) {
-         sprintf(errormsg, "Failed to close dst file: %s", dest_file->path);
-         errsend(NONFATAL, errormsg);
-         free(ibuf);
-         free(obuf);
-         return -1;
-      }
-      free(ibuf);
-      free(obuf);
-      if (crc != 0)
-         return 1;
-      else
-         return 0;
-   }
-   else
-      return 1;
-
-   return 0;
-}
+    PathPtr p_src( PathFactory::create_shallow(src_file));
+    PathPtr p_dest(PathFactory::create_shallow(dest_file));
 
 
-
-
-// make <dest_file> have the same meta-data as <src_file>
-// We assume that <src_file>.dest_ftype applies to <dest_file>
-int update_stats(PathPtr      p_src,
-                 PathPtr      p_dst,
-                 struct options& o) {
-
-    int            rc;
-    char           errormsg[MESSAGESIZE];
-    int            mode;
-
-    // don't touch the destination, unless this is a COPY
-    if (o.work_type != COPYWORK)
-       return 0;
-
-    // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
-    // NOTE: Path::follow() is false, by default
-    path_item  dest_copy(p_dst->node());
-    dest_copy.ftype = p_src->dest_ftype();
-    PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
-
-    // if running as root, always update <dest_file> owner  (without following links)
-    // non-root user can also attempt this, by setting "preserve" (with -o)
-    //
-    ////#ifdef PLFS
-    ////    if (src_file->dest_ftype == PLFSFILE){
-    ////        rc = plfs_chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+    // assure dest exists
+    ////#ifdef FUSE_CHUNKER
+    ////    if (dest_file->ftype == FUSEFILE){
+    ////      if (stat(dest_file->path, &dest_st) == -1){
+    ////         return 2;
+    ////      }
     ////    }
     ////    else{
     ////#endif
-    ////        rc = lchown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
-    ////#ifdef PLFS
-    ////    }   
-    ////#endif
-    ////    if (rc != 0) {
-    ////        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d",
-    ////                dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
-    ////        errsend(NONFATAL, errormsg);
-    ////    }
-    if (0 == geteuid() || o.preserve) {
-       if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
-          errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
-                      p_dest->path(), p_dest->strerror());
-       }
-    }
-
-
-    // ignore symlink destinations
-    if (p_src->is_link())
-        return 0;
-
-
-    
-    // update <dest_file> owner  [ FUSEFILE version ]
-#ifdef FUSE_CHUNKER
-    if (src_file->dest_ftype == FUSEFILE){
-       ////        rc = chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
-       ////        if (rc != 0) {
-       ////            sprintf(errormsg, "Failed to change ownership of fuse chunked file: %s to %d:%d",
-       ////                    dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
-       ////            errsend(NONFATAL, errormsg);
-       ////        }
-       if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
-          errsend_fmt(NONFATAL, "update_stats -- Failed to chown fuse chunked file %s: %s\n",
-                      p_dest->path(), p_dest->strerror());
-       }
-    }
-#endif
-
-
-
-    // update <dest_file> access-permissions
-    mode = p_src->mode() & 07777;
-    ////#ifdef PLFS
-    ////    if (src_file->dest_ftype == PLFSFILE){
-    ////        rc = plfs_chmod(dest_file->path, mode);
-    ////    }
-    ////    else{
-    ////#endif
-    ////        rc = chmod(dest_file->path, mode);
-    ////#ifdef PLFS
+    ////      // WHY NO PLFS CASE HERE?
+    ////      if (lstat(dest_file->path, &dest_st) == -1) {
+    ////        return 2;
+    ////      }
+    ////#ifdef FUSE_CHUNKER
     ////    }
     ////#endif
-    ////    if (rc != 0) {
-    ////        sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file->path, mode);
-    ////        errsend(NONFATAL, errormsg);
-    ////    }
-    if (! p_dest->chmod(mode)) {
-       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
-                   p_dest->path(), p_dest->strerror());
-    }
-
-    // perform any final adjustments on destination, before we set atime/mtime
-//    PathPtr p_src(PathFactory::create_shallow(src_file));
-    p_dest->post_process(p_src);
-
-    // update <dest_file> atime and mtime
-    //
-    ////#ifdef PLFS
-    ////    if (src_file->dest_ftype == PLFSFILE){
-    ////        rc = plfs_utime(dest_file->path, &ut);
-    ////    }
-    ////    else{
-    ////#endif
-    ////        rc = utime(dest_file->path, &ut);
-    ////#ifdef PLFS
-    ////    }
-    ////#endif
-    ////    if (rc != 0) {
-    ////        sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file->path);
-    ////        errsend(NONFATAL, errormsg);
-    ////    }
-    struct timespec times[2];
-
-    times[0].tv_sec  = p_src->st().st_atim.tv_sec;
-    times[0].tv_nsec = p_src->st().st_atim.tv_nsec;
-
-    times[1].tv_sec  = p_src->st().st_mtim.tv_sec;
-    times[1].tv_nsec = p_src->st().st_mtim.tv_nsec;
-
-    if (! p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW)) {
-       errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
-                   p_dest->path(), p_dest->strerror());
-    }
-
-
-    return 0;
-}
-
-
-//local functions only
-int request_response(int type_cmd) {
-    MPI_Status status;
-    int response;
-    send_command(MANAGER_PROC, type_cmd);
-    if (MPI_Recv(&response, 1, MPI_INT, MANAGER_PROC, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
-       errsend(FATAL, "Failed to receive response\n");
-    }
-    return response;
-}
-
-int request_input_queuesize() {
-    return request_response(QUEUESIZECMD);
-}
-
-void send_command(int target_rank, int type_cmd) {
-#ifdef MPI_DEBUG
-    int rank;
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    PRINT_MPI_DEBUG("rank %d: Sending command %d to target rank %d\n", rank, type_cmd, target_rank);
-#endif
-    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {//Tell a rank it's time to begin processing
-        fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-
-// This is unused (?)
-void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count) {
-    int path_count = 0, position = 0;
-    int worksize, workcount;
-    if (num_send <= *list_count) {
-        workcount = num_send;
-    }
-    else {
-        workcount = *list_count;
-    }
-    worksize = workcount * sizeof(path_item);
-
-    char *workbuf = (char*)malloc(worksize * sizeof(char));
-    if (! workbuf) {
-       fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-
-    while(path_count < workcount) {
-        path_count++;
-        MPI_Pack(&(*list_head)->data, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
-        dequeue_node(list_head, list_tail, list_count);
-    }
-    //send the command to get started
-    send_command(target_rank, command);
-    //send the # of paths
-    if (MPI_Send(&workcount, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send workcount %d to rank %d\n", workcount, target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send workbuf to rank %d\n",  target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    free(workbuf);
-}
-
-void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count) {
-    int         i;
-    int         position = 0;
-    int         worksize;
-    char*       workbuf;
-    path_item   work_node;
-    path_item*  work_node_ptr;  /* avoid unnecessary copying */
-
-    worksize = *buffer_count * sizeof(path_item);
-    workbuf = (char *) malloc(worksize * sizeof(char));
-    if (! workbuf) {
-       fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    for (i = 0; i < *buffer_count; i++) {
-        work_node_ptr = &buffer[i];
-        MPI_Pack(work_node_ptr, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
-    }
-    send_command(target_rank, command);
-    if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send buffer_count %d to rank %d\n", *buffer_count, target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send workbuf to rank %d\n", target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    *buffer_count = 0;
-    free(workbuf);
-}
-
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize) {
-    int size = (*workbuflist)->size;
-    int worksize = sizeof(path_item) * size;
-    send_command(target_rank, command);
-    if (MPI_Send(&size, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send workbuflist size %d to rank %d\n", size, target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    dequeue_buf_list(workbuflist, workbufsize);
-}
-
-//manager
-void send_manager_nonfatal_inc() {
-    send_command(MANAGER_PROC, NONFATALINCCMD);
-}
-
-void send_manager_chunk_busy() {
-    send_command(MANAGER_PROC, CHUNKBUSYCMD);
-}
-
-void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
-    send_command(MANAGER_PROC, COPYSTATSCMD);
-    //send the # of paths
-    if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_copied_files %d to rank %d\n", num_copied_files, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    //send the # of paths
-    if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_copied_byes %zd to rank %d\n", num_copied_bytes, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes) {
-    send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
-    //send the # of paths
-    if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_files %d to rank %d\n", num_examined_files, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_bytes %zd to rank %d\n", num_examined_bytes, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_dirs %d to rank %d\n", num_examined_dirs, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(&num_finished_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_finished_bytes %zd to rank %d\n", num_finished_bytes, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-
-}
-
-#ifdef TAPE
-void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes) {
-    send_command(MANAGER_PROC, TAPESTATCMD);
-    //send the # of paths
-    if (MPI_Send(&num_examined_tapes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_tapes %d to rank %d\n", num_examined_tapes, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(&num_examined_tape_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to send num_examined_tape_bytes %zd to rank %d\n", num_examined_tape_bytes, MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-#endif
-
-
-void send_manager_regs_buffer(path_item *buffer, int *buffer_count) {
-    //sends a chunk of regular files to the manager
-    send_path_buffer(MANAGER_PROC, PROCESSCMD, buffer, buffer_count);
-}
-
-void send_manager_dirs_buffer(path_item *buffer, int *buffer_count) {
-    //sends a chunk of regular files to the manager
-    send_path_buffer(MANAGER_PROC, DIRCMD, buffer, buffer_count);
-}
-
-#ifdef TAPE
-void send_manager_tape_buffer(path_item *buffer, int *buffer_count) {
-    //sends a chunk of regular files to the manager
-    send_path_buffer(MANAGER_PROC, TAPECMD, buffer, buffer_count);
-}
-#endif
-
-void send_manager_new_buffer(path_item *buffer, int *buffer_count) {
-    //send manager new inputs
-    send_path_buffer(MANAGER_PROC, INPUTCMD, buffer, buffer_count);
-}
-
-void send_manager_work_done(int ignored) {
-    //the worker is finished processing, notify the manager
-    send_command(MANAGER_PROC, WORKDONECMD);
-}
-
-//worker
-void update_chunk(path_item *buffer, int *buffer_count) {
-    send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
-}
-
-void write_output(const char *message, int log) {
-    //write a single line using the outputproc
-    //set the command type
-    if (log == 0) {
-        send_command(OUTPUT_PROC, OUTCMD);
-    }
-    else if (log == 1) {
-        send_command(OUTPUT_PROC, LOGCMD);
-    }
-    else if (log == 2) {
-        send_command(OUTPUT_PROC, LOGONLYCMD);
-    }
-
-    //send the message
-    if (MPI_Send((void*)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-
-// This allows caller to use inline formatting, without first snprintf() to
-// a local errmsg-buffer.  Like so:
-//
-//    write_output_fmt(1, "rank %d hello!", rank);
-//
-void write_output_fmt(int log, const char* format, ...) {
-   char     msg[MESSAGESIZE];
-   va_list  args;
-
-   va_start(args, format);
-   vsnprintf(msg, MESSAGESIZE, format, args);
-   va_end(args);
-
-   write_output(msg, log);
-}
-
-
-void write_buffer_output(char *buffer, int buffer_size, int buffer_count) {
-    //write a buffer to the output proc
-    //set the command type
-    send_command(OUTPUT_PROC, BUFFEROUTCMD);
-    //send the size of the buffer
-    if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-void send_worker_queue_count(int target_rank, int queue_count) {
-    if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
-        fprintf(stderr, "Failed to queue_count %d to rank %d\n", queue_count, target_rank);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
-    //send a worker a buffer list of paths to stat
-    send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
-}
-
-#ifdef TAPE
-void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
-    //send a worker a buffer list of paths to stat
-    send_buffer_list(target_rank, TAPECMD, workbuflist, workbufsize);
-}
-#endif
-
-void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
-    //send a worker a list buffers with paths to copy
-    send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
-}
-
-void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
-    //send a worker a list buffers with paths to compare
-    send_buffer_list(target_rank, COMPARECMD, workbuflist, workbufsize);
-}
-
-void send_worker_exit(int target_rank) {
-    //order a rank to exit
-    send_command(target_rank, EXITCMD);
-}
-
-
-static void errsend_internal(int fatal, const char* errormsg) {
-    write_output(errormsg, 1);
-
-    if (fatal) {
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    else {
-        send_manager_nonfatal_inc();
-    }
-}
-
-//functions that workers use
-void errsend(int fatal, const char *error_text) {
-    //send an error message to the outputproc. Die if fatal.
-    char errormsg[MESSAGESIZE];
-
-    if (fatal)
-       snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n", error_text);
-    else
-       snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
-
-    errsend_internal(fatal, errormsg);
-}
-
-// This allows caller to use inline formatting, without first snprintf() to
-// a local errmsg-buffer.  Like so:
-//
-//    errsend_fmt(nonfatal, "rank %d hello!", rank);
-//
-void errsend_fmt(int fatal, const char* format, ...) {
-   char     errormsg[MESSAGESIZE];
-   va_list  args;
-
-   snprintf(errormsg, MESSAGESIZE, "ERROR %sFATAL: ", (fatal ? "" : "NON"));
-   size_t offset = strlen(errormsg);
-
-   va_start(args, format);
-   vsnprintf(errormsg+offset, MESSAGESIZE-offset, format, args);
-   va_end(args);
-
-   errsend_internal(fatal, errormsg);
-}
-
-
-
-
-#ifdef FUSE_CHUNKER
-int is_fuse_chunk(const char *path, struct options& o) {
-  if (path && strstr(path, o.fuse_path)){
-    return 1;
-  } 
-  else{
-    return 0;
-  }
-}
-
-// A path_item (which is presumed to have ftype FUSEFILE), should be a
-// symlink.  The symlink name consists of at least 4 tokens, separated by
-// '.'.  The fourth token is the length of the chunk.  (What chunk?)
-void set_fuse_chunk_data(path_item *work_node) {
-    int        i;
-    int        numchars;
-    char       linkname[PATHSIZE_PLUS];
-    char       baselinkname[PATHSIZE_PLUS];
-    const char delimiters[] =  ".";
-    char*      current;
-    char       errormsg[MESSAGESIZE];
-    size_t     length;
-    PathPtr p(PathFactory::create_shallow(work_node));
-
-    // memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
-    numchars = p->readlink(linkname, PATHSIZE_PLUS);
-    if (numchars < 0) {
-        sprintf(errormsg, "Failed to read link %s\n", work_node->path);
-        errsend(NONFATAL, errormsg);
-        return;
-    }
-    else if (numchars >= PATHSIZE_PLUS) {
-       sprintf(errormsg, "readlink %s, no room for '\\0'", work_node->path);
-       errsend(NONFATAL, errormsg);
-       return -1;
-    }
-    linkname[numchars] = '\0';
-
-    // "length" is found in the 4th token
-    strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
-    current = strdup(baselinkname);
-    strtok(current, delimiters);
-    for (i = 0; i < 2; i++) {
-        strtok(NULL, delimiters);
-    }
-    length = atoll(strtok(NULL, delimiters));
-    free(current);
-
-    // assign to <work_node>
-    //    work_node->offset = 0;
-    //    work_node->length = length;
-    work_node->chkidx = 0;
-    work_node->chksz = length;
-}
-
-
-// fuse-chunker path has extended attributes for each corresponding chunk.
-// The attributes have names like "user.chunk_<n>", where <n> is the chunk
-// number.  The corresponding value is a string like "<atime> <mtime> <uid>
-// <gid>", where these are the corresponding values for that chunk.
-//
-// Given an offset and chunk-size (i.e. <length>), compute the chunk
-// number, generate the corresponding attribute-name, retrieve the extended
-// attrbitues, and parse them into the provided pointed-to values.
-// 
-int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t* groupid) {
-    char   value[10000];
-    int    valueLen = 0;
-    char   chunk_name[50];
-    int    chunk_num = 0;
-
-    if (length == 0) {
-        return -1;
-    }
-    chunk_num = offset/length;
-    snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
-#ifdef __APPLE__
-    valueLen = getxattr(path, chunk_name, value, 10000, 0, 0);
-#else
-    valueLen = getxattr(path, chunk_name, value, 10000);
-#endif
-    if (valueLen != -1) {
-        sscanf(value, "%10lld %10lld %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), userid, groupid);
-    }
-    else {
-        return -1;
-    }
-    return 0;
-}
-
-int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid) {
-    char value[10000];
-    int valueLen = 0;
-    char chunk_name[50];
-    int chunk_num = 0;
-    chunk_num = offset/length;
-    snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
-    sprintf(value, "%lld %lld %d %d", (long long int) ut.actime, (long long int ) ut.modtime, userid, groupid);
-#ifdef __APPLE__
-    valueLen = setxattr(path, chunk_name, value, 10000, 0, XATTR_CREATE);
-#else
-    valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
-#endif
-    if (valueLen != -1) {
-        return 0;
-    }
-    else {
-        return -1;
-    }
-}
-#endif
-
-
-
-// Takes a work node (with a path installed), stats it, and figures out
-// some of its characteristics.  Updates the following fields:
-//
-//   work_node.ftype
-//   work_node.dest_ftype
-//   work_node.st
-//
-// The PathFactory looks at path_item.ftype, to determin what type of
-// subclass to create.  As a result, when the path factory is given just a
-// path_name, or an uninitialized path_item, it uses this function to
-// initialize the ftype, so it can then determine which Path-subclass to
-// create.  Therefore: DO NOT RETURN WITHOUT INITIALIZING FTYPE!
-//
-int stat_item(path_item *work_node, struct options& o) {
-    char        errmsg[MESSAGESIZE];
-    struct stat st;
-    int         rc;
-
-    //dmapi
-#ifdef TAPE
-    uid_t uid;
-    int   dmarray[3];
-    char  hexbuf[128];
-#endif
-
-    int  numchars;
-    char linkname[PATHSIZE_PLUS];
-
-    // defaults
-    work_node->ftype      = REGULARFILE;
-    work_node->dest_ftype = REGULARFILE;
-
-    bool  got_type = false;
-
-#ifdef S3
-    // --- is it an S3 path?
-    if ( (! strncmp(work_node->path, "http://",  7)) ||
-         (! strncmp(work_node->path, "https://", 8))) {
-
-       // if it matches the prefixes, it *is* an S3-path, whether it exists or not
-       work_node->ftype = S3FILE;
-       got_type = true;
-
-       bool okay = S3_Path::fake_stat(work_node->path, &st); // return non-zero for success
-       if (! okay) {
-          return -1;
-       }
-    }
-#endif
-
-#ifdef MARFS
-    // --- is it a MARFS path?
-    if(! got_type) {
-       fflush(stdout);
-       if ( under_mdfs_top(work_node->path) ) {
-           return -1;
-       }
-
-       if ( (! strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len))
-            && ((   work_node->path[marfs_config->mnt_top_len] == 0)
-                || (work_node->path[marfs_config->mnt_top_len] == '/'))) {
-
-           work_node->ftype = MARFSFILE;
-           got_type = true;
-
-        bool okay = MARFS_Path::mar_stat(work_node->path, &st);
-        if (!okay){
-           return -1;
+    if (! p_dest->stat())
+        return 2;
+
+    //   if (src_file->st.st_size == dest_file->st.st_size
+    //       && (src_file->st.st_mtime == dest_file->st.st_mtime  ||
+    //           S_ISLNK(src_file->st.st_mode))
+    //       && (src_file->st.st_mode == dest_file->st.st_mode)
+    //       && (src_file->st.st_uid == dest_file->st.st_uid)
+    //       && (src_file->st.st_gid == dest_file->st.st_gid)) {
+    if (samefile(p_src, p_dest, o)) {
+
+        //metadata compare
+        if (meta_data_only) {
+            return 0;
         }
-      }
+
+        //byte compare
+        // allocate buffers and open files ...
+        ibuf = (char*)malloc(blocksize * sizeof(char));
+        if (! ibuf) {
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                    blocksize, src_file->path);
+            return -1;
+        }
+
+        obuf = (char*)malloc(blocksize * sizeof(char));
+        if (! obuf) {
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+                    blocksize, dest_file->path);
+            free(ibuf);
+            return -1;
+        }
+
+        ////        src_fd = open(src_file->path, O_RDONLY);
+        ////        if (src_fd < 0) {
+        ////            sprintf(errormsg, "Failed to open file %s for compare source", src_file->path);
+        ////            errsend(NONFATAL, errormsg);
+        ////            return -1;
+        ////        }
+        if (! p_src->open(O_RDONLY, src_file->st.st_mode, offset, length)) {
+            errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
+            free(ibuf);
+            free(obuf);
+            return -1;
+        }
+
+        ////        dest_fd = open(dest_file->path, O_RDONLY);
+        ////        if (dest_fd < 0) {
+        ////            sprintf(errormsg, "Failed to open file %s for compare destination", dest_file->path);
+        ////            errsend(NONFATAL, errormsg);
+        ////            return -1;
+        ////        }
+        if (! p_dest->open(O_RDONLY, dest_file->st.st_mode, offset, length)) {
+            errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
+            free(ibuf);
+            free(obuf);
+            return -1;
+        }
+
+        //incase someone accidently set an offset+length that exceeds the file bounds
+        if ((src_file->st.st_size - offset) < length) {
+            length = src_file->st.st_size - offset;
+        }
+        //a file less than blocksize
+        if (length < blocksize) {
+            blocksize = length;
+        }
+        crc = 0;
+        while (completed != length) {
+
+            // Wasteful?  If we fail to read blocksize, we'll have a problem
+            // anyhow.  And if we succeed, then we'll wipe this all out with
+            // the data, anyhow.  [See also memsets in copy_file()]
+            //
+            //            memset(ibuf, 0, blocksize);
+            //            memset(obuf, 0, blocksize);
+
+            //blocksize is too big
+            if ((length - completed) < blocksize) {
+                blocksize = (length - completed);
+            }
+            ////            bytes_processed = pread(src_fd, ibuf, blocksize, completed+offset);
+            bytes_processed = p_src->read(ibuf, blocksize, completed+offset);
+            if (bytes_processed != blocksize) {
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                        src_file->path, bytes_processed, blocksize);
+                errsend(NONFATAL, errormsg);
+                free(ibuf);
+                free(obuf);
+                return -1;
+            }
+            ////            bytes_processed = pread(dest_fd, obuf, blocksize, completed+offset);
+            bytes_processed = p_dest->read(obuf, blocksize, completed+offset);
+            if (bytes_processed != blocksize) {
+                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                        dest_file->path, bytes_processed, blocksize);
+                errsend(NONFATAL, errormsg);
+                free(ibuf);
+                free(obuf);
+                return -1;
+            }
+            //compare - if no compare crc=1 if compare crc=0 and get out of loop
+            crc = memcmp(ibuf,obuf,blocksize);
+            //printf("compare_file: src %s dest %s offset %ld len %d crc %d\n",
+            //       src_file, dest_file, completed+offset, blocksize, crc);
+            if (crc != 0) {
+                completed=length;
+            }
+            completed += blocksize;
+        }
+        ////        rc = close(src_fd);
+        ////        if (rc != 0) {
+        if (! p_src->close()) {
+            sprintf(errormsg, "Failed to close src file: %s", src_file->path);
+            errsend(NONFATAL, errormsg);
+            free(ibuf);
+            free(obuf);
+            return -1;
+        }
+        ////        rc = close(dest_fd);
+        ////        if (rc != 0) {
+        if (! p_dest->close()) {
+            sprintf(errormsg, "Failed to close dst file: %s", dest_file->path);
+            errsend(NONFATAL, errormsg);
+            free(ibuf);
+            free(obuf);
+            return -1;
+        }
+        free(ibuf);
+        free(obuf);
+        if (crc != 0)
+            return 1;
+        else
+            return 0;
     }
+        else
+            return 1;
+
+        return 0;
+    }
+
+
+
+
+    // make <dest_file> have the same meta-data as <src_file>
+    // We assume that <src_file>.dest_ftype applies to <dest_file>
+    int update_stats(PathPtr      p_src,
+            PathPtr      p_dst,
+            struct options& o) {
+
+        int            rc;
+        char           errormsg[MESSAGESIZE];
+        int            mode;
+
+        // don't touch the destination, unless this is a COPY
+        if (o.work_type != COPYWORK)
+            return 0;
+
+        // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
+        // NOTE: Path::follow() is false, by default
+        path_item  dest_copy(p_dst->node());
+        dest_copy.ftype = p_src->dest_ftype();
+        PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
+
+        // if running as root, always update <dest_file> owner  (without following links)
+        // non-root user can also attempt this, by setting "preserve" (with -o)
+        //
+        ////#ifdef PLFS
+        ////    if (src_file->dest_ftype == PLFSFILE){
+        ////        rc = plfs_chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+        ////    }
+        ////    else{
+        ////#endif
+        ////        rc = lchown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+        ////#ifdef PLFS
+        ////    }   
+        ////#endif
+        ////    if (rc != 0) {
+        ////        sprintf(errormsg, "Failed to change ownership of file: %s to %d:%d",
+        ////                dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+        ////        errsend(NONFATAL, errormsg);
+        ////    }
+        if (0 == geteuid() || o.preserve) {
+            if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
+                errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
+                        p_dest->path(), p_dest->strerror());
+            }
+        }
+
+
+        // ignore symlink destinations
+        if (p_src->is_link())
+            return 0;
+
+
+
+        // update <dest_file> owner  [ FUSEFILE version ]
+#ifdef FUSE_CHUNKER
+        if (src_file->dest_ftype == FUSEFILE){
+            ////        rc = chown(dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+            ////        if (rc != 0) {
+            ////            sprintf(errormsg, "Failed to change ownership of fuse chunked file: %s to %d:%d",
+            ////                    dest_file->path, src_file->st.st_uid, src_file->st.st_gid);
+            ////            errsend(NONFATAL, errormsg);
+            ////        }
+            if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
+                errsend_fmt(NONFATAL, "update_stats -- Failed to chown fuse chunked file %s: %s\n",
+                        p_dest->path(), p_dest->strerror());
+            }
+        }
 #endif
 
 
 
-#ifdef PLFS
-    // --- is it a PLFS path?
-    if (! got_type) {
-        rc = plfs_getattr(NULL, work_node->path, &st, 0);
-        if (rc == 0){
-            work_node->ftype = PLFSFILE;
-            got_type = true;
+        // update <dest_file> access-permissions
+        mode = p_src->mode() & 07777;
+        ////#ifdef PLFS
+        ////    if (src_file->dest_ftype == PLFSFILE){
+        ////        rc = plfs_chmod(dest_file->path, mode);
+        ////    }
+        ////    else{
+        ////#endif
+        ////        rc = chmod(dest_file->path, mode);
+        ////#ifdef PLFS
+        ////    }
+        ////#endif
+        ////    if (rc != 0) {
+        ////        sprintf(errormsg, "Failed to chmod file: %s to %o", dest_file->path, mode);
+        ////        errsend(NONFATAL, errormsg);
+        ////    }
+        if (! p_dest->chmod(mode)) {
+            errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+                    p_dest->path(), p_dest->strerror());
+        }
+
+        // perform any final adjustments on destination, before we set atime/mtime
+        //    PathPtr p_src(PathFactory::create_shallow(src_file));
+        p_dest->post_process(p_src);
+
+        // update <dest_file> atime and mtime
+        //
+        ////#ifdef PLFS
+        ////    if (src_file->dest_ftype == PLFSFILE){
+        ////        rc = plfs_utime(dest_file->path, &ut);
+        ////    }
+        ////    else{
+        ////#endif
+        ////        rc = utime(dest_file->path, &ut);
+        ////#ifdef PLFS
+        ////    }
+        ////#endif
+        ////    if (rc != 0) {
+        ////        sprintf(errormsg, "Failed to set atime and mtime for file: %s", dest_file->path);
+        ////        errsend(NONFATAL, errormsg);
+        ////    }
+        struct timespec times[2];
+
+        times[0].tv_sec  = p_src->st().st_atim.tv_sec;
+        times[0].tv_nsec = p_src->st().st_atim.tv_nsec;
+
+        times[1].tv_sec  = p_src->st().st_mtim.tv_sec;
+        times[1].tv_nsec = p_src->st().st_mtim.tv_nsec;
+
+        if (! p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW)) {
+            errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
+                    p_dest->path(), p_dest->strerror());
+        }
+
+
+        return 0;
+    }
+
+
+    //local functions only
+    int request_response(int type_cmd) {
+        MPI_Status status;
+        int response;
+        send_command(MANAGER_PROC, type_cmd);
+        if (MPI_Recv(&response, 1, MPI_INT, MANAGER_PROC, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
+            errsend(FATAL, "Failed to receive response\n");
+        }
+        return response;
+    }
+
+    int request_input_queuesize() {
+        return request_response(QUEUESIZECMD);
+    }
+
+    void send_command(int target_rank, int type_cmd) {
+#ifdef MPI_DEBUG
+        int rank;
+
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        PRINT_MPI_DEBUG("rank %d: Sending command %d to target rank %d\n", rank, type_cmd, target_rank);
+#endif
+        if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {//Tell a rank it's time to begin processing
+            fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
+
+
+    // This is unused (?)
+    void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count) {
+        int path_count = 0, position = 0;
+        int worksize, workcount;
+        if (num_send <= *list_count) {
+            workcount = num_send;
         }
         else {
-            // check the owning directory
-            char* copy = strdup(work_node->path);
-            rc = plfs_getattr(NULL, dirname(copy), &st, 0);
-            free(copy);
-            if (rc == 0) {
-                work_node->ftype = PLFSFILE;
-                got_type = true;
-            }
+            workcount = *list_count;
+        }
+        worksize = workcount * sizeof(path_item);
+
+        char *workbuf = (char*)malloc(worksize * sizeof(char));
+        if (! workbuf) {
+            fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        while(path_count < workcount) {
+            path_count++;
+            MPI_Pack(&(*list_head)->data, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+            dequeue_node(list_head, list_tail, list_count);
+        }
+        //send the command to get started
+        send_command(target_rank, command);
+        //send the # of paths
+        if (MPI_Send(&workcount, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send workcount %d to rank %d\n", workcount, target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send workbuf to rank %d\n",  target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        free(workbuf);
+    }
+
+    void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count) {
+        int         i;
+        int         position = 0;
+        int         worksize;
+        char*       workbuf;
+        path_item   work_node;
+        path_item*  work_node_ptr;  /* avoid unnecessary copying */
+
+        worksize = *buffer_count * sizeof(path_item);
+        workbuf = (char *) malloc(worksize * sizeof(char));
+        if (! workbuf) {
+            fprintf(stderr, "Failed to allocate %lu bytes for workbuf\n", worksize);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        for (i = 0; i < *buffer_count; i++) {
+            work_node_ptr = &buffer[i];
+            MPI_Pack(work_node_ptr, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
+        }
+        send_command(target_rank, command);
+        if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send buffer_count %d to rank %d\n", *buffer_count, target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send workbuf to rank %d\n", target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        *buffer_count = 0;
+        free(workbuf);
+    }
+
+    void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize) {
+        int size = (*workbuflist)->size;
+        int worksize = sizeof(path_item) * size;
+        send_command(target_rank, command);
+        if (MPI_Send(&size, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send workbuflist size %d to rank %d\n", size, target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        dequeue_buf_list(workbuflist, workbufsize);
+    }
+
+    //manager
+    void send_manager_nonfatal_inc() {
+        send_command(MANAGER_PROC, NONFATALINCCMD);
+    }
+
+    void send_manager_chunk_busy() {
+        send_command(MANAGER_PROC, CHUNKBUSYCMD);
+    }
+
+    void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
+        send_command(MANAGER_PROC, COPYSTATSCMD);
+        //send the # of paths
+        if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_copied_files %d to rank %d\n", num_copied_files, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        //send the # of paths
+        if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_copied_byes %zd to rank %d\n", num_copied_bytes, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
-#endif
 
-
-#ifdef GEN_SYNDATA
-    // --- is it a Synthetic Data path?
-    if (! got_type) {
-        if (o.syn_size && isSyndataPath(work_node->path)) { 
-	   int dlvl;					// directory level, if a directory. Currently ignored.
-	   if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
-	       return -1;				// syndataSetAttr() returns non-zero on failure
-	   work_node->ftype = SYNDATA;
-           got_type = true;
+    void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes) {
+        send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
+        //send the # of paths
+        if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_examined_files %d to rank %d\n", num_examined_files, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
-    }
-#endif
-
-
-    // --- is it '/dev/null' or '/dev/null/[...]'?
-    if (! got_type) {
-       if ( (! strncmp(work_node->path, "/dev/null", 9)) ) {
-          if (work_node->path[9] == 0) {
-            work_node->ftype = NULLFILE;
-            got_type = true;
-
-            rc = lstat("/dev/null", &st);
-          }
-          else if (work_node->path[9] == '/') {
-             size_t len = strlen(work_node->path);
-             if (work_node->path[len -1] == '/') {
-                work_node->ftype = NULLDIR;
-                got_type = true;
-
-                char* homedir = getenv("HOME");
-                rc = lstat(homedir, &st);
-             }
-             else {
-                work_node->ftype = NULLFILE;
-                got_type = true;
-
-                rc = lstat("/dev/null", &st);
-             }
-          }
-       }
-    }
-
-    // --- is it a POSIX path?
-    if (! got_type) {
-        rc = lstat(work_node->path, &st); // TODO: in posix path it checks to see if it should follow links
-        if (rc == 0){
-            work_node->ftype = REGULARFILE;
-            got_type = true;
+        if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_examined_bytes %zd to rank %d\n", num_examined_bytes, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        else
-            return -1;
+        if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_examined_dirs %d to rank %d\n", num_examined_dirs, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (MPI_Send(&num_finished_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_finished_bytes %zd to rank %d\n", num_finished_bytes, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
     }
 
-
-
-    work_node->st = st;
-
-    //dmapi to find managed files
 #ifdef TAPE
-    if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS) {
-        uid = getuid();
-
-# ifdef THREADS_ONLY
-        if (0)
-# else
-        if (uid == 0 && st.st_size > 0 && st.st_blocks == 0)
-# endif
-        {
-            dmarray[0] = 0;
-            dmarray[1] = 0;
-            dmarray[2] = 0;
-            if (read_inodes (work_node->path, work_node->st.st_ino, work_node->st.st_ino+1, dmarray) != 0) {
-                snprintf(errmsg, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
-                errsend(FATAL, errmsg);
-            }
-            else if (dmarray[0] > 0) {
-                dmapi_lookup(work_node->path, dmarray, hexbuf);
-                if (dmarray[1] == 1) {
-                    work_node->ftype = PREMIGRATEFILE;
-                }
-                else if (dmarray[2] == 1) {
-                    work_node->ftype = MIGRATEFILE;
-                }
-            }
+    void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes) {
+        send_command(MANAGER_PROC, TAPESTATCMD);
+        //send the # of paths
+        if (MPI_Send(&num_examined_tapes, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_examined_tapes %d to rank %d\n", num_examined_tapes, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        else if (st.st_size > 0 && st.st_blocks == 0) {
-            work_node->ftype = MIGRATEFILE;
+        if (MPI_Send(&num_examined_tape_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to send num_examined_tape_bytes %zd to rank %d\n", num_examined_tape_bytes, MANAGER_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
 #endif
 
 
+    void send_manager_regs_buffer(path_item *buffer, int *buffer_count) {
+        //sends a chunk of regular files to the manager
+        send_path_buffer(MANAGER_PROC, PROCESSCMD, buffer, buffer_count);
+    }
 
-    //special cases for links
-    if (S_ISLNK(work_node->st.st_mode)) {
+    void send_manager_dirs_buffer(path_item *buffer, int *buffer_count) {
+        //sends a chunk of regular files to the manager
+        send_path_buffer(MANAGER_PROC, DIRCMD, buffer, buffer_count);
+    }
+
+#ifdef TAPE
+    void send_manager_tape_buffer(path_item *buffer, int *buffer_count) {
+        //sends a chunk of regular files to the manager
+        send_path_buffer(MANAGER_PROC, TAPECMD, buffer, buffer_count);
+    }
+#endif
+
+    void send_manager_new_buffer(path_item *buffer, int *buffer_count) {
+        //send manager new inputs
+        send_path_buffer(MANAGER_PROC, INPUTCMD, buffer, buffer_count);
+    }
+
+    void send_manager_work_done(int ignored) {
+        //the worker is finished processing, notify the manager
+        send_command(MANAGER_PROC, WORKDONECMD);
+    }
+
+    //worker
+    void update_chunk(path_item *buffer, int *buffer_count) {
+        send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
+    }
+
+    void write_output(const char *message, int log) {
+        //write a single line using the outputproc
+        //set the command type
+        if (log == 0) {
+            send_command(OUTPUT_PROC, OUTCMD);
+        }
+        else if (log == 1) {
+            send_command(OUTPUT_PROC, LOGCMD);
+        }
+        else if (log == 2) {
+            send_command(OUTPUT_PROC, LOGONLYCMD);
+        }
+
+        //send the message
+        if (MPI_Send((void*)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
+
+
+    // This allows caller to use inline formatting, without first snprintf() to
+    // a local errmsg-buffer.  Like so:
+    //
+    //    write_output_fmt(1, "rank %d hello!", rank);
+    //
+    void write_output_fmt(int log, const char* format, ...) {
+        char     msg[MESSAGESIZE];
+        va_list  args;
+
+        va_start(args, format);
+        vsnprintf(msg, MESSAGESIZE, format, args);
+        va_end(args);
+
+        write_output(msg, log);
+    }
+
+
+    void write_buffer_output(char *buffer, int buffer_size, int buffer_count) {
+        //write a buffer to the output proc
+        //set the command type
+        send_command(OUTPUT_PROC, BUFFEROUTCMD);
+        //send the size of the buffer
+        if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
+
+    void send_worker_queue_count(int target_rank, int queue_count) {
+        if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+            fprintf(stderr, "Failed to queue_count %d to rank %d\n", queue_count, target_rank);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
+
+    void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+        //send a worker a buffer list of paths to stat
+        send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
+    }
+
+#ifdef TAPE
+    void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+        //send a worker a buffer list of paths to stat
+        send_buffer_list(target_rank, TAPECMD, workbuflist, workbufsize);
+    }
+#endif
+
+    void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+        //send a worker a list buffers with paths to copy
+        send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
+    }
+
+    void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+        //send a worker a list buffers with paths to compare
+        send_buffer_list(target_rank, COMPARECMD, workbuflist, workbufsize);
+    }
+
+    void send_worker_exit(int target_rank) {
+        //order a rank to exit
+        send_command(target_rank, EXITCMD);
+    }
+
+
+    static void errsend_internal(int fatal, const char* errormsg) {
+        write_output(errormsg, 1);
+
+        if (fatal) {
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        else {
+            send_manager_nonfatal_inc();
+        }
+    }
+
+    //functions that workers use
+    void errsend(int fatal, const char *error_text) {
+        //send an error message to the outputproc. Die if fatal.
+        char errormsg[MESSAGESIZE];
+
+        if (fatal)
+            snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n", error_text);
+        else
+            snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
+
+        errsend_internal(fatal, errormsg);
+    }
+
+    // This allows caller to use inline formatting, without first snprintf() to
+    // a local errmsg-buffer.  Like so:
+    //
+    //    errsend_fmt(nonfatal, "rank %d hello!", rank);
+    //
+    void errsend_fmt(int fatal, const char* format, ...) {
+        char     errormsg[MESSAGESIZE];
+        va_list  args;
+
+        snprintf(errormsg, MESSAGESIZE, "ERROR %sFATAL: ", (fatal ? "" : "NON"));
+        size_t offset = strlen(errormsg);
+
+        va_start(args, format);
+        vsnprintf(errormsg+offset, MESSAGESIZE-offset, format, args);
+        va_end(args);
+
+        errsend_internal(fatal, errormsg);
+    }
+
+
+
 
 #ifdef FUSE_CHUNKER
-       // moved the #ifdef to here from further below, so it would include
-       // the readlink().  No need to prove to ourselves that the target
-       // exists.  Pftool can handle broken links.  Plus, if the readlink()
-       // does fail for any reason, then the code here will attempt an
-       // errsend() from manager(), before the initial Bcast, which will
-       // cause a deadlock, because OUTPUT_PROC hasn't gotten through the
-       // Bcast, yet, and errsend() requires synchronous communication with
-       // OUTPUT_PROC.
+    int is_fuse_chunk(const char *path, struct options& o) {
+        if (path && strstr(path, o.fuse_path)){
+            return 1;
+        } 
+        else{
+            return 0;
+        }
+    }
 
-
+    // A path_item (which is presumed to have ftype FUSEFILE), should be a
+    // symlink.  The symlink name consists of at least 4 tokens, separated by
+    // '.'.  The fourth token is the length of the chunk.  (What chunk?)
+    void set_fuse_chunk_data(path_item *work_node) {
+        int        i;
+        int        numchars;
+        char       linkname[PATHSIZE_PLUS];
+        char       baselinkname[PATHSIZE_PLUS];
+        const char delimiters[] =  ".";
+        char*      current;
+        char       errormsg[MESSAGESIZE];
+        size_t     length;
         PathPtr p(PathFactory::create_shallow(work_node));
 
-        // <linkname> = name of the link-destination
+        // memset(linkname,'\0', sizeof(PATHSIZE_PLUS));
         numchars = p->readlink(linkname, PATHSIZE_PLUS);
         if (numchars < 0) {
-            snprintf(errmsg, MESSAGESIZE, "Failed to read link %s\n", work_node->path);
-            errsend(NONFATAL, errmsg);
-            return -1;
+            sprintf(errormsg, "Failed to read link %s\n", work_node->path);
+            errsend(NONFATAL, errormsg);
+            return;
         }
         else if (numchars >= PATHSIZE_PLUS) {
-            sprintf(errormsg, "readlink %s, not enough room for NULL", work_node->path);
+            sprintf(errormsg, "readlink %s, no room for '\\0'", work_node->path);
             errsend(NONFATAL, errormsg);
             return -1;
         }
         linkname[numchars] = '\0';
 
+        // "length" is found in the 4th token
+        strncpy(baselinkname, basename(linkname), PATHSIZE_PLUS);
+        current = strdup(baselinkname);
+        strtok(current, delimiters);
+        for (i = 0; i < 2; i++) {
+            strtok(NULL, delimiters);
+        }
+        length = atoll(strtok(NULL, delimiters));
+        free(current);
+
+        // assign to <work_node>
+        //    work_node->offset = 0;
+        //    work_node->length = length;
+        work_node->chkidx = 0;
+        work_node->chksz = length;
+    }
 
 
-//#ifdef FUSE_CHUNKER    /* [moved this #ifdef to higher-up] */
-        if (
-# ifdef PLFS
-            // this will *always* be true, right?  We just set ftype =
-            // LINKFILE, above.  Maybe the intent here was to check whether
-            // ftype *was* PLFSFILE, before that?
-            (work_node->ftype != PLFSFILE) &&
-# endif
-            // NOTE: call to realpath() leaks memory
-            is_fuse_chunk(realpath(work_node->path, NULL), o)) {
+    // fuse-chunker path has extended attributes for each corresponding chunk.
+    // The attributes have names like "user.chunk_<n>", where <n> is the chunk
+    // number.  The corresponding value is a string like "<atime> <mtime> <uid>
+    // <gid>", where these are the corresponding values for that chunk.
+    //
+    // Given an offset and chunk-size (i.e. <length>), compute the chunk
+    // number, generate the corresponding attribute-name, retrieve the extended
+    // attrbitues, and parse them into the provided pointed-to values.
+    // 
+    int get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t* groupid) {
+        char   value[10000];
+        int    valueLen = 0;
+        char   chunk_name[50];
+        int    chunk_num = 0;
 
-            if (lstat(linkname, &st) == -1) {
-                snprintf(errmsg, MESSAGESIZE, "stat_item -- Failed to stat path %s", linkname);
-                errsend(FATAL, errmsg);
+        if (length == 0) {
+            return -1;
+        }
+        chunk_num = offset/length;
+        snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
+#ifdef __APPLE__
+        valueLen = getxattr(path, chunk_name, value, 10000, 0, 0);
+#else
+        valueLen = getxattr(path, chunk_name, value, 10000);
+#endif
+        if (valueLen != -1) {
+            sscanf(value, "%10lld %10lld %8d %8d", (long long int *) &(ut->actime), (long long int *) &(ut->modtime), userid, groupid);
+        }
+        else {
+            return -1;
+        }
+        return 0;
+    }
+
+    int set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid) {
+        char value[10000];
+        int valueLen = 0;
+        char chunk_name[50];
+        int chunk_num = 0;
+        chunk_num = offset/length;
+        snprintf(chunk_name, 50, "user.chunk_%d", chunk_num);
+        sprintf(value, "%lld %lld %d %d", (long long int) ut.actime, (long long int ) ut.modtime, userid, groupid);
+#ifdef __APPLE__
+        valueLen = setxattr(path, chunk_name, value, 10000, 0, XATTR_CREATE);
+#else
+        valueLen = setxattr(path, chunk_name, value, 10000, XATTR_CREATE);
+#endif
+        if (valueLen != -1) {
+            return 0;
+        }
+        else {
+            return -1;
+        }
+    }
+#endif
+
+
+
+    // Takes a work node (with a path installed), stats it, and figures out
+    // some of its characteristics.  Updates the following fields:
+    //
+    //   work_node.ftype
+    //   work_node.dest_ftype
+    //   work_node.st
+    //
+    // The PathFactory looks at path_item.ftype, to determin what type of
+    // subclass to create.  As a result, when the path factory is given just a
+    // path_name, or an uninitialized path_item, it uses this function to
+    // initialize the ftype, so it can then determine which Path-subclass to
+    // create.  Therefore: DO NOT RETURN WITHOUT INITIALIZING FTYPE!
+    //
+    int stat_item(path_item *work_node, struct options& o) {
+        char        errmsg[MESSAGESIZE];
+        struct stat st;
+        int         rc;
+
+        //dmapi
+#ifdef TAPE
+        uid_t uid;
+        int   dmarray[3];
+        char  hexbuf[128];
+#endif
+
+        int  numchars;
+        char linkname[PATHSIZE_PLUS];
+
+        // defaults
+        work_node->ftype      = REGULARFILE;
+        work_node->dest_ftype = REGULARFILE;
+
+        bool  got_type = false;
+
+#ifdef S3
+        // --- is it an S3 path?
+        if ( (! strncmp(work_node->path, "http://",  7)) ||
+                (! strncmp(work_node->path, "https://", 8))) {
+
+            // if it matches the prefixes, it *is* an S3-path, whether it exists or not
+            work_node->ftype = S3FILE;
+            got_type = true;
+
+            bool okay = S3_Path::fake_stat(work_node->path, &st); // return non-zero for success
+            if (! okay) {
+                return -1;
             }
-            work_node->st = st;
-            work_node->ftype = FUSEFILE;
+        }
+#endif
+
+#ifdef MARFS
+        // --- is it a MARFS path?
+        if(! got_type) {
+            fflush(stdout);
+            if ( under_mdfs_top(work_node->path) ) {
+                return -1;
+            }
+
+            if ( (! strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len))
+                    && ((   work_node->path[marfs_config->mnt_top_len] == 0)
+                        || (work_node->path[marfs_config->mnt_top_len] == '/'))) {
+
+                work_node->ftype = MARFSFILE;
+                got_type = true;
+
+                bool okay = MARFS_Path::mar_stat(work_node->path, &st);
+                if (!okay){
+                    return -1;
+                }
+            }
         }
 #endif
 
 
-    }
+
+#ifdef PLFS
+        // --- is it a PLFS path?
+        if (! got_type) {
+            rc = plfs_getattr(NULL, work_node->path, &st, 0);
+            if (rc == 0){
+                work_node->ftype = PLFSFILE;
+                got_type = true;
+            }
+            else {
+                // check the owning directory
+                char* copy = strdup(work_node->path);
+                rc = plfs_getattr(NULL, dirname(copy), &st, 0);
+                free(copy);
+                if (rc == 0) {
+                    work_node->ftype = PLFSFILE;
+                    got_type = true;
+                }
+            }
+        }
+#endif
+
+
+#ifdef GEN_SYNDATA
+        // --- is it a Synthetic Data path?
+        if (! got_type) {
+            if (o.syn_size && isSyndataPath(work_node->path)) { 
+                int dlvl;					// directory level, if a directory. Currently ignored.
+                if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
+                    return -1;				// syndataSetAttr() returns non-zero on failure
+                work_node->ftype = SYNDATA;
+                got_type = true;
+            }
+        }
+#endif
+
+
+        // --- is it '/dev/null' or '/dev/null/[...]'?
+        if (! got_type) {
+            if ( (! strncmp(work_node->path, "/dev/null", 9)) ) {
+                if (work_node->path[9] == 0) {
+                    work_node->ftype = NULLFILE;
+                    got_type = true;
+
+                    rc = lstat("/dev/null", &st);
+                }
+                else if (work_node->path[9] == '/') {
+                    size_t len = strlen(work_node->path);
+                    if (work_node->path[len -1] == '/') {
+                        work_node->ftype = NULLDIR;
+                        got_type = true;
+
+                        char* homedir = getenv("HOME");
+                        rc = lstat(homedir, &st);
+                    }
+                    else {
+                        work_node->ftype = NULLFILE;
+                        got_type = true;
+
+                        rc = lstat("/dev/null", &st);
+                    }
+                }
+            }
+        }
+
+        // --- is it a POSIX path?
+        if (! got_type) {
+            rc = lstat(work_node->path, &st); // TODO: in posix path it checks to see if it should follow links
+            if (rc == 0){
+                work_node->ftype = REGULARFILE;
+                got_type = true;
+            }
+            else
+                return -1;
+        }
+
+
+
+        work_node->st = st;
+
+        //dmapi to find managed files
+#ifdef TAPE
+        if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && o.sourcefs == GPFSFS) {
+            uid = getuid();
+
+# ifdef THREADS_ONLY
+            if (0)
+# else
+                if (uid == 0 && st.st_size > 0 && st.st_blocks == 0)
+# endif
+                {
+                    dmarray[0] = 0;
+                    dmarray[1] = 0;
+                    dmarray[2] = 0;
+                    if (read_inodes (work_node->path, work_node->st.st_ino, work_node->st.st_ino+1, dmarray) != 0) {
+                        snprintf(errmsg, MESSAGESIZE, "read_inodes failed: %s", work_node->path);
+                        errsend(FATAL, errmsg);
+                    }
+                    else if (dmarray[0] > 0) {
+                        dmapi_lookup(work_node->path, dmarray, hexbuf);
+                        if (dmarray[1] == 1) {
+                            work_node->ftype = PREMIGRATEFILE;
+                        }
+                        else if (dmarray[2] == 1) {
+                            work_node->ftype = MIGRATEFILE;
+                        }
+                    }
+                }
+                else if (st.st_size > 0 && st.st_blocks == 0) {
+                    work_node->ftype = MIGRATEFILE;
+                }
+        }
+#endif
+
+
+
+        //special cases for links
+        if (S_ISLNK(work_node->st.st_mode)) {
+
+#ifdef FUSE_CHUNKER
+            // moved the #ifdef to here from further below, so it would include
+            // the readlink().  No need to prove to ourselves that the target
+            // exists.  Pftool can handle broken links.  Plus, if the readlink()
+            // does fail for any reason, then the code here will attempt an
+            // errsend() from manager(), before the initial Bcast, which will
+            // cause a deadlock, because OUTPUT_PROC hasn't gotten through the
+            // Bcast, yet, and errsend() requires synchronous communication with
+            // OUTPUT_PROC.
+
+
+            PathPtr p(PathFactory::create_shallow(work_node));
+
+            // <linkname> = name of the link-destination
+            numchars = p->readlink(linkname, PATHSIZE_PLUS);
+            if (numchars < 0) {
+                snprintf(errmsg, MESSAGESIZE, "Failed to read link %s\n", work_node->path);
+                errsend(NONFATAL, errmsg);
+                return -1;
+            }
+            else if (numchars >= PATHSIZE_PLUS) {
+                sprintf(errormsg, "readlink %s, not enough room for NULL", work_node->path);
+                errsend(NONFATAL, errormsg);
+                return -1;
+            }
+            linkname[numchars] = '\0';
+
+
+
+            //#ifdef FUSE_CHUNKER    /* [moved this #ifdef to higher-up] */
+            if (
+# ifdef PLFS
+                    // this will *always* be true, right?  We just set ftype =
+                    // LINKFILE, above.  Maybe the intent here was to check whether
+                    // ftype *was* PLFSFILE, before that?
+                    (work_node->ftype != PLFSFILE) &&
+# endif
+                    // NOTE: call to realpath() leaks memory
+                    is_fuse_chunk(realpath(work_node->path, NULL), o)) {
+
+                if (lstat(linkname, &st) == -1) {
+                    snprintf(errmsg, MESSAGESIZE, "stat_item -- Failed to stat path %s", linkname);
+                    errsend(FATAL, errmsg);
+                }
+                work_node->st = st;
+                work_node->ftype = FUSEFILE;
+            }
+#endif
+
+
+        }
 
 
 #ifdef FUSE_CHUNKER
-    //if it qualifies for fuse and is on the "archive" path
-    if (work_node->st.st_size > o.fuse_chunk_at) {
-        work_node->dest_ftype = FUSEFILE;
-    }
+        //if it qualifies for fuse and is on the "archive" path
+        if (work_node->st.st_size > o.fuse_chunk_at) {
+            work_node->dest_ftype = FUSEFILE;
+        }
 #endif
 
-    return 0;
-}
+        return 0;
+    }
 
-// <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, then initialize
-// <fs> to match the type of <path>.  Otherwise, call it ANYFS.
-void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
+    // <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, then initialize
+    // <fs> to match the type of <path>.  Otherwise, call it ANYFS.
+    void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 
 #ifdef HAVE_SYS_VFS_H
-    struct stat st;
-    struct statfs stfs;
-    char errortext[MESSAGESIZE];
-    int rc;
-    char use_path[PATHSIZE_PLUS];
-    strncpy(use_path, path, PATHSIZE_PLUS);
+        struct stat st;
+        struct statfs stfs;
+        char errortext[MESSAGESIZE];
+        int rc;
+        char use_path[PATHSIZE_PLUS];
+        strncpy(use_path, path, PATHSIZE_PLUS);
 
-    // look at <path>, or, if that fails, look at dirname(<path>)
-    ////    rc = lstat(use_path, &st);
-    ////    if (rc < 0) {
-    ////        strcpy(use_path, dirname(use_path));
-    ////        rc = lstat(use_path, &st);
-    ////        if (rc < 0) {
-    ////            fprintf(stderr, "Failed to lstat path %s\n", path);
-    ////            MPI_Abort(MPI_COMM_WORLD, -1);
-    ////        }
-    ////    }
-    PathPtr p(PathFactory::create(use_path));
-    if (! p) {
-       fprintf(stderr, "PathFactory couldn't interpret path %s\n", use_path);
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    else if (! p->stat()) {
-       strcpy(use_path, dirname(use_path));
-       p = PathFactory::create(use_path);
-       if (! p) {
-          fprintf(stderr, "PathFactory couldn't interpret parent-path %s\n", use_path);
-          MPI_Abort(MPI_COMM_WORLD, -1);
-       }
-       else if (! p->stat()) {
-          fprintf(stderr, "Failed to stat path %s, or parent %s\n", path, use_path);
-          MPI_Abort(MPI_COMM_WORLD, -1);
-       }
-    }
-    st = p->st();
+        // look at <path>, or, if that fails, look at dirname(<path>)
+        ////    rc = lstat(use_path, &st);
+        ////    if (rc < 0) {
+        ////        strcpy(use_path, dirname(use_path));
+        ////        rc = lstat(use_path, &st);
+        ////        if (rc < 0) {
+        ////            fprintf(stderr, "Failed to lstat path %s\n", path);
+        ////            MPI_Abort(MPI_COMM_WORLD, -1);
+        ////        }
+        ////    }
+        PathPtr p(PathFactory::create(use_path));
+        if (! p) {
+            fprintf(stderr, "PathFactory couldn't interpret path %s\n", use_path);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        else if (! p->stat()) {
+            strcpy(use_path, dirname(use_path));
+            p = PathFactory::create(use_path);
+            if (! p) {
+                fprintf(stderr, "PathFactory couldn't interpret parent-path %s\n", use_path);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+            else if (! p->stat()) {
+                fprintf(stderr, "Failed to stat path %s, or parent %s\n", path, use_path);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+        }
+        st = p->st();
 
 
-    // if the thing we're looking at isn't link, maybe run statfs() on it.
-    if (!S_ISLNK(st.st_mode)) {
-       if ((   p->node().ftype == NULLFILE)
-           || (p->node().ftype == NULLDIR)) {
-          *fs = NULLFS;
-          return;
-       }
-       else if (p->node().ftype == S3FILE) {
-          *fs = S3FS;
-          return;
-       }
-       else if (p->node().ftype == SYNDATA) {
-          *fs = SYNDATAFS;
-          return;
-       }
-       else if (p->node().ftype == PLFSFILE) {
-          *fs = PLFSFS;          // NOTE: less than PARALLEL_DESTFS
-          return;
-       }
-       else if (p->node().ftype == MARFSFILE) {
-          *fs = MARFSFS;
-          return;
-       }
+        // if the thing we're looking at isn't link, maybe run statfs() on it.
+        if (!S_ISLNK(st.st_mode)) {
+            if ((   p->node().ftype == NULLFILE)
+                    || (p->node().ftype == NULLDIR)) {
+                *fs = NULLFS;
+                return;
+            }
+            else if (p->node().ftype == S3FILE) {
+                *fs = S3FS;
+                return;
+            }
+            else if (p->node().ftype == SYNDATA) {
+                *fs = SYNDATAFS;
+                return;
+            }
+            else if (p->node().ftype == PLFSFILE) {
+                *fs = PLFSFS;          // NOTE: less than PARALLEL_DESTFS
+                return;
+            }
+            else if (p->node().ftype == MARFSFILE) {
+                *fs = MARFSFS;
+                return;
+            }
 
-       rc = statfs(use_path, &stfs);
-       if (rc < 0) {
-          snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
-          errsend(FATAL, errortext);
-       }
-       else if (stfs.f_type == GPFS_FILE) {
-          *fs = GPFSFS;
-       }
-       else if (stfs.f_type == PANFS_FILE) {
-          *fs = PANASASFS;
-       }
+            rc = statfs(use_path, &stfs);
+            if (rc < 0) {
+                snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+                errsend(FATAL, errortext);
+            }
+            else if (stfs.f_type == GPFS_FILE) {
+                *fs = GPFSFS;
+            }
+            else if (stfs.f_type == PANFS_FILE) {
+                *fs = PANASASFS;
+            }
 # ifdef FUSE_CHUNKER
-       else if (stfs.f_type == FUSE_SUPER_MAGIC) {
-          //fuse file
-          *fs = GPFSFS;
-       }
+            else if (stfs.f_type == FUSE_SUPER_MAGIC) {
+                //fuse file
+                *fs = GPFSFS;
+            }
 # endif
-       else {
-          *fs = ANYFS;        // NOTE: less than PARALLEL_DESTFS
-       }
-    }
-    else {
-        //symlink assumed to be GPFS
-        *fs = GPFSFS;
-    }
+            else {
+                *fs = ANYFS;        // NOTE: less than PARALLEL_DESTFS
+            }
+        }
+        else {
+            //symlink assumed to be GPFS
+            *fs = GPFSFS;
+        }
 
 #else
-    *fs = ANYFS;                // NOTE: less than PARALLEL_DESTFS
+        *fs = ANYFS;                // NOTE: less than PARALLEL_DESTFS
 #endif
-}
+    }
 
-int get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range) {
-    //given an inclusive range, return the first encountered free rank
-    int i;
-    for (i = start_range; i <= end_range; i++) {
-        if (proc_status[i].inuse == 0) {
-            return i;
+    int get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range) {
+        //given an inclusive range, return the first encountered free rank
+        int i;
+        for (i = start_range; i <= end_range; i++) {
+            if (proc_status[i].inuse == 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    int processing_complete(struct worker_proc_status *proc_status, int nproc) {
+        //are all the ranks free?
+        int i;
+        int count = 0;
+        for (i = 0; i < nproc; i++) {
+            if (proc_status[i].inuse == 1) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    //Queue Function Definitions
+
+    // push path onto the tail of the queue
+    void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
+        path_list *new_node = (path_list*)malloc(sizeof(path_list));
+        if (! new_node) {
+            fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        strncpy(new_node->data.path, path, PATHSIZE_PLUS);
+        new_node->data.start = 1;
+        new_node->data.ftype = TBD;
+        new_node->next = NULL;
+        if (*head == NULL) {
+            *head = new_node;
+            *tail = *head;
+        }
+        else {
+            (*tail)->next = new_node;
+            *tail = (*tail)->next;
+        }
+        /*
+           while (temp_node->next != NULL){
+           temp_node = temp_node->next;
+           }
+           temp_node->next = new_node;
+           }*/
+        *count += 1;
+    }
+
+    void print_queue_path(path_list *head) {
+        //print the entire queue
+        while(head != NULL) {
+            printf("%s\n", head->data.path);
+            head = head->next;
         }
     }
-    return -1;
-}
 
-int processing_complete(struct worker_proc_status *proc_status, int nproc) {
-    //are all the ranks free?
-    int i;
-    int count = 0;
-    for (i = 0; i < nproc; i++) {
-        if (proc_status[i].inuse == 1) {
-            count++;
+    void delete_queue_path(path_list **head, int *count) {
+        //delete the entire queue;
+        path_list *temp = *head;
+        while(temp) {
+            *head = (*head)->next;
+            free(temp);
+            temp = *head;
         }
+        *count = 0;
     }
-    return count;
-}
-
-//Queue Function Definitions
-
-// push path onto the tail of the queue
-void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
-    path_list *new_node = (path_list*)malloc(sizeof(path_list));
-    if (! new_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    strncpy(new_node->data.path, path, PATHSIZE_PLUS);
-    new_node->data.start = 1;
-    new_node->data.ftype = TBD;
-    new_node->next = NULL;
-    if (*head == NULL) {
-        *head = new_node;
-        *tail = *head;
-    }
-    else {
-        (*tail)->next = new_node;
-        *tail = (*tail)->next;
-    }
-    /*
-      while (temp_node->next != NULL){
-        temp_node = temp_node->next;
-      }
-      temp_node->next = new_node;
-    }*/
-    *count += 1;
-}
-
-void print_queue_path(path_list *head) {
-    //print the entire queue
-    while(head != NULL) {
-        printf("%s\n", head->data.path);
-        head = head->next;
-    }
-}
-
-void delete_queue_path(path_list **head, int *count) {
-    //delete the entire queue;
-    path_list *temp = *head;
-    while(temp) {
-        *head = (*head)->next;
-        free(temp);
-        temp = *head;
-    }
-    *count = 0;
-}
 
 
-// enqueue a node using an existing node (does a new allocate, but allows
-// us to pass nodes instead of paths)
-void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
-    path_list *temp_node = (path_list*)malloc(sizeof(path_list));
-    if (! temp_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+    // enqueue a node using an existing node (does a new allocate, but allows
+    // us to pass nodes instead of paths)
+    void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
+        path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+        if (! temp_node) {
+            fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        temp_node->data = new_node->data;
+        temp_node->next = NULL;
+        if (*head == NULL) {
+            *head = temp_node;
+            *tail = *head;
+        }
+        else {
+            (*tail)->next = temp_node;
+            *tail = (*tail)->next;
+        }
+        *count += 1;
     }
-    temp_node->data = new_node->data;
-    temp_node->next = NULL;
-    if (*head == NULL) {
-        *head = temp_node;
-        *tail = *head;
-    }
-    else {
-        (*tail)->next = temp_node;
-        *tail = (*tail)->next;
-    }
-    *count += 1;
-}
 
-void dequeue_node(path_list **head, path_list **tail, int *count) {
-    //remove a path from the front of the queue
-    path_list *temp_node = *head;
-    if (temp_node == NULL) {
-        return;
+    void dequeue_node(path_list **head, path_list **tail, int *count) {
+        //remove a path from the front of the queue
+        path_list *temp_node = *head;
+        if (temp_node == NULL) {
+            return;
+        }
+        *head = temp_node->next;
+        free(temp_node);
+        *count -= 1;
     }
-    *head = temp_node->next;
-    free(temp_node);
-    *count -= 1;
-}
 
 
 
-void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
-    work_buf_list *current_pos = *workbuflist;
-    work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
-    if (! new_buf_item) {
-       fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+    void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
+        work_buf_list *current_pos = *workbuflist;
+        work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
+        if (! new_buf_item) {
+            fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        if (*workbufsize < 0) {
+            *workbufsize = 0;
+        }
+        new_buf_item->buf = buffer;
+        new_buf_item->size = buffer_size;
+        new_buf_item->next = NULL;
+        if (current_pos == NULL) {
+            *workbuflist = new_buf_item;
+            (*workbufsize)++;
+            return;
+        }
+        while (current_pos->next != NULL) {
+            current_pos = current_pos->next;
+        }
+        current_pos->next = new_buf_item;
+        (*workbufsize)++;
     }
-    if (*workbufsize < 0) {
+
+    void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize) {
+        work_buf_list *current_pos;
+        if (*workbuflist == NULL) {
+            return;
+        }
+        current_pos = (*workbuflist)->next;
+        free((*workbuflist)->buf);
+        free(*workbuflist);
+        *workbuflist = current_pos;
+        (*workbufsize)--;
+    }
+
+    void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
+        while (*workbuflist) {
+            dequeue_buf_list(workbuflist, workbufsize);
+        }
         *workbufsize = 0;
     }
-    new_buf_item->buf = buffer;
-    new_buf_item->size = buffer_size;
-    new_buf_item->next = NULL;
-    if (current_pos == NULL) {
-        *workbuflist = new_buf_item;
-        (*workbufsize)++;
-        return;
-    }
-    while (current_pos->next != NULL) {
-        current_pos = current_pos->next;
-    }
-    current_pos->next = new_buf_item;
-    (*workbufsize)++;
-}
 
-void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize) {
-    work_buf_list *current_pos;
-    if (*workbuflist == NULL) {
-        return;
-    }
-    current_pos = (*workbuflist)->next;
-    free((*workbuflist)->buf);
-    free(*workbuflist);
-    *workbuflist = current_pos;
-    (*workbufsize)--;
-}
+    void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize) {
+        int         position;
+        char*       buffer;
+        int         buffer_size = 0;
+        int         worksize;
+        path_list*  iter;
 
-void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
-    while (*workbuflist) {
-        dequeue_buf_list(workbuflist, workbufsize);
-    }
-    *workbufsize = 0;
-}
+        worksize = MESSAGEBUFFER * sizeof(path_item);
+        buffer   = (char *)malloc(worksize);
+        if (! buffer) {
+            fprintf(stderr, "Failed to allocate %lu bytes for buffer\n", sizeof(worksize));
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+        position = 0;
 
-void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize) {
-    int         position;
-    char*       buffer;
-    int         buffer_size = 0;
-    int         worksize;
-    path_list*  iter;
-
-    worksize = MESSAGEBUFFER * sizeof(path_item);
-    buffer   = (char *)malloc(worksize);
-    if (! buffer) {
-       fprintf(stderr, "Failed to allocate %lu bytes for buffer\n", sizeof(worksize));
-       MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-    position = 0;
-
-    for (iter=head; iter!=NULL; iter=iter->next) {
-        MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
-        buffer_size++;
-        if (buffer_size % STATBUFFER == 0 || buffer_size % MESSAGEBUFFER == 0) {
-            enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
-            buffer_size = 0;
-            buffer = (char *)malloc(worksize);
-            if (! buffer) {
-               fprintf(stderr, "Failed to allocate %lu bytes for buffer-elt\n", sizeof(worksize));
-               MPI_Abort(MPI_COMM_WORLD, -1);
+        for (iter=head; iter!=NULL; iter=iter->next) {
+            MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
+            buffer_size++;
+            if (buffer_size % STATBUFFER == 0 || buffer_size % MESSAGEBUFFER == 0) {
+                enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+                buffer_size = 0;
+                buffer = (char *)malloc(worksize);
+                if (! buffer) {
+                    fprintf(stderr, "Failed to allocate %lu bytes for buffer-elt\n", sizeof(worksize));
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+                position = 0;  // should this be here?
             }
-            position = 0;  // should this be here?
+        }
+        if(buffer_size != 0) {
+            enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
         }
     }
-    if(buffer_size != 0) {
-       enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
-    }
-}
 
 
 #ifdef THREADS_ONLY
-//custom MPI calls
-int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm) {
-    // check to make sure there is space in the output buffer position+incount <= outcount
-    if (*position+incount > outcount) {
+    //custom MPI calls
+    int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm) {
+        // check to make sure there is space in the output buffer position+incount <= outcount
+        if (*position+incount > outcount) {
+            return -1;
+        }
+        // copy inbuf to outbuf
+        bcopy(inbuf,outbuf+(*position),incount);
+        // increment position  position=position+incount
+        *position=*position+incount;
+        return 0;
+    }
+
+    int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm) {
+        // check to make sure there is space in the output buffer position+insize <= outcount
+        if ((*position)+outcount > insize)  {
+            return -1;
+        }
+        // copy inbuf to outbuf
+        bcopy(inbuf+(*position),outbuf,outcount);
+        // increment position  position=position+insize
+        *position=*position+outcount;
+        return 0;
+    }
+
+
+    int MPY_Abort(MPI_Comm comm, int errorcode) {
+        int i = 0;
+        MPII_Member *member;
+        for (i = 0; i < comm->group->size; i++) {
+            member = (MPII_Member *)(comm->group->members)[i];
+            unlock(member->mutex);
+            delete_mutex(member->mutex);
+        }
+        for (i = 0; i < comm->group->size; i++) {
+            pthread_kill(pthread_self(), SIGTERM);
+        }
         return -1;
     }
-    // copy inbuf to outbuf
-    bcopy(inbuf,outbuf+(*position),incount);
-    // increment position  position=position+incount
-    *position=*position+incount;
-    return 0;
-}
-
-int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm) {
-    // check to make sure there is space in the output buffer position+insize <= outcount
-    if ((*position)+outcount > insize)  {
-        return -1;
-    }
-    // copy inbuf to outbuf
-    bcopy(inbuf+(*position),outbuf,outcount);
-    // increment position  position=position+insize
-    *position=*position+outcount;
-    return 0;
-}
-
-
-int MPY_Abort(MPI_Comm comm, int errorcode) {
-    int i = 0;
-    MPII_Member *member;
-    for (i = 0; i < comm->group->size; i++) {
-        member = (MPII_Member *)(comm->group->members)[i];
-        unlock(member->mutex);
-        delete_mutex(member->mutex);
-    }
-    for (i = 0; i < comm->group->size; i++) {
-        pthread_kill(pthread_self(), SIGTERM);
-    }
-    return -1;
-}
 #endif
 
 
-/**
- * This function tests the metadata of the two nodes
- * to see if they are the same. For files that are chunkable,
- * it looks to see if CTM (chunk transfer metadata) exists for 
- * the source file. If it does, then it assumes that there was 
- * an aborted transfer, and the files are NOT the same!
- *
- * check size, mtime, mode, and owners
- * 
- * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
- *    their metadata is initialized with ctime=mtime, and atime=mtime.
- *    Therefore, if you compare a POSIX file having values for ctime,
- *    atime, and mtime that are not all the same, with any S3 object, the
- *    two sets of metadata will *always* differ in these values, even if
- *    you freshly create them and set all these values to match the
- *    original.  Therefore, it might make sense to reconsider this test.
- *
- * @param src        a path_item structure containing
- *           the metadata for the souce file
- * @param dst        a path_item structure containing
- *           the metadata for the destination
- *           file
- * @param o      the PFTOOL global options structure
- *
- * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
- *   command-line includes an option to skip copying files that have
- *   already been done (-n), then the copy will be skipped if files are
- *   "the same".
- */
+    /**
+     * This function tests the metadata of the two nodes
+     * to see if they are the same. For files that are chunkable,
+     * it looks to see if CTM (chunk transfer metadata) exists for 
+     * the source file. If it does, then it assumes that there was 
+     * an aborted transfer, and the files are NOT the same!
+     *
+     * check size, mtime, mode, and owners
+     * 
+     * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
+     *    their metadata is initialized with ctime=mtime, and atime=mtime.
+     *    Therefore, if you compare a POSIX file having values for ctime,
+     *    atime, and mtime that are not all the same, with any S3 object, the
+     *    two sets of metadata will *always* differ in these values, even if
+     *    you freshly create them and set all these values to match the
+     *    original.  Therefore, it might make sense to reconsider this test.
+     *
+     * @param src        a path_item structure containing
+     *           the metadata for the souce file
+     * @param dst        a path_item structure containing
+     *           the metadata for the destination
+     *           file
+     * @param o      the PFTOOL global options structure
+     *
+     * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
+     *   command-line includes an option to skip copying files that have
+     *   already been done (-n), then the copy will be skipped if files are
+     *   "the same".
+     */
 
-// TBD: Use Path methods to avoid over-reliance on POSIX same-ness
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
-    const path_item& src = p_src->node();
-    const path_item& dst = p_dst->node();
+    // TBD: Use Path methods to avoid over-reliance on POSIX same-ness
+    int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
+        const path_item& src = p_src->node();
+        const path_item& dst = p_dst->node();
 
-    // compare metadata - check size, mtime, mode, and owners
-    // (satisfied conditions -> "same" file)
-    if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
-        && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+        // compare metadata - check size, mtime, mode, and owners
+        // (satisfied conditions -> "same" file)
+        if (src.st.st_size == dst.st.st_size
+                && (src.st.st_mtime == dst.st.st_mtime
+                    || S_ISLNK(src.st.st_mode))
+                && (src.st.st_mode == dst.st.st_mode)
+                && (((src.st.st_uid == dst.st.st_uid)
+                        && (src.st.st_gid == dst.st.st_gid))
+                    || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
 
-       // if a chunkable file matches metadata, but has CTM,
-       // then files are NOT the same.
-       if ((o.work_type == COPYWORK)
-           && (src.st.st_size >= o.chunk_at)
-           && (hasCTM(dst.path)))
-          return 0;
+            // if a chunkable file matches metadata, but has CTM,
+            // then files are NOT the same.
+            if ((o.work_type == COPYWORK)
+                    && (src.st.st_size >= o.chunk_at)
+                    && (hasCTM(dst.path)))
+                return 0;
 
-       // class-specific techniques (e.g. MarFS file has RESTART?)
-       if (p_dst->incomplete())
-          return 0;
+            // class-specific techniques (e.g. MarFS file has RESTART?)
+            if (p_dst->incomplete())
+                return 0;
 
-       // Files are the "same", as far as MD is concerned.
-       return 1;
+            // Files are the "same", as far as MD is concerned.
+            return 1;
+        }
+
+        return 0;
     }
-
-    return 0;
-}
