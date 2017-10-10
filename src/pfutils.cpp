@@ -1298,7 +1298,8 @@ int compare_file(path_item*      src_file,
         int            mode;
 
         // don't touch the destination, unless this is a COPY
-        if (o.work_type != COPYWORK)
+        // we can also skip on a dryrun
+        if (o.work_type != COPYWORK || 0 != o.testRun)
             return 0;
 
         // Make a path_item matching <dest_file>, using <src_file>->dest_ftype

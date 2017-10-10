@@ -413,6 +413,7 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.preserve, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.testRun, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
 
 #ifdef FUSE_CHUNKER
     MPI_Bcast(o.archive_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
