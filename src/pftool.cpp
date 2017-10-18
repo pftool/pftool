@@ -742,7 +742,7 @@ int manager(int             rank,
 
     //make directories if it's a copy job
     int makedir = 0;
-    if (o.work_type == COPYWORK) {
+    if (o.work_type == COPYWORK && 0 == o.testRun) {
         makedir = 1;
     }
 
@@ -1417,7 +1417,7 @@ void worker(int rank, struct options& o) {
         }
         memset(output_buffer, '\0', obuf_size);
     }
-    if (o.work_type == COPYWORK) {
+    if (o.work_type == COPYWORK && 0 == o.testRun) {
         makedir = 1;
     }
     //PRINT_MPI_DEBUG("rank %d: worker() MPI_Bcast the dest_path\n", rank);
@@ -1839,6 +1839,7 @@ void worker_readdir(int         rank,
 
     DIR*           dip;
     struct dirent* dit;
+
 
     start = 1;
 
