@@ -2067,24 +2067,10 @@ void process_stat_buffer(path_item*      path_buffer,
         memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
         strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
         if (o.verbose > 1) {
-            if (work_node.ftype == MIGRATEFILE) {
-                sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n",
-                        modebuf, (long unsigned int) work_node.st.st_blocks,
-                        work_node.st.st_uid, work_node.st.st_gid,
-                        (size_t) work_node.st.st_size, timebuf, work_node.path);
-            }
-            else if (work_node.ftype == PREMIGRATEFILE) {
-                sprintf(statrecord, "INFO  DATASTAT P %s %6lu %6d %6d %21zd %s %s\n",
-                        modebuf, (long unsigned int) work_node.st.st_blocks,
-                        work_node.st.st_uid, work_node.st.st_gid,
-                        (size_t) work_node.st.st_size, timebuf, work_node.path);
-            }
-            else {
                 sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
                         modebuf, (long unsigned int) work_node.st.st_blocks,
                         work_node.st.st_uid, work_node.st.st_gid,
                         (size_t) work_node.st.st_size, timebuf, work_node.path);
-            }
 
             MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
             write_count++;
