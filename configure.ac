@@ -14,20 +14,8 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
 
 
 # lets add some options to our CFLAGS variable
-AC_ARG_ENABLE(threads, [  --enable-threads]  [Run in threading mode])
-AM_CONDITIONAL([THREADS], [test x$enable_threads = xyes])
-
-AC_ARG_ENABLE(tape, [  --enable-tape]  [enable tape support])
-AM_CONDITIONAL([TAPE], [test x$enable_tape = xyes])
-
-AC_ARG_ENABLE(fusechunker, [  --enable-fusechunker]  [enable fusechunker support])
-AM_CONDITIONAL([FUSECHUNKER], [test x$enable_fusechunker = xyes])
-
 AC_ARG_ENABLE(syndata, [  --enable-syndata]  [enable synthetic data generation support])
 AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
-
-AC_ARG_ENABLE(plfs, [  --enable-plfs]  [enable plfs support])
-AM_CONDITIONAL([PLFS], [test x$enable_plfs = xyes])
 
 AC_ARG_ENABLE(s3, [  --enable-s3]  [enable S3 support])
 AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
@@ -60,10 +48,6 @@ AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
 AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
 AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
 
-AC_SUBST([_plfs_cflags],  ${PLFS_CFLAGS})
-AC_SUBST([_plfs_ldflags], ${PLFS_LDFLAGS})
-
-
 
 # check for adequate mpi support
 AS_IF([test x$enable_threads != xyes],
@@ -80,8 +64,6 @@ AS_IF([test x$enable_threads != xyes],
      AC_MSG_ERROR([$CXX cannot compile MPI applications. cannot continue.])]
 )])
 
-#AS_IF([test x$enable_threads = xyes],[cp -v etc/pftool.threaded.cfg etc/pftool.cfg])
-#AS_IF([test x$enable_threads != xyes],[cp -v etc/pftool.mpi.cfg etc/pftool.cfg])
 
 # chunk-transfer metadata can be stored to allow incremental restarts for
 # large N:1 destination-files.  use '--enable-CTM=' to specify how (or
@@ -114,9 +96,6 @@ AC_CONFIG_MACRO_DIR([m4])
 
 # checks for header files.
 AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
-AS_IF([test x$enable_plfs == xyes],
-  [AC_CHECK_HEADERS([plfs.h])]
-)
 AS_IF([test x$enable_s3 == xyes],
   [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
 )
@@ -133,6 +112,7 @@ AC_CHECK_LIB([rt], [timer_settime])
 AS_IF([test x"$enable_marfs" == xyes],
   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
+   AC_CHECK_LIB([MD5_Final], [crypto])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
    AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
    AC_CHECK_LIB([rdmacm], [rdma_getaddrinfo] )
@@ -157,8 +137,6 @@ AC_CHECK_FUNCS([malloc])
 
 
 AC_CONFIG_FILES([Makefile
-                 libs/Makefile
-                 libs/tompi/Makefile
                  src/Makefile
                  scripts/Makefile
                  etc/Makefile])
