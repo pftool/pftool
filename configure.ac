@@ -3,9 +3,9 @@ AC_PREREQ([2.59])
 AC_INIT([pftool], [2.1.3], [dsherril@lanl.gov])
 
 
-# Check If AM_SILENT_RULES Rule Are Supported
-# If So, Build Using AM_SILENT_RULES
-m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+# # Check If AM_SILENT_RULES Rule Are Supported
+# # If So, Build Using AM_SILENT_RULES
+# m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AC_CONFIG_SRCDIR([src])
 
@@ -42,6 +42,10 @@ AC_ARG_ENABLE(marfs,
    AS_HELP_STRING([  --enable-marfs], [enable marfs support]))
 AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
 
+AC_ARG_ENABLE(gprof,
+   AS_HELP_STRING([  --enable-gprof], [enable run-time profiling with gprof]))
+AM_CONDITIONAL([GPROF], [test x$enable_gprof = xyes])
+
 AC_ARG_ENABLE(allstatic,
    AS_HELP_STRING([  --enable-allstatic], [enable static linking of all libs]))
 AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
@@ -52,6 +56,9 @@ AC_ARG_ENABLE(CTM,
 AC_CONFIG_HEADER([config.h])
 
 
+
+# change defaults, instead of "-g -O2"
+: ${CFLAGS="-g -O3"} ${CXXFLAGS="-g -O3"}
 
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC

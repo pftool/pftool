@@ -1,3 +1,11 @@
+generic_cflags  =
+generic_ldflags =
+
+if GPROF
+generic_cflags  += -pg
+generic_ldflags += -pg
+endif
+
 
 bin_PROGRAMS = $(top_builddir)/bin/pftool
 
@@ -55,10 +63,11 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
-__top_builddir__bin_pftool_CXXFLAGS = $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
 
-__top_builddir__bin_pftool_LDFLAGS  = ${supportlib_ldflags} $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(hpss_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(threads_cflags) $(tape_cflags) $(fusechunker_cflags) $(plfs_cflags) $(hpss_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
+
+__top_builddir__bin_pftool_LDFLAGS  = $(generic_ldflags) $(supportlib_ldflags) $(threads_ldflags) $(tape_ldflags) $(plfs_ldflags) $(hpss_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
 
 
 
