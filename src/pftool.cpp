@@ -40,14 +40,53 @@
 #include <vector>
 using namespace std;
 
+
+
+// MPI  (made static so sig-handler can see them)
+int rank = 0;
+int nproc = 0;
+
+
+// The main point of this is to try to assure that they close RDMA sockets,
+// if they are using MarFS+RDMA.
+//
+// TBD: Move struct options to static, as well, so we can figure out
+//      whether to write to syslog or stderr.
+
+pthread_mutex_t sig_hndl_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+static void
+manager_sig_handler(int sig) {
+    static int once = 0;
+
+    pthread_mutex_lock(&sig_hndl_mtx);
+    if (! once++) {
+        char err_cause[MESSAGESIZE];
+        strerror_r(sig, err_cause, MESSAGESIZE);
+
+        // TBD: call output_message(), to do log/fprintf, as needed
+        fprintf(stderr, "INFO  ERROR    received signal %d: %s\n", sig, err_cause);
+        fprintf(stderr, "INFO  ERROR    shutting down %d workers ...\n", nproc);
+        fflush(stderr);
+
+        int i;
+        for (i = 1; i < nproc; i++) {
+            send_worker_exit(i);
+        }
+        fprintf(stderr, "INFO  ERROR    done.\n", nproc);
+
+        // wait for workers to complete shut-down?
+        MPI_Finalize();
+    }
+    pthread_mutex_unlock(&sig_hndl_mtx);
+}
+
+
+
 int main(int argc, char *argv[]) {
 
     //general variables
     int i;
-
-    //mpi
-    int rank = 0;
-    int nproc = 0;
 
     //getopt
     int c;
@@ -382,6 +421,20 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Invalid option set, do not  use option '-c' when listing files\n");
             return -1;
         }
+
+
+        // Orderly shutdown of workers, etc, if we are terminated by a
+        // signal.  This will just be a signal to the master, such as ctl-C
+        // the mpi job.  Actual crashes in workers would be harder to deal
+        // with, but shouldn't be handled in this way, anyhow.
+        struct sigaction sig_act;
+        sig_act.sa_handler = manager_sig_handler;
+        sigaction(SIGINT,  &sig_act, NULL);
+        sigaction(SIGTERM, &sig_act, NULL);
+        sigaction(SIGABRT, &sig_act, NULL);
+        // sigaction(SIGHUP,  &sig_act, NULL);
+        // sigaction(SIGPIPE, &sig_act, NULL);
+        // sigaction(SIGSEGV, &sig_act, NULL);
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -1123,12 +1176,12 @@ int manager(int             rank,
 
                 sprintf(message,
                         "INFO ACCUM  files/chunks: %4s    "
-                        "data: %7sB / %7sB    "
-                        "avg BW: %7sB/s    "
+                        "data: %8sB / %8sB    "
+                        "BW: (interval: %8sB/s    avg: %8sB/s)    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
-                        bw_avg,
+                        bw, bw_avg,
                         non_fatal);
                 write_output(message, 1);
 
@@ -1208,6 +1261,8 @@ int manager(int             rank,
         sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
     }
     write_output(message, 1);
+
+
     for(i = 1; i < nproc; i++) {
         send_worker_exit(i);
     }
@@ -1393,7 +1448,7 @@ void worker(int rank, struct options& o) {
     int       output_count = 0;
 
 
-    // OUTPUT_PROC could just sits out the Bcast of dest_node and base path
+    // OUTPUT_PROC could just sit out the Bcast of dest_node and base path
     // (if we used a communicator without him).  OUTPUT_PROC won't need
     // those, and waiting at the Bcast means anybody else who calls
     // errsend() before hitting the Bcast will deadlock everything.

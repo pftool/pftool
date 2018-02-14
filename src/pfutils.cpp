@@ -22,12 +22,12 @@
 #include <syslog.h>
 #include <signal.h>
 
+#include <pthread.h>            // manager_sig_handler()
 #ifdef THREADS_ONLY
-#include <pthread.h>
-#include "mpii.h"
-#define MPI_Abort MPY_Abort
-#define MPI_Pack MPY_Pack
-#define MPI_Unpack MPY_Unpack
+#  include "mpii.h"
+#  define MPI_Abort  MPY_Abort
+#  define MPI_Pack   MPY_Pack
+#  define MPI_Unpack MPY_Unpack
 #endif
 
 
