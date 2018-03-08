@@ -15,13 +15,16 @@
 #define      __PFTOOL_DEBUG_H
 
 //define debugs
+// TBD:  ./configure --enable-debug={poll,mpi,proc,io,exit} ...
+//
 //#define POLL_DEBUG
 //#define MPI_DEBUG
 //#define PROC_DEBUG
 //#define DMAPI_DEBUG
 //#define IO_DEBUG
+//#define EXIT_DEBUG
 
-//define debug print statements
+
 
 #ifdef POLL_DEBUG
 #define POLL_DEBUG_ON 1
@@ -61,6 +64,20 @@
 #else
 #define IO_DEBUG_ON 0
 #define PRINT_IO_DEBUG(format, args...)
+#endif
+
+#ifdef EXIT_DEBUG
+#  define PRINT_EXIT_DEBUG(FMT, ...)                                    \
+   do { struct timeval tv;                                              \
+      gettimeofday(&tv, NULL);                                          \
+      fprintf(stderr, "%u.%06u " FMT, tv.tv_sec, tv.tv_usec, ##__VA_ARGS__); \
+      fflush(stderr);                                                   \
+   } while (0)
+
+#  include <assert.h>
+#  define MPI_Abort(...)  assert(0)
+#else
+#  define PRINT_EXIT_DEBUG(FMT, ...)
 #endif
 
 

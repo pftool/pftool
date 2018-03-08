@@ -190,6 +190,9 @@ typedef enum cmd_opcode OpCode;
 #define ACCUM_PROC    2
 #define START_PROC    3
 
+// EXITCMD, or ctl-C
+extern volatile int worker_exit;
+
 //errsend
 #define FATAL 1
 #define NONFATAL 0

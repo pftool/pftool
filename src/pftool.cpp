@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <fcntl.h>
-#include <signal.h>             // timers
+#include <signal.h>             // timers, handlers
 #include <time.h>
 #include <syslog.h>
 #include <sys/types.h>
@@ -46,39 +46,83 @@ using namespace std;
 int rank = 0;
 int nproc = 0;
 
+struct worker_proc_status* proc_status = NULL;
 
-// The main point of this is to try to assure that they close RDMA sockets,
-// if they are using MarFS+RDMA.
+
+// Orderly shutdown of workers, etc, if we are terminated by ctl-C.
+// The main point of this is to try to assure that workers close RDMA
+// sockets, if they are using MarFS+RDMA, because rsockets seemed
+// capable of failing to detect a disconnected peer.  Maybe this is
+// is moot, now that we've cleaned things up in the server?
 //
-// TBD: Move struct options to static, as well, so we can figure out
-//      whether to write to syslog or stderr.
+// This is just for a ctl-C on the MPI job.  Actual crashes in workers would
+// be harder to deal with, and shouldn't be handled in this way.
+//
+// According to https://www.open-mpi.org/doc/v1.6/man1/mpirun.1.php#sect14
+// ctl-C (SIGINT) is trapped by orterun and then sent to all ranks as
+// SIGTERM.  After "a small number of seconds", SIGKILL is then sent to
+// all.  In our ancient 1.6.4, it looks like all ranks recv SIGINT first,
+// but only on the mpirun host?
+//
+// An important issue is that ranks 1 and 2 must remain up to recv messages
+// from workers, or the workers will deadlock.
+//
+// Our approach is that all ranks >= 3 trap these signals and exit at their
+// earliest convenience.  TBD: Make it more convenient for workers to quit
+// out of e.g. copy_file(), before finishing.
+
+static volatile int manager_sig = 0; // manager has caught a signal
+int                 workers_remain = 0;
 
 pthread_mutex_t sig_hndl_mtx = PTHREAD_MUTEX_INITIALIZER;
 
+
+// As workers complete, they will not be assigned new work.
 static void
 manager_sig_handler(int sig) {
-    static int once = 0;
+    PRINT_EXIT_DEBUG("INFO  ERROR    in manager_sig_handler with sig %d\n", sig);
+    fflush(stderr);
 
-    pthread_mutex_lock(&sig_hndl_mtx);
-    if (! once++) {
-        char err_cause[MESSAGESIZE];
-        strerror_r(sig, err_cause, MESSAGESIZE);
+    manager_sig = 1;
+    workers_remain = 0;
 
-        // TBD: call output_message(), to do log/fprintf, as needed
-        fprintf(stderr, "INFO  ERROR    received signal %d: %s\n", sig, err_cause);
-        fprintf(stderr, "INFO  ERROR    shutting down %d workers ...\n", nproc);
-        fflush(stderr);
+    // don't shutdown OUTPUT/ACCUM procs just yet.
+    // workers may need to send to them to avoid deadlock.
+    int i;
+    for (i = START_PROC; i < nproc; i++) {
+        //        // instead of depending on workers to recv SIGINT (which they don't
+        //        // always do?)  we'll send them an EXIT command
+        //        send_worker_exit(i);
 
-        int i;
-        for (i = 1; i < nproc; i++) {
-            send_worker_exit(i);
-        }
-        fprintf(stderr, "INFO  ERROR    done.\n", nproc);
-
-        // wait for workers to complete shut-down?
-        MPI_Finalize();
+        workers_remain += proc_status[i].inuse;
+        PRINT_EXIT_DEBUG("    proc_status[%d].inuse = %d\n", i, proc_status[i].inuse);;
     }
-    pthread_mutex_unlock(&sig_hndl_mtx);
+
+    // TBD: call output_message(), to do log/fprintf, as needed
+    PRINT_EXIT_DEBUG("INFO  ERROR    received signal %d\n", sig); //, strsignal(sig));
+    PRINT_EXIT_DEBUG("INFO  ERROR    waiting for %d workers ...\n", workers_remain);
+
+    PRINT_EXIT_DEBUG("INFO  ERROR    exiting manager_sig_handler %d\n", sig);
+    //        signal(sig, SIG_DFL);
+    //        raise(sig);
+}
+
+
+
+// Cause worker ranks to quit their outer loop.
+//
+// TBD: get more involved with ongoing work, such that e.g. copy_file() can
+//    exit early.
+
+static void
+worker_sig_handler(int sig) {
+    PRINT_EXIT_DEBUG("INFO  Worker (rank %d)    received signal %d\n", rank, sig); //, strsignal(sig));
+    worker_exit = 1;
+}
+
+static void
+sig_ignore(int sig) {
+    PRINT_EXIT_DEBUG("INFO (rank %d)  ignored signal %d\n", rank, sig); //, strsignal(sig));
 }
 
 
@@ -423,19 +467,42 @@ int main(int argc, char *argv[]) {
         }
 
 
-        // Orderly shutdown of workers, etc, if we are terminated by a
-        // signal.  This will just be a signal to the master, such as ctl-C
-        // the mpi job.  Actual crashes in workers would be harder to deal
-        // with, but shouldn't be handled in this way, anyhow.
-        struct sigaction sig_act;
-        sig_act.sa_handler = manager_sig_handler;
-        sigaction(SIGINT,  &sig_act, NULL);
-        sigaction(SIGTERM, &sig_act, NULL);
-        sigaction(SIGABRT, &sig_act, NULL);
-        // sigaction(SIGHUP,  &sig_act, NULL);
-        // sigaction(SIGPIPE, &sig_act, NULL);
-        // sigaction(SIGSEGV, &sig_act, NULL);
+        // manager (rank 0) waits for others to shut-down
+        struct sigaction sig_int;
+        sig_int.sa_handler = manager_sig_handler;
+
+        struct sigaction sig_term;
+        sig_term.sa_handler = sig_ignore; // SIG_IGN;
+
+        sigaction(SIGINT,  &sig_int,  NULL);
+        sigaction(SIGTERM, &sig_term, NULL);
     }
+    else if (rank >= START_PROC) {
+
+        // workers (rank >= 3) try to make an orderly shut-down
+        struct sigaction sig_int;
+        sig_int.sa_handler = worker_sig_handler;
+        // sig_int.sa_handler = sig_ignore; // SIG_IGN;
+
+        struct sigaction sig_term;
+        sig_term.sa_handler = worker_sig_handler;
+        // sig_term.sa_handler = sig_ignore; // SIG_IGN;
+
+        sigaction(SIGINT,  &sig_int,  NULL);
+        sigaction(SIGTERM, &sig_term, NULL);
+    }
+    else {
+        // ranks 1, 2 stay up, so others can send messages
+        struct sigaction sig_int;
+        sig_int.sa_handler = sig_ignore; // SIG_IGN;
+
+        struct sigaction sig_term;
+        sig_term.sa_handler = sig_ignore; // SIG_IGN;
+
+        sigaction(SIGINT,  &sig_int,  NULL);
+        sigaction(SIGTERM, &sig_term, NULL);
+    }
+
     MPI_Barrier(MPI_COMM_WORLD);
 
 
@@ -644,6 +711,7 @@ int main(int argc, char *argv[]) {
             worker(rank, o);
         }
     }
+    PRINT_EXIT_DEBUG("rank %d finalizing\n", rank);
 
     MPI_Finalize();
     return ret_val;
@@ -698,8 +766,7 @@ int manager(int             rank,
     int         work_rank;
     int         sending_rank;
     int         i;
-    struct worker_proc_status* proc_status;
-    int readdir_rank_count = 0;
+    int         readdir_rank_count = 0;
 
     struct timeval in;
     struct timeval out;
@@ -885,7 +952,7 @@ int manager(int             rank,
         }
     }
 
-    if(o.work_type != LSWORK) {
+    if(o.work_type != LSWORK) { 
         //quick check that source is not nested
         char* copy = strdup(dest_path);
         strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
@@ -903,7 +970,7 @@ int manager(int             rank,
             errsend(FATAL, errmsg);
         }
 
-        // check to make sure that if the source is a directory, then -R was specified. If not, error out.
+        // check to make sure that if the source is a directory, then -R was specified. If not, error out. 
         if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
             errsend_fmt(NONFATAL,"%s is a directory, but no recursive operation specified\n",beginning_node.path);
     }
@@ -945,6 +1012,16 @@ int manager(int             rank,
 
     // process responses from workers
     while (1) {
+
+        //        if (manager_sig && !workers_remain) {
+        //            break;
+        //        }
+        // DEBUGGING
+        if (manager_sig) {
+            PRINT_EXIT_DEBUG("manager: %d workers remaining (sig: %d)\n", workers_remain, manager_sig);
+            if (!workers_remain)
+                break;
+        }
 
         //poll for message
 #ifndef THREADS_ONLY
@@ -1062,7 +1139,7 @@ int manager(int             rank,
             break;
         }
 
-        if ( message_ready != 0) {
+        if (message_ready) {
 
             // got a message, get message type
             if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status)
@@ -1202,6 +1279,20 @@ int manager(int             rank,
 #ifndef THREADS_ONLY
         message_ready = 0;
 #endif
+    }
+
+    // terminated abnormally?
+    if (manager_sig) {
+
+        // we left OUTPUT/ACCUM running, so other workers wouldn't deadlock
+        PRINT_EXIT_DEBUG("manager shutting down ACCUM/OUTPUT\n");
+        for (i = 1; i < START_PROC; i++)
+            send_worker_exit(i);
+
+        //free any allocated stuff
+        free(proc_status);
+
+        return 1;
     }
 
 
@@ -1417,17 +1508,24 @@ void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes,
 #endif
 
 void manager_workdone(int rank, int sending_rank, struct worker_proc_status *proc_status, int* readdir_rank_count) {
-    proc_status[sending_rank].inuse = 0;
-    if(1 == proc_status[sending_rank].readdir) {
-        *readdir_rank_count -= 1;
-        proc_status[sending_rank].readdir = 0;
+    if (manager_sig && (sending_rank >= START_PROC)) {
+        workers_remain -= 1;
+        // send_worker_exit(sending_rank);
+        PRINT_EXIT_DEBUG("manager_workdone rank %d, workers_remain now: %d\n", sending_rank, workers_remain);
+    }
+    else {
+        PRINT_EXIT_DEBUG("manager_workdone rank %d continues\n", sending_rank);
+        proc_status[sending_rank].inuse = 0;
+        if (1 == proc_status[sending_rank].readdir) {
+            *readdir_rank_count -= 1;
+            proc_status[sending_rank].readdir = 0;
+        }
     }
 }
 
 void worker(int rank, struct options& o) {
     MPI_Status status;
     int sending_rank;
-    int all_done = 0;
     int makedir = 0;
 
 #ifndef THREADS_ONLY
@@ -1508,7 +1606,7 @@ void worker(int rank, struct options& o) {
     //}
 
     //change this to get request first, process, then get work
-    while ( all_done == 0) {
+    while ( ! worker_exit ) {
 
 #ifndef THREADS_ONLY
         //poll for message
@@ -1564,7 +1662,8 @@ void worker(int rank, struct options& o) {
                 worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
                 break;
             case EXITCMD:
-                all_done = 1;
+                PRINT_EXIT_DEBUG("worker %d EXITCMD\n", rank);
+                worker_exit = 1;
                 break;
             default:
                 errsend(FATAL, "worker received unrecognized command\n");
@@ -1583,6 +1682,8 @@ void worker(int rank, struct options& o) {
         worker_flush_output(output_buffer, &output_count);
         free(output_buffer);
     }
+
+    PRINT_EXIT_DEBUG("worker %d exiting\n", rank);
 }
 
 /**
@@ -2412,7 +2513,9 @@ void process_stat_buffer(path_item*      path_buffer,
 
 
             // if selected options require reading the source-file, and the
-            // source-file is not readable, we have a problem
+            // source-file is not readable, we have a problem.
+            //
+            // WARNING: For MarFS, checking metadata implies you have a fuse-mount
             if (((o.work_type == COPYWORK)
                  || ((o.work_type == COMPAREWORK)
                      && ! o.meta_data_only))
@@ -3110,7 +3213,8 @@ void worker_copylist(int             rank,
                             out_node.path, work_node.path);
                 }
                 else {
-                    sprintf(copymsg, "INFO  DATACOPY %sCopied %s offs %lld len %lld to %s\n",
+                    PRINT_EXIT_DEBUG("Rank %d copied\n", rank);
+                    sprintf(copymsg, "INFO  DATACOPY %sCopied %s offs %9lld len %lld to %s\n",
                             ((rc == 1) ? "*" : ""),
                             work_node.path, (long long)offset, (long long)length, out_node.path);
                 }

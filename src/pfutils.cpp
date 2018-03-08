@@ -30,6 +30,8 @@
 #  define MPI_Unpack MPY_Unpack
 #endif
 
+// EXITCMD, or ctl-C
+volatile int worker_exit = 0;
 
 void usage () {
     // print usage statement
