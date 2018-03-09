@@ -1121,16 +1121,30 @@ int manager(int             rank,
                 human_readable(bw,        BUF_SIZE, bw0); // this period
                 human_readable(bw_avg,    BUF_SIZE, bw_tot);
 
+                if (o.logging) {
+                    // syslog includes the interval BW
+                    sprintf(message,
+                            "INFO ACCUM  files/chunks: %4s    "
+                            "data: %8sB / %8sB    "
+                            "BW: (interval: %8sB/s    overall: %8sB/s)    "
+                            "errs: %d\n",
+                            files, // files_ex,
+                            bytes, bytes_tbd,
+                            bw, bw_avg,
+                            non_fatal);
+                    write_output(message, 2); // syslog-only
+                }
                 sprintf(message,
                         "INFO ACCUM  files/chunks: %4s    "
-                        "data: %7sB / %7sB    "
-                        "avg BW: %7sB/s    "
+                        "data: %8sB / %8sB    "
+                        "avg BW: %8sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
-                        bw_avg,
+                        bw_avg, // no incremental
                         non_fatal);
-                write_output(message, 1);
+                write_output(message, 0); // stdout-only
+
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1722,7 +1736,7 @@ void worker_update_chunk(int            rank,
     send_manager_work_done(rank);
 }
 
-// log == 0    output to stdout
+// log == 0    output to stdout (ONLY)
 // log == 1    output to syslog (AND stdout)
 // log == 2    output to syslog (ONLY)
 //
@@ -1744,7 +1758,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
         errsend(FATAL, "Failed to receive msg\n");
     }
     PRINT_MPI_DEBUG("rank %d: worker_output() Receiving the message from rank %d\n", rank, sending_rank);
-    if (o.logging == 1 && log) {
+    if (log && o.logging) {
         syslog (LOG_INFO, "%s", msg);
     }
     if (log < 2) {
