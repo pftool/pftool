@@ -1123,12 +1123,12 @@ int manager(int             rank,
 
                 sprintf(message,
                         "INFO ACCUM  files/chunks: %4s    "
-                        "data: %7sB / %7sB    "
-                        "avg BW: %7sB/s    "
+                        "data: %8sB / %8sB    "
+                        "BW: (interval: %8sB/s    avg: %8sB/s)    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
-                        bw_avg,
+                        bw, bw_avg,
                         non_fatal);
                 write_output(message, 1);
 
