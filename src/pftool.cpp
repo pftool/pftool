@@ -81,30 +81,37 @@ pthread_mutex_t sig_hndl_mtx = PTHREAD_MUTEX_INITIALIZER;
 static void
 manager_sig_handler(int sig) {
     PRINT_EXIT_DEBUG("INFO  ERROR    in manager_sig_handler with sig %d\n", sig);
-    fflush(stderr);
 
-    manager_sig = 1;
-    workers_remain = 0;
+    if (! manager_sig) {
 
-    // don't shutdown OUTPUT/ACCUM procs just yet.
-    // workers may need to send to them to avoid deadlock.
-    int i;
-    for (i = START_PROC; i < nproc; i++) {
-        //        // instead of depending on workers to recv SIGINT (which they don't
-        //        // always do?)  we'll send them an EXIT command
-        //        send_worker_exit(i);
+        manager_sig = 1;
 
-        workers_remain += proc_status[i].inuse;
-        PRINT_EXIT_DEBUG("    proc_status[%d].inuse = %d\n", i, proc_status[i].inuse);;
+        // count number of working workers, so we'll know when they are all done.
+        // NOTE: don't shutdown OUTPUT/ACCUM procs just yet.
+        //     workers may need to send to them to avoid deadlock.
+        int i;
+        workers_remain = 0;
+        for (i = START_PROC; i < nproc; i++) {
+            // don't do this *in addition to* workers trapping signals; they may exit
+            // on their own due to sig-handler, and then this would deadlock.
+            //        // instead of depending on workers to recv SIGINT (which they don't
+            //        // always do?)  we'll send them an EXIT command
+            //        send_worker_exit(i);
+
+            workers_remain += proc_status[i].inuse;
+            PRINT_EXIT_DEBUG("    proc_status[%d].inuse = %d\n", i, proc_status[i].inuse);;
+        }
+
+        // TBD: call output_message(), to do log/fprintf, as needed
+        PRINT_EXIT_DEBUG("INFO  ERROR    received signal %d\n", sig); //, strsignal(sig));
+        PRINT_EXIT_DEBUG("INFO  ERROR    waiting for %d workers ...\n", workers_remain);
+
+        // write_output_fmt(1, "ERROR FATAL: caught signal %d.  Waiting for %d workers ...\n", sig, workers_remain);
+        fprintf(stderr, "ERROR FATAL: caught signal %d.  Waiting for %d workers ...\n", sig, workers_remain);
+        fflush(stderr);
     }
 
-    // TBD: call output_message(), to do log/fprintf, as needed
-    PRINT_EXIT_DEBUG("INFO  ERROR    received signal %d\n", sig); //, strsignal(sig));
-    PRINT_EXIT_DEBUG("INFO  ERROR    waiting for %d workers ...\n", workers_remain);
-
     PRINT_EXIT_DEBUG("INFO  ERROR    exiting manager_sig_handler %d\n", sig);
-    //        signal(sig, SIG_DFL);
-    //        raise(sig);
 }
 
 

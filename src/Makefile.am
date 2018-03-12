@@ -2,7 +2,7 @@ generic_cflags  =
 generic_ldflags =
 
 if GPROF
-generic_cflags  += -pg
+generic_cflags  += -pg -DGPROF
 generic_ldflags += -pg
 endif
 
