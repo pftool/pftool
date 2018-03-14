@@ -962,6 +962,8 @@ int manager(int             rank,
                             free_worker_count -= 1;
                             send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
+                        else
+                            break;
                     }
                 }
                 else if (o.work_type == COMPAREWORK) {
@@ -972,6 +974,8 @@ int manager(int             rank,
                             free_worker_count -= 1;
                             send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
+                        else
+                            break;
                     }
                 }
                 else {
@@ -986,10 +990,11 @@ int manager(int             rank,
             }
 #endif
 
-            if (-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
+            if (dir_buf_list_size
+                && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks))) {
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                 if (work_rank >= 0) {
-                    if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
+                    if (((start == 1 || o.recurse) && dir_buf_list_size)) {
                         proc_status[work_rank].inuse   = 1;
                         free_worker_count  -= 1;
                         proc_status[work_rank].readdir = 1;
@@ -1501,13 +1506,14 @@ void worker(int rank, struct options& o) {
             if (prc != MPI_SUCCESS) {
                 errsend(FATAL, "MPI_Iprobe failed\n");
             }
-            else {
+            else
                 probecount++;
-            }
+
             if  (probecount % 3000 == 0) {
                 PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
             }
-            usleep(1);
+            if (! message_ready)
+                usleep(1);
         }
 #endif
         //grab message type
@@ -2815,12 +2821,13 @@ void process_stat_buffer(path_item*      path_buffer,
             }
 #endif
         }
-        printmode(work_node.st.st_mode, modebuf);
-        memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
-        strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
 
         //if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
         if (o.verbose > 1) {
+            printmode(work_node.st.st_mode, modebuf);
+            memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
+            strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
+
             if (work_node.ftype == MIGRATEFILE) {
                 sprintf(statrecord, "INFO  DATASTAT M %s %6lu %6d %6d %21zd %s %s\n",
                         modebuf, (long unsigned int) work_node.st.st_blocks,
