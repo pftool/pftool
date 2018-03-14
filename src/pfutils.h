@@ -364,7 +364,7 @@ int  request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
 void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize);
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 //worker utility functions
 void errsend(int fatal, const char *error_text);
@@ -381,7 +381,7 @@ int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct u
 int  stat_item(path_item* work_node, struct options& o);
 void get_stat_fs_info(const char *path, SrcDstFSType *fs);
 int  get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range);
-int  processing_complete(struct worker_proc_status *proc_status, int nproc);
+int  processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc);
 
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
@@ -405,14 +405,14 @@ void write_output(const char *message, int log);
 void write_output_fmt(int log, const char *fmt, ...);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
-void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 
 #ifdef TAPE
-void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 #endif
 
-void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues
@@ -421,13 +421,13 @@ void print_queue_path(path_list *head);
 void delete_queue_path(path_list **head, int *count);
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count);
 void dequeue_node(path_list **head, path_list **tail, int *count);
-void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize);
+void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 
 //function definitions for workbuf_list;
-void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size);
-void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
-void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
+void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
+void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
+void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 
 //fake mpi

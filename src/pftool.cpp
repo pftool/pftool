@@ -646,7 +646,8 @@ int manager(int             rank,
     int         sending_rank;
     int         i;
     struct worker_proc_status* proc_status;
-    int readdir_rank_count = 0;
+    int         readdir_rank_count = 0;
+    int         free_worker_count = 0; // only counts ranks >= START_PROC
 
     struct timeval in;
     struct timeval out;
@@ -676,17 +677,21 @@ int manager(int             rank,
     size_t      num_copied_bytes = 0;
     size_t      num_copied_bytes_prev = 0; // captured at previous timer
 
-    work_buf_list* stat_buf_list      = NULL;
-    int            stat_buf_list_size = 0;
+    work_buf_list* stat_buf_list         = NULL;
+    work_buf_list* stat_buf_list_tail    = NULL;
+    int            stat_buf_list_size    = 0;
 
-    work_buf_list* process_buf_list   = NULL;
+    work_buf_list* process_buf_list      = NULL;
+    work_buf_list* process_buf_list_tail = NULL;
     int            process_buf_list_size = 0;
 
-    work_buf_list* dir_buf_list       = NULL;
-    int            dir_buf_list_size  = 0;
+    work_buf_list* dir_buf_list          = NULL;
+    work_buf_list* dir_buf_list_tail     = NULL;
+    int            dir_buf_list_size     = 0;
 #ifdef TAPE
-    work_buf_list* tape_buf_list      = NULL;
-    int            tape_buf_list_size = 0;
+    work_buf_list* tape_buf_list         = NULL;
+    work_buf_list* tape_buf_list_tail    = NULL;
+    int            tape_buf_list_size    = 0;
 #endif
 
     int         mpi_ret_code;
@@ -856,7 +861,7 @@ int manager(int             rank,
     }
 
     //pack our list into a buffer:
-    pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_size);
+    pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
     delete_queue_path(&input_queue_head, &input_queue_count);
 
     //allocate a vector to hold proc status for every proc
@@ -867,6 +872,7 @@ int manager(int             rank,
         proc_status[i].inuse = 0;
         proc_status[i].readdir = 0;
     }
+    free_worker_count = nproc - START_PROC;
 
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
     write_output(message, 1);
@@ -888,7 +894,7 @@ int manager(int             rank,
 
     //this is how we start the whole thing
     //proc_status[START_PROC] = 1;
-    //send_worker_readdir(START_PROC, &dir_buf_list, &dir_buf_list_size);
+    //send_worker_readdir(START_PROC, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
 
     // process responses from workers
     while (1) {
@@ -896,24 +902,44 @@ int manager(int             rank,
         //poll for message
 #ifndef THREADS_ONLY
         while ( message_ready == 0) {
+
+            // check for availability of message (without reading it)
             prc = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD,
                              &message_ready, &status);
             if (prc != MPI_SUCCESS) {
                 errsend(FATAL, "MPI_Iprobe failed\n");
                 message_ready = -1;
             }
-            else {
+            else
                 probecount++;
-            }
+
+
+
             if  (probecount % 3000 == 0) {
                 PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
                 PRINT_POLL_DEBUG("process_buf_list_size = %d\n", process_buf_list_size);
                 PRINT_POLL_DEBUG("stat_buf_list_size = %d\n", stat_buf_list_size);
                 PRINT_POLL_DEBUG("dir_buf_list_size = %d\n", dir_buf_list_size);
+
+                // maybe break out of the probe loop, to provide timely output
+                if (! o.verbose) {
+
+                    if (timer_gettime(timer, &itspec_cur)) {
+                        errsend_fmt(FATAL, "failed to get timer '%s'\n", strerror(errno));
+                    }
+                    if ((itspec_cur.it_value.tv_sec  == 0) &&
+                        (itspec_cur.it_value.tv_nsec == 0)) {
+                        break;
+                    }
+                }
             }
 
-            //we didn't get any new messages from workers
-            if (message_ready == 0) {
+
+
+            // Always try to dish out work, before handling messages
+            // Otherwise, we can be preoccupied with CHNKCMD msgs, for a big copy
+            // NOTE: We're assuming the #ifdef TAPE is obsolete
+            if (free_worker_count && process_buf_list_size) {
 #endif
                 for (i = 0; i < nproc; i++) {
                     PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status.inuse[i]);
@@ -924,7 +950,8 @@ int manager(int             rank,
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                 if (work_rank >= 0 && tape_buf_list_size > 0) {
                     proc_status[work_rank].inuse = 1;
-                    send_worker_tape_path(work_rank, &tape_buf_list, &tape_buf_list_size);
+                    free_worker_count -= 1;
+                    send_worker_tape_path(work_rank, &tape_buf_list, &tape_buf_list_tail, &tape_buf_list_size);
                 }
 #endif
                 if (o.work_type == COPYWORK) {
@@ -932,7 +959,8 @@ int manager(int             rank,
                         work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                         if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank].inuse = 1;
-                            send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_size);
+                            free_worker_count -= 1;
+                            send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
                     }
                 }
@@ -941,62 +969,54 @@ int manager(int             rank,
                         work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                         if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank].inuse = 1;
-                            send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_size);
+                            free_worker_count -= 1;
+                            send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
                     }
                 }
                 else {
                     //delete the queue here
-                    delete_buf_list(&process_buf_list, &process_buf_list_size);
+                    delete_buf_list(&process_buf_list, &process_buf_list_tail, &process_buf_list_size);
 #ifdef TAPE
-                    delete_buf_list(&tape_buf_list, &tape_buf_list_size);
+                    delete_buf_list(&tape_buf_list, &tape_buf_list_tail, &tape_buf_list_size);
 #endif
                 }
 
-                if(-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
-                    work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
-                    if (work_rank >= 0) {
-                        if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
-                            proc_status[work_rank].inuse = 1;
-                            proc_status[work_rank].readdir = 1;
-                            readdir_rank_count += 1;
-                            send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_size);
-                            start = 0;
-                        }
-                        else if (!o.recurse) {
-                            delete_buf_list(&dir_buf_list, &dir_buf_list_size);
-                        }
+#ifndef THREADS_ONLY
+            }
+#endif
+
+            if (-1 == o.max_readdir_ranks || readdir_rank_count < o.max_readdir_ranks) {
+                work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                if (work_rank >= 0) {
+                    if (((start == 1 || o.recurse) && dir_buf_list_size != 0)) {
+                        proc_status[work_rank].inuse   = 1;
+                        free_worker_count  -= 1;
+                        proc_status[work_rank].readdir = 1;
+                        readdir_rank_count += 1;
+                        send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
+                        start = 0;
+                    }
+                    else if (!o.recurse) {
+                        delete_buf_list(&dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
                     }
                 }
-
-
-                // maybe break out of the probe loop, to provide timely output
-                if (probecount
-                    && (! (probecount % 3000))
-                    && (! o.verbose)) {
-
-                    if (timer_gettime(timer, &itspec_cur)) {
-                        errsend_fmt(FATAL, "failed to get timer '%s'\n", strerror(errno));
-                    }
-                    if ((itspec_cur.it_value.tv_sec  == 0) &&
-                        (itspec_cur.it_value.tv_nsec == 0)) {
-                        break;
-                    }
-                }
+            }
 
 
 #ifndef THREADS_ONLY
-            }
 
             //are we finished?
             if (process_buf_list_size == 0
                 && stat_buf_list_size == 0
                 && dir_buf_list_size == 0
-                && processing_complete(proc_status, nproc) == 0) {
+                && processing_complete(proc_status, free_worker_count, nproc)) {
 
                 break;
             }
-            usleep(1);
+
+            if (! message_ready)
+                usleep(1);
         }
 #endif
 
@@ -1004,12 +1024,12 @@ int manager(int             rank,
         if (process_buf_list_size == 0
             && stat_buf_list_size == 0
             && dir_buf_list_size == 0
-            && processing_complete(proc_status, nproc) == 0) {
+            && processing_complete(proc_status, free_worker_count, nproc)) {
 
             break;
         }
 
-        if ( message_ready != 0) {
+        if (message_ready) {
 
             // got a message, get message type
             if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status)
@@ -1023,7 +1043,7 @@ int manager(int             rank,
             switch(type_cmd) {
             case WORKDONECMD:
                 //worker finished their tasks
-                manager_workdone(rank, sending_rank, proc_status, &readdir_rank_count);
+                manager_workdone(rank, sending_rank, proc_status, &free_worker_count, &readdir_rank_count);
                 break;
 
             case NONFATALINCCMD:
@@ -1033,6 +1053,7 @@ int manager(int             rank,
 
             case CHUNKBUSYCMD:
                 proc_status[ACCUM_PROC].inuse = 1;
+                // free_worker_count -= 1; // nope.  This is only for rank >= START_PROC
                 break;
 
             case COPYSTATSCMD:
@@ -1048,22 +1069,22 @@ int manager(int             rank,
                 break;
 #endif
             case PROCESSCMD:
-                manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                 break;
 
             case DIRCMD:
-                manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
                 break;
 #ifdef TAPE
             case TAPECMD:
-                manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &tape_buf_list, &tape_buf_list_tail, &tape_buf_list_size);
                 if (o.work_type == LSWORK) {
-                    delete_buf_list(&tape_buf_list, &tape_buf_list_size);
+                    delete_buf_list(&tape_buf_list, &tape_buf_list_tail, &tape_buf_list_size);
                 }
                 break;
 #endif
             case INPUTCMD:
-                manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_tail, &stat_buf_list_size);
                 break;
 
             case QUEUESIZECMD:
@@ -1281,7 +1302,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
 }
 
 // recv <path_count>, then a block of packed data.  Push block onto a work_buf_list
-void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize) {
+void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, work_buf_list **workbuflisttail, int *workbufsize) {
     MPI_Status  status;
     int         path_count;
     char*       workbuf;
@@ -1304,7 +1325,7 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
         errsend(FATAL, "Failed to receive worksize\n");
     }
     if (path_count > 0) {
-        enqueue_buf_list(workbuflist, workbufsize, workbuf, path_count);
+        enqueue_buf_list(workbuflist, workbuflisttail, workbufsize, workbuf, path_count);
     }
 }
 
@@ -1375,11 +1396,15 @@ void manager_add_tape_stats(int rank, int sending_rank, int *num_examined_tapes,
 }
 #endif
 
-void manager_workdone(int rank, int sending_rank, struct worker_proc_status *proc_status, int* readdir_rank_count) {
-    proc_status[sending_rank].inuse = 0;
-    if(1 == proc_status[sending_rank].readdir) {
-        *readdir_rank_count -= 1;
+void manager_workdone(int rank, int sending_rank, struct worker_proc_status *proc_status, int* free_worker_count, int* readdir_rank_count) {
+    if (proc_status[sending_rank].inuse) {
+        proc_status[sending_rank].inuse = 0;
+        if (sending_rank >= START_PROC)
+            *free_worker_count += 1;
+    }
+    if (proc_status[sending_rank].readdir) {
         proc_status[sending_rank].readdir = 0;
+        *readdir_rank_count -= 1;
     }
 }
 
@@ -2339,7 +2364,8 @@ void process_stat_buffer(path_item*      path_buffer,
                        rank, i, work_node.path);
         // Are these items *identical* ? (e.g. same POSIX inode)
         // We will not have a dest in list so we will not check
-        if (o.work_type != LSWORK && p_work->identical(p_dest)) {
+        if ((o.work_type != LSWORK)
+            && p_work->identical(p_dest)) {
             write_count--;
             continue;
         }
@@ -2418,8 +2444,8 @@ void process_stat_buffer(path_item*      path_buffer,
                     // dest-files.
                     if ((o.different == 1)
                         && samefile(p_work, p_out, o)) {
-                        process = 0; // source/dest are the same, so skip
 
+                        process = 0; // source/dest are the same, so skip
                         num_finished_bytes += work_node.st.st_size;
                     }
 

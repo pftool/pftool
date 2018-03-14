@@ -22,14 +22,16 @@
 #include <syslog.h>
 #include <signal.h>
 
+#include <pthread.h>            // manager_sig_handler()
 #ifdef THREADS_ONLY
-#include <pthread.h>
-#include "mpii.h"
-#define MPI_Abort MPY_Abort
-#define MPI_Pack MPY_Pack
-#define MPI_Unpack MPY_Unpack
+#  include "mpii.h"
+#  define MPI_Abort  MPY_Abort
+#  define MPI_Pack   MPY_Pack
+#  define MPI_Unpack MPY_Unpack
 #endif
 
+// EXITCMD, or ctl-C
+volatile int worker_exit = 0;
 
 void usage () {
     // print usage statement
@@ -51,11 +53,11 @@ void usage () {
     printf (" [-s]         block size for COPY and COMPARE\n");
     printf (" [-C]         file size to start chunking (for N:1)\n");
     printf (" [-S]         chunk size for COPY\n");
-    printf (" [-n]         operate on file if different\n");
+    printf (" [-n]         only operate on file if different (aka 'restart')\n");
     printf (" [-r]         recursive operation down directory tree\n");
     printf (" [-t]         specify file system type of destination file/directory\n");
     printf (" [-l]         turn on logging to syslog\n");
-    printf (" [-P]         force destination filesystem to be treated as parallel\n");
+    printf (" [-P]         force destination to be treated as parallel (i.e. assume N:1 support)\n");
     printf (" [-M]         perform block-compare, default: metadata-compare\n");
     printf (" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
     printf (" [-e]         excludes files that match this pattern\n");
@@ -1545,7 +1547,7 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
     free(workbuf);
 }
 
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize) {
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     int size = (*workbuflist)->size;
     int worksize = sizeof(path_item) * size;
     send_command(target_rank, command);
@@ -1557,7 +1559,7 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
         fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    dequeue_buf_list(workbuflist, workbufsize);
+    dequeue_buf_list(workbuflist, workbuftail, workbufsize);
 }
 
 //manager
@@ -1713,26 +1715,26 @@ void send_worker_queue_count(int target_rank, int queue_count) {
     }
 }
 
-void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a buffer list of paths to stat
-    send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, DIRCMD, workbuflist, workbuftail, workbufsize);
 }
 
 #ifdef TAPE
-void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a buffer list of paths to stat
-    send_buffer_list(target_rank, TAPECMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, TAPECMD, workbuflist, workbuftail, workbufsize);
 }
 #endif
 
-void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a list buffers with paths to copy
-    send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
 }
 
-void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a list buffers with paths to compare
-    send_buffer_list(target_rank, COMPARECMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, COMPARECMD, workbuflist, workbuftail, workbufsize);
 }
 
 void send_worker_exit(int target_rank) {
@@ -2254,6 +2256,9 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 #endif
 }
 
+
+// NOTE: master spending ~50% time in this function.
+// all callers provide <start_range>==START_PROC
 int get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range) {
     //given an inclusive range, return the first encountered free rank
     int i;
@@ -2265,16 +2270,30 @@ int get_free_rank(struct worker_proc_status *proc_status, int start_range, int e
     return -1;
 }
 
-int processing_complete(struct worker_proc_status *proc_status, int nproc) {
-    //are all the ranks free?
+//are all the ranks free?
+// return 1 for yes, 0 for no.
+int processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc) {
+#if 0
     int i;
     int count = 0;
     for (i = 0; i < nproc; i++) {
-        if (proc_status[i].inuse == 1) {
-            count++;
-        }
+        if (proc_status[i].inuse == 1)
+           return 0;
     }
-    return count;
+    return 1;
+
+#else
+    if (free_worker_count == (nproc - START_PROC)) {
+       int i;
+       for (i = 0; i < START_PROC; i++) {
+          if (proc_status[i].inuse)
+             return 0;
+       }
+       return 1;
+    }
+    return 0;
+
+#endif
 }
 
 //Queue Function Definitions
@@ -2361,8 +2380,8 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 
 
 
-void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
-    work_buf_list *current_pos = *workbuflist;
+void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
+
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
     if (! new_buf_item) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
@@ -2374,38 +2393,41 @@ void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffe
     new_buf_item->buf = buffer;
     new_buf_item->size = buffer_size;
     new_buf_item->next = NULL;
-    if (current_pos == NULL) {
+
+    if (*workbuflist == NULL) {
         *workbuflist = new_buf_item;
-        (*workbufsize)++;
+        *workbuftail = new_buf_item;
+        *workbufsize = 1;
         return;
     }
-    while (current_pos->next != NULL) {
-        current_pos = current_pos->next;
-    }
-    current_pos->next = new_buf_item;
+
+    (*workbuftail)->next = new_buf_item;
+    *workbuftail = new_buf_item;
     (*workbufsize)++;
 }
 
-void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize) {
-    work_buf_list *current_pos;
-    if (*workbuflist == NULL) {
+void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
+    if (*workbuflist == NULL)
         return;
-    }
-    current_pos = (*workbuflist)->next;
+
+    if (*workbuftail == *workbuflist)
+       *workbuftail = NULL;
+
+    work_buf_list *new_head = (*workbuflist)->next;
     free((*workbuflist)->buf);
     free(*workbuflist);
-    *workbuflist = current_pos;
+    *workbuflist = new_head;
     (*workbufsize)--;
 }
 
-void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
+void delete_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     while (*workbuflist) {
-        dequeue_buf_list(workbuflist, workbufsize);
+       dequeue_buf_list(workbuflist, workbuftail, workbufsize);
     }
     *workbufsize = 0;
 }
 
-void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize) {
+void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     int         position;
     char*       buffer;
     int         buffer_size = 0;
@@ -2424,7 +2446,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
         MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
         buffer_size++;
         if (buffer_size % STATBUFFER == 0 || buffer_size % MESSAGEBUFFER == 0) {
-            enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+            enqueue_buf_list(workbuflist, workbuftail, workbufsize, buffer, buffer_size);
             buffer_size = 0;
             buffer = (char *)malloc(worksize);
             if (! buffer) {
@@ -2435,7 +2457,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
         }
     }
     if(buffer_size != 0) {
-       enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+       enqueue_buf_list(workbuflist, workbuftail, workbufsize, buffer, buffer_size);
     }
 }
 
