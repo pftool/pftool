@@ -329,6 +329,7 @@ void  usage();
 char *printmode (mode_t aflag, char *buf);
 void  trim_trailing(int ch, char* str);
 const char *cmd2str(OpCode cmdidx);
+unsigned char *pathSnapshotHash(const char *path, const struct stat *st);
 
 //char *get_base_path(const char *path, int wildcard);
 void  get_base_path(char* base_path, const path_item* path, int wildcard);

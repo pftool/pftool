@@ -17,6 +17,7 @@
 
 #include "pfutils.h"
 #include "ctm.h"                // hasCTM()
+#include "sig.h"
 #include "debug.h"
 
 #include <syslog.h>
@@ -245,6 +246,38 @@ ssize_t write_field(int fd, void *start, size_t len) {
 	}
 
 	return(tot);
+}
+
+/** 
+* Generate an allocated digital digest, based on the path and information 
+* in the given stat structure. This can be called a "Path Snapshot".
+* Note that it is up to the calling function/routine to deallocate the 
+* memory associated memory.
+* 
+* The size of the buffer being hashed is determined by:
+*	strlen(path) + sizeof(field(s) in stat structure)
+*
+* @param path	the full path of a file. Anything less than that would
+* 		not be a good File Snapshot
+* @param st	pointer to the stat structure for the file
+*
+* @return a digital signature in digest format that combines the full path name
+* 	and mtime. a NULL digest is returned if there are problems generateing
+* 	the hash.
+*/
+unsigned char *pathSnapshotHash(const char *path, const struct stat *st) {
+    int plen = strlen(path);									// the length of the path
+    uint8_t mbuf[PATH_MAX + sizeof(time_t)];							// the data buffer that the digest is computed from
+    uint8_t *mptr = mbuf;									// a pointer into digest data buffer
+
+    if(!path || !plen) return((unsigned char *)NULL);
+
+    memcpy(mptr,path,plen);
+    mptr += (plen);
+    memcpy(mptr,&(st->st_mtime),sizeof(time_t));
+    mptr += (sizeof(time_t));
+
+    return(signature(mbuf,(size_t)(mptr-mbuf)));
 }
 
 #ifdef TAPE
