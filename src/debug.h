@@ -18,7 +18,6 @@
 //#define POLL_DEBUG
 //#define MPI_DEBUG
 //#define PROC_DEBUG
-//#define DMAPI_DEBUG
 //#define IO_DEBUG
 
 //define debug print statements
@@ -47,14 +46,6 @@
 #define PRINT_MPI_DEBUG(format, args...)
 #endif
 
-#ifdef DMAPI_DEBUG
-#define DMAPI_DEBUG_ON 1
-#define PRINT_DMAPI_DEBUG(format, args...) fprintf(stderr, "DMAPI_DEBUG: "format, ##args);
-#else
-#define DMAPI_DEBUG_ON 0
-#define PRINT_DMAPI_DEBUG(format, args...)
-#endif
-
 #ifdef IO_DEBUG
 #define IO_DEBUG_ON 1
 #define PRINT_IO_DEBUG(format, args...) fprintf(stderr, "IO_DEBUG: "format, ##args);
@@ -62,6 +53,5 @@
 #define IO_DEBUG_ON 0
 #define PRINT_IO_DEBUG(format, args...)
 #endif
-
 
 #endif

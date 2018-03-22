@@ -75,26 +75,6 @@ def main():
   except:
     pass
 
-  try: 
-    archive_path = config.get("environment", "archive_path")
-    fuse_path = config.get("fuse_chunker", "fuse_path")
-    fuse_chunkdirs = config.get("fuse_chunker", "fuse_chunkdirs")
-    fuse_chunk_at = config.get("fuse_chunker", "fuse_chunk_at")
-    fuse_chunksize = config.get("fuse_chunker", "fuse_chunksize")
-  
-    commands.add("-a", archive_path)
-    commands.add("-f", fuse_path)
-    commands.add("-d", fuse_chunkdirs)
-    commands.add("-W", fuse_chunk_at)
-    commands.add("-A", fuse_chunksize)
-  except:
-    pass
-
-#  commands.add("-c", dest)
-#  commands.add("-p", *src)
-#  print "src before = %s"%(src)
-#  print "dest before = %s"%(dest)
-
   src_full = []
   dest_full = []
   for i in src:
@@ -113,11 +93,6 @@ def main():
          dest_fixed.append(j.split('rootfs', 1)[-1])
       else:
          dest_fixed.append(j)
-
-#  print "src_full after = %s"%(src_full)
-#  print "dest_full after = %s"%(dest_full)
-#  print "src_fixed after = %s"%(src_fixed)
-#  print "dest_fixed after = %s"%(dest_fixed)
 
   commands.add("-c", *dest_fixed)
   commands.add("-p", *src_fixed)
