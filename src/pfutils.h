@@ -19,7 +19,6 @@
 #define _FILE_OFFSET_BITS 64
 
 #include "config.h"
-
 #include <stdio.h>
 #include <stdarg.h>             // va_list, vsnprintf()
 #include <string.h>
@@ -35,38 +34,12 @@
 #include <dirent.h>
 #include <libgen.h>
 #include <unistd.h>
-//#include "hashtbl.h"
 #include <errno.h>
 #include <utime.h>
-
 #include "str.h"
 
 //mpi
 #include "mpi.h"
-
-//gpfs
-#ifdef TAPE
-#  ifdef HAVE_GPFS_H
-#    include <gpfs.h>
-#    ifdef HAVE_GPFS_FCNTL_H
-#      include "gpfs_fcntl.h"
-#    endif
-#  endif
-
-#  ifdef HAVE_DMAPI_H
-#    include <dmapi.h>
-#  endif
-
-#endif
-
-//fuse
-#ifdef FUSE_CHUNKER
-#  include <attr/xattr.h>
-#endif
-
-#ifdef PLFS
-#  include "plfs.h"
-#endif
 
 //synthetic data generation
 #ifdef GEN_SYNDATA
@@ -92,7 +65,6 @@
 #define STATBUFFER     4096
 #define COPYBUFFER     4096
 #define CHUNKBUFFER    COPYBUFFER
-#define TAPEBUFFER     5
 
 // The amount of data to accumulate before shipping off to a copy process
 #define SHIPOFF        536870912
@@ -171,10 +143,6 @@ enum cmd_opcode {
     PROCESSCMD,
     INPUTCMD,
     DIRCMD,
-#ifdef TAPE
-    TAPECMD,
-    TAPESTATCMD,
-#endif
     WORKDONECMD,
     NONFATALINCCMD,
     CHUNKBUSYCMD,
@@ -182,7 +150,6 @@ enum cmd_opcode {
     EXAMINEDSTATSCMD
 };
 typedef enum cmd_opcode OpCode;
-
 
 //for our MPI communications
 #define MANAGER_PROC  0
@@ -206,8 +173,6 @@ enum FileType {
 
    REGULARFILE,
    FUSEFILE,
-   PREMIGRATEFILE,              // for TAPE
-   MIGRATEFILE,                 // for TAPE
    PLFSFILE,
    S3FILE,
    MARFSFILE,
@@ -257,19 +222,6 @@ struct options {
     size_t  syn_size;						// the size of each syntheticlly generated file
 #endif
 
-#ifdef FUSE_CHUNKER
-    char    archive_path[PATHSIZE_PLUS];
-    char    fuse_path[PATHSIZE_PLUS];
-    int     use_fuse;
-    int     fuse_chunkdirs;
-    size_t  fuse_chunk_at;
-    size_t  fuse_chunksize;
-#endif
-
-#ifdef PLFS
-    size_t  plfs_chunksize;
-#endif
-
     // see ANYFS, etc, #define'd above.
     SrcDstFSType  sourcefs;
     SrcDstFSType  destfs;
@@ -280,18 +232,6 @@ struct worker_proc_status {
     char readdir;
 };
 
-// A queue to store all of our input nodes
-//struct path_link {
-//    char path[PATHSIZE_PLUS];				// full path of file (or directory) to process
-//    struct stat st;					// stat info of file/directory
-//    int chkidx;						// the chunk index or number of the chunk being processed
-//    off_t chksz;					// the tranfer chunk size of the file. For non-chunked file, this is the tranfer length or file length
-//    enum filetype ftype;				// the "type" of the source file. Type is influenced by where/what the source is stored
-//    enum filetype desttype;				// the "type" of the destination file
-//    char fstype[128];					// the file system type of the source file
-//};
-//typedef struct path_link path_item;
-//
 // the basic object used by pftool internals
 typedef struct path_item {
     int start; // tells us if this path item was created by the inital list provided by the user
@@ -304,11 +244,8 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
-   //    off_t         offset;
-   //    size_t        length;              // (remaining) data in the file
     char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
 } path_item;
-
 
 // A queue to store all of our input nodes
 typedef struct path_list {
@@ -316,13 +253,11 @@ typedef struct path_list {
     struct path_list *next;
 } path_list;
 
-
 typedef struct work_buf_list {
     char *buf;
     int size;
     struct work_buf_list *next;
 } work_buf_list;
-
 
 //Function Declarations
 void  usage();
@@ -343,39 +278,18 @@ void  get_output_path(path_item* out_node, const char *base_path, const path_ite
 int   one_byte_read(const char *path);
 ssize_t write_field(int fd, void *start, size_t len);
 int mkpath(char *thePath, mode_t perms);
-//#ifdef GEN_SYNDATA
-//int copy_file(path_item src_file, path_item dest_file, size_t blocksize, syndata_buffer *synbuf, int rank);
-//#else
-//int copy_file(path_item src_file, path_item dest_file, size_t blocksize, int rank);
-//#endif
-
 int   compare_file(path_item* src_file, path_item* dest_file, size_t blocksize, int meta_data_only, struct options& o);
-
-//dmapi/gpfs specfic
-#ifdef TAPE
-int   read_inodes(const char *fnameP, gpfs_ino_t startinode, gpfs_ino_t endinode, int *dmarray);
-int   dmapi_lookup (char *mypath, int *dmarray, char *dmouthexbuf);
-#endif
-
 
 //local functions
 int  request_response(int type_cmd);
 int  request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
-void send_path_list(int target_rank, int command, int num_send, path_list **list_head, path_list **list_tail, int *list_count);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
 void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize);
 
 //worker utility functions
 void errsend(int fatal, const char *error_text);
 void errsend_fmt(int fatal, const char *format, ...);
-
-#ifdef FUSE_CHUNKER
-int  is_fuse_chunk(const char *path, struct options& o);
-void set_fuse_chunk_data(path_item *work_node);
-int  get_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf *ut, uid_t *userid, gid_t *groupid);
-int  set_fuse_chunk_attr(const char *path, off_t offset, size_t length, struct utimbuf ut, uid_t userid, gid_t groupid);
-#endif
 
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int  stat_item(path_item* work_node, struct options& o);
@@ -386,17 +300,11 @@ int  processing_complete(struct worker_proc_status *proc_status, int nproc);
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
-
-#ifdef TAPE
-void send_manager_tape_buffer(path_item *buffer, int *buffer_count);
-#endif
-
 void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
-void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes);
 void send_manager_work_done(int ignored);
 
 //function definitions for workers
@@ -406,11 +314,6 @@ void write_output_fmt(int log, const char *fmt, ...);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-
-#ifdef TAPE
-void send_worker_tape_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-#endif
-
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
 void send_worker_exit(int target_rank);
@@ -423,17 +326,10 @@ void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *
 void dequeue_node(path_list **head, path_list **tail, int *count);
 void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize);
 
-
 //function definitions for workbuf_list;
 void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size);
 void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
 void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
-
-
-//fake mpi
-int MPY_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outcount, int *position, MPI_Comm comm);
-int MPY_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm);
-int MPY_Abort(MPI_Comm comm, int errorcode);
 
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
