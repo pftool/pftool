@@ -270,7 +270,7 @@ unsigned char *pathSnapshotHash(const char *path, const struct stat *st) {
     uint8_t mbuf[PATH_MAX + sizeof(time_t)];							// the data buffer that the digest is computed from
     uint8_t *mptr = mbuf;									// a pointer into digest data buffer
 
-    if(!path || !plen) return((unsigned char *)NULL);
+    if(!path || !plen || plen > PATH_MAX) return((unsigned char *)NULL);
 
     memcpy(mptr,path,plen);
     mptr += (plen);
