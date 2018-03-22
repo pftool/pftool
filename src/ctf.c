@@ -207,7 +207,6 @@ int foundCTF(const char *transfilename) {
 
 	if(!(ctffname=genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> no file
 	  return(FALSE);
-
 	if(stat(ctffname,&sbuf)) 			// file does NOT exist.
 	  return(FALSE);
 	return(TRUE);

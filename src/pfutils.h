@@ -82,7 +82,7 @@
 
 #define PATHSIZE_PLUS  (FILENAME_MAX+30)
 #define ERRORSIZE      PATHSIZE_PLUS
-#define MESSAGESIZE    PATHSIZE_PLUS
+#define MESSAGESIZE    16384
 #define MESSAGEBUFFER  400
 
 // if you are trying to increase max pack size, STATBUFFER must be >= to
@@ -179,6 +179,7 @@ enum cmd_opcode {
     NONFATALINCCMD,
     CHUNKBUSYCMD,
     COPYSTATSCMD,
+    NESTATSCMD,
     EXAMINEDSTATSCMD
 };
 typedef enum cmd_opcode OpCode;
@@ -242,7 +243,7 @@ struct options {
     size_t  chunk_at;
     size_t  chunksize;
     int     preserve;           				// attempt to preserve ownership during copies.
-
+    int     same_file_check_mode;
     char exclude[PATHSIZE_PLUS]; 				// pattern/list to exclude
 
     char    file_list[PATHSIZE_PLUS];
@@ -398,7 +399,6 @@ void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_tape_stats(int num_examined_tapes, size_t num_examined_tape_bytes);
 void send_manager_work_done(int ignored);
-
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(const char *message, int log);
@@ -441,7 +441,6 @@ int MPY_Abort(MPI_Comm comm, int errorcode);
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
 int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
-
 
 #endif
 

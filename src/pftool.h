@@ -26,6 +26,7 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
 int  manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize);
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, size_t *num_copied_bytes);
+void manager_add_libne_stats(int rank, int sending_rank, int* recvFlag, int* timingFlag, int* numPods, int* totalBlk, double* totalHandleTime, double* totalErasureTime, uint16_t** histos, uint16_t** histosBuffer);
 void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs, size_t *num_finished_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs);
 #ifdef TAPE

@@ -963,7 +963,6 @@ int copy_file(PathPtr       p_src,
         ////        }
         ////#endif
         bytes_processed = p_dest->write(buf, blocksize, offset+completed);
-
         // ---------------------------------------------------------------------------
         // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
         // object-servers.  However, in the case of writes, we can't assume
@@ -1108,11 +1107,17 @@ int copy_file(PathPtr       p_src,
     ////#ifdef PLFS
     ////    }
     ////#endif
+
+    //get timing stats before it closes
+    //printf("rank %d calling get timing stats\n", rank);
+    //p_dest->getTimingStats(timingStats);    
+
     if (! p_dest->close()) {
        errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
                    p_dest->path(), p_dest->strerror());
        err = 1;
     }
+
 
     if (buf)
        free(buf);
@@ -1128,7 +1133,6 @@ int copy_file(PathPtr       p_src,
             return -1;
         }
     }
-
     return success;             // 0: copied, 1: deemed copy
 }
 
@@ -1568,6 +1572,7 @@ void send_manager_nonfatal_inc() {
 void send_manager_chunk_busy() {
     send_command(MANAGER_PROC, CHUNKBUSYCMD);
 }
+
 
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
     send_command(MANAGER_PROC, COPYSTATSCMD);
@@ -2517,16 +2522,32 @@ int MPY_Abort(MPI_Comm comm, int errorcode) {
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
-
+    int mode;
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
-    if (src.st.st_size == dst.st.st_size
+    /*if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
         && (src.st.st_mode == dst.st.st_mode)
         && (((src.st.st_uid == dst.st.st_uid)
              && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+            || (geteuid() && !o.preserve))) */
+    if(!o.same_file_check_mode)
+    {
+	mode = src.st.st_size == dst.st.st_size && (src.st.st_mtime == dst.st.st_mtime) && (!(strcmp(src.path, dst.path)));
+    }
+    else
+    {
+	mode = src.st.st_size == dst.st.st_size
+        && (src.st.st_mtime == dst.st.st_mtime
+            || S_ISLNK(src.st.st_mode))
+        && (src.st.st_mode == dst.st.st_mode)
+        && (((src.st.st_uid == dst.st.st_uid)
+             && (src.st.st_gid == dst.st.st_gid))
+            || (geteuid() && !o.preserve));
+    }
+    if(mode)
+	{    // non-root doesn't chown unless '-o'           
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.

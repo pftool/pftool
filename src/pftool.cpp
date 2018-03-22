@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orlPMnhvg")) != -1) {
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orFlPMnhvg")) != -1) {
             switch(c) {
             case 'p':
                 //Get the source/beginning path
@@ -246,7 +246,6 @@ int main(int argc, char *argv[]) {
             case 'D':
                 o.max_readdir_ranks = atoi(optarg);
                 break;
-
             case 'X':
 #ifdef GEN_SYNDATA
                 strncpy(o.syn_pattern, optarg, 128);
@@ -299,11 +298,12 @@ int main(int argc, char *argv[]) {
                 o.plfs_chunksize = str2Size(optarg);
                 break;
 #endif
-
+	    case 'F':
+		o.same_file_check_mode = 1;
+		break;
             case 'n':
                 //different
                 o.different = 1;  // falls through ... on purpose?
-
             case 'r':
                 o.recurse = 1;
                 break;
@@ -406,7 +406,7 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.chunk_at, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.preserve, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-
+    MPI_Bcast(&o.same_file_check_mode, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
 #ifdef FUSE_CHUNKER
     MPI_Bcast(o.archive_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.fuse_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -625,6 +625,66 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
     return n;
 }
 
+void appendHistograms(int timingFlag, int numPods, double totalHandleTime, double totalErasureTime, int totalBlks, uint16_t* histos, char* message)
+{
+	//get the starting position for histograms in the message string
+        char *strPtr = message;
+	uint16_t* openCursor;
+	uint16_t* closeCursor;
+	uint16_t* readCursor;
+	uint16_t* writeCursor;
+	uint16_t* threadCursor;
+        int i,j;
+        int wBytes = 0;
+	wBytes = snprintf(strPtr, 64, "totalHandleTime: %7.5f\n", totalHandleTime);
+	strPtr += wBytes;
+	wBytes = snprintf(strPtr, 64, "totalErasureTime: %7.5f\n", totalErasureTime);
+	strPtr += wBytes;
+
+	for(i = 0; i < numPods; i++)
+	{
+		openCursor = histos + i * MAXPARTS * 65 * 5;
+		closeCursor = histos + i * MAXPARTS * 65 * 5 + MAXPARTS * 65;
+		readCursor = histos + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 2;
+		writeCursor = histos + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 3;
+		threadCursor = histos + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 4;
+        	for(j = 0; j < totalBlks; j++)
+        	{
+			//last argument of writeHisto:
+			//0 - open
+			//1 - close
+			//2 - read
+			//3 - writea
+			if (timingFlag & TF_OPEN)
+			{
+        	        	wBytes = writeHisto(&openCursor[j * 65], 1, i, j, strPtr, 0);
+        	        	strPtr += wBytes;
+			}
+			if (timingFlag & TF_CLOSE)
+			{
+				wBytes = writeHisto(&closeCursor[j * 65], 1, i, j, strPtr, 1);
+				strPtr += wBytes;
+			}
+			if (timingFlag & TF_RW)
+			{
+				wBytes = writeHisto(&readCursor[j * 65], 1, i, j, strPtr, 2);
+				strPtr += wBytes;
+				wBytes = writeHisto(&writeCursor[j * 65], 1, i, j, strPtr, 3);
+				strPtr += wBytes;
+			}
+			if(timingFlag & TF_THREAD)
+			{
+				wBytes = writeHisto(&threadCursor[j * 65], 1, i, j, strPtr, 4);
+				strPtr += wBytes;
+			}
+			wBytes = snprintf(strPtr, 4, "\n");
+			strPtr += wBytes;
+			//printf("blk %d: current message %s\n", i);
+        	}
+	}
+}
+
+
 int manager(int             rank,
              struct options& o,
              int             nproc,
@@ -676,6 +736,17 @@ int manager(int             rank,
     size_t      num_copied_bytes = 0;
     size_t      num_copied_bytes_prev = 0; // captured at previous timer
 
+    int totalBlks = 0;
+    int num_pods = 0;
+    int recvFlag = 0;
+    int timingFlag = 0;
+    double totalHandleTime = 0;
+    double totalErasureTime = 0;
+    uint16_t* histos = NULL;
+    uint16_t* recvHistos = NULL;
+    char* histoMessage = NULL;
+    int numPods = 0;
+
     work_buf_list* stat_buf_list      = NULL;
     int            stat_buf_list_size = 0;
 
@@ -698,7 +769,7 @@ int manager(int             rank,
     // poll.  However, that will give us not-very-perfect intervals, so we
     // also mark the TOD each time we detect the expiration.  That lets us
     // compute incremental BW more accurately.
-    static const size_t  output_timeout = 10; // secs per expiration
+    static const size_t  output_timeout = 5; // secs per expiration
     timer_t              timer;
     struct sigevent      event;
     struct itimerspec    itspec_new;
@@ -1039,6 +1110,9 @@ int manager(int             rank,
                 manager_add_copy_stats(rank, sending_rank, &num_copied_files, &num_copied_bytes);
                 break;
 
+	    case NESTATSCMD:
+		manager_add_libne_stats(rank, sending_rank, &recvFlag, &timingFlag,  &numPods, &totalBlks, &totalHandleTime, &totalErasureTime, &histos, &recvHistos);
+		break;
             case EXAMINEDSTATSCMD:
                 manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count, &finished_byte_count);
                 break;
@@ -1130,8 +1204,21 @@ int manager(int             rank,
                         bytes, bytes_tbd,
                         bw_avg,
                         non_fatal);
-                write_output(message, 1);
-
+		write_output(message, 1);
+		if (recvFlag == 1)
+		{
+			if (histoMessage == NULL)
+			{
+				histoMessage = (char*)malloc(sizeof(char) * MESSAGESIZE * numPods);
+			}
+			appendHistograms(timingFlag, numPods, totalHandleTime, totalErasureTime, totalBlks, histos, histoMessage);
+			write_output(histoMessage, 2);
+			memset((void*)histos, 0, sizeof(uint16_t) * numPods * MAXPARTS * 65 * 5);
+			totalHandleTime = 0;
+			totalErasureTime = 0;
+			recvFlag = 0;
+			
+		}
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
 
@@ -1218,6 +1305,15 @@ int manager(int             rank,
     if (0 != non_fatal) {
         return 1;
     }
+    if(histos != NULL)
+    {
+	free(histos);
+	free(recvHistos);
+    }
+    if(histoMessage != NULL)
+    {
+	free(histoMessage);
+    }
     return 0;
 }
 
@@ -1292,6 +1388,79 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
     if (path_count > 0) {
         enqueue_buf_list(workbuflist, workbufsize, workbuf, path_count);
     }
+}
+
+void manager_add_libne_stats(int rank, int sending_rank, int* recvFlag, int* timingFlag, int* numPods, int* totalBlks,
+			     double* totalHandleTime, double* totalErasureTime, uint16_t** histos, uint16_t** histosBuffer)
+{
+	MPI_Status status;
+	int i,j,k;
+	int nPods;
+	double buffer[5];
+	uint16_t* openCursor;
+	uint16_t* recvOpenCursor;
+	uint16_t* closeCursor;
+	uint16_t* recvCloseCursor;
+	uint16_t* readCursor;
+	uint16_t* recvReadCursor;
+	uint16_t* writeCursor;
+	uint16_t* recvWriteCursor;
+	uint16_t* threadCursor;
+	uint16_t* recvThreadCursor;
+
+	if (MPI_Recv(buffer, 5, MPI_DOUBLE, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+	{
+		errsend(FATAL, "Failed to receive totalBlks\n");
+	}
+	
+	*timingFlag = (int)buffer[0];
+	*numPods = (int)buffer[1];
+	*totalBlks = (int)buffer[2];
+	*totalHandleTime = *totalHandleTime + buffer[3];
+	*totalErasureTime = *totalErasureTime + buffer[4];
+	nPods = *numPods;
+
+	if (*histosBuffer == NULL)
+	{
+		*histosBuffer = (uint16_t*)malloc(sizeof(uint16_t) * nPods * MAXPARTS * 65 * 5);
+	}
+	if (*histos == NULL)
+	{
+		*histos = (uint16_t*)malloc(sizeof(uint16_t) * nPods * MAXPARTS * 65 * 5);
+		memset(*histos, 0, sizeof(uint16_t) * nPods * MAXPARTS * 65 * 5);
+	}
+
+	
+	if (MPI_Recv((unsigned char*)(*histosBuffer), sizeof(uint16_t) * nPods * MAXPARTS * 65 * 5, MPI_UNSIGNED_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+	{
+		errsend_fmt(FATAL, "Failed to receive timing stat for blk %d\n", i);
+	}
+
+	for(i = 0; i < nPods; i++)
+	{
+		openCursor = (*histos) + i * MAXPARTS * 65 * 5;
+		recvOpenCursor = (*histosBuffer) + i * MAXPARTS * 65 * 5;
+		closeCursor = (*histos) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65;
+		recvCloseCursor = (*histosBuffer) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65;
+		readCursor = (*histos) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 2;
+		recvReadCursor = (*histosBuffer) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 2;
+		writeCursor = (*histos) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 3;
+		recvWriteCursor = (*histosBuffer) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 3;
+		threadCursor = (*histos) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 4;
+		recvThreadCursor = (*histosBuffer) + i * MAXPARTS * 65 * 5 + MAXPARTS * 65 * 4;
+		for(j = 0; j < *totalBlks; j++)
+		{
+			for(k = 0; k < 65; k++)
+			{
+				openCursor[j * 65 + k] += recvOpenCursor[j * 65 + k];
+				closeCursor[j * 65 + k] += recvCloseCursor[j * 65 + k];
+				readCursor[j * 65 + k] += recvReadCursor[j * 65 + k];
+				writeCursor[j * 65 + k] += recvWriteCursor[j * 65 + k];
+				threadCursor[j * 65 + k] += recvThreadCursor[j * 65 + k];
+			}
+		}
+	}
+	*recvFlag = 1;
 }
 
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, size_t *num_copied_bytes) {
@@ -2153,6 +2322,18 @@ int maybe_pre_process(int&         pre_process,
     return 0;
 }
 
+
+void constructCTMPath(char* newPath, PathPtr work_node, PathPtr out_node)
+{
+	char* ptr = newPath;
+	char srcMTime[64];
+	
+	work_node->getMTime(srcMTime);
+	printf("test srcMtime %s\n", srcMTime);
+	snprintf(ptr, PATHSIZE_PLUS, "%s.%s.%s", work_node->getPath(), srcMTime, out_node->getPath());
+	printf("constructed CTMPath: %s\n", newPath);
+}
+
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
 // that have been reset to NONE are being built into path_buffers and sent
@@ -2352,9 +2533,8 @@ void process_stat_buffer(path_item*      path_buffer,
             //// rc = stat_item(&out_node, o);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
-
             dest_exists = p_out->exists();
-
+	    printf("DEST_EXISTS VAL %d\n", dest_exists);
 
             // if selected options require reading the source-file, and the
             // source-file is not readable, we have a problem
@@ -2413,7 +2593,10 @@ void process_stat_buffer(path_item*      path_buffer,
                     // (i.e. the only way a zero-size file could have CTM),
                     // then any CTM that may exist is definitely obsolete
                     if (out_node.st.st_size == 0) {
-                        purgeCTM(out_node.path);
+			char newPath[PATHSIZE_PLUS* 3];
+			constructCTMPath(newPath, p_work, p_out);
+                        //purgeCTM(out_node.path);
+			purgeCTM(newPath);
                     }
 
                     if (process == 1) {
@@ -2521,7 +2704,9 @@ void process_stat_buffer(path_item*      path_buffer,
 
                     // if someone deleted the destination,
                     // then any CTM that may exist is definitely obsolete
-                    purgeCTM(out_node.path);
+		    char newPath[PATHSIZE_PLUS * 3];
+		    constructCTMPath(newPath, p_work, p_out);
+                    purgeCTM(newPath); //was out_node.path
                 }
             } // end COPYWORK
 
@@ -2627,12 +2812,14 @@ void process_stat_buffer(path_item*      path_buffer,
 
                     else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
                         // int ctmExists = hasCTM(out_node.path);
-                        int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
-
+                        char newPath[PATHSIZE_PLUS * 3];
+			constructCTMPath(newPath, p_work, p_out);
+                        //int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
+			int ctmExists = ((dest_exists) ? hasCTM(newPath) : 0);
                         // we are doing a conditional transfer & CTM exists
                         // -> populate CTM structure
                         if (o.different && ctmExists) {
-                            ctm = getCTM(out_node.path,
+                            ctm = getCTM(newPath,//out_node.path,
                                          ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
                                          chunk_size);
                             if(IO_DEBUG_ON) {
@@ -2648,7 +2835,7 @@ void process_stat_buffer(path_item*      path_buffer,
                         else if (ctmExists) {
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer/compare.
-                            purgeCTM(out_node.path);
+                            purgeCTM(newPath); // was out_node.path
                             pre_process = 1;
                         }
                     }
@@ -2952,12 +3139,12 @@ void worker_copylist(int             rank,
     int            buffer_count = 0;
     int            i;
     int            rc;
-
+    TimingStats*   timingStats;    //timingStats = {0, 0};
 #ifdef FUSE_CHUNKER
     //partial file restart
     struct utimbuf ut;
     struct utimbuf chunk_ut;
-
+    int numPods = 0;
     uid_t          userid;
     uid_t          chunk_userid;
 
@@ -3020,7 +3207,6 @@ void worker_copylist(int             rank,
         // Need Path objects for the copy_file at this point ...
         PathPtr p_work( PathFactory::create_shallow(&work_node));
         PathPtr p_out(PathFactory::create_shallow(&out_node));
-
 #ifdef FUSE_CHUNKER
         if (work_node.dest_ftype != FUSEFILE) {
 #endif
@@ -3076,7 +3262,7 @@ void worker_copylist(int             rank,
         }
 //    	// If a sythetic data source was passed in, we are done with it now -> remove it.
 //   	if (work_node.ftype == SYNDATA ) 
-//	    p_work->unlink();
+//	    p_work->unlink
     }
     /*if (o.verbose > 1) {
       write_buffer_output(writebuf, writesize, read_count);
@@ -3086,6 +3272,8 @@ void worker_copylist(int             rank,
         send_manager_chunk_busy();
         update_chunk(chunks_copied, &buffer_count);
     }
+
+
     if (num_copied_files > 0 || num_copied_bytes > 0) {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }

@@ -251,6 +251,7 @@ int hasCTM(const char *transfilename) {
 	  case CTM_UNKNOWN : return(FALSE);
 	  case CTM_XATTR   : return(foundCTA(transfilename));
 	  case CTM_FILE    :
+				printf("calling FOUNDCTF\n");
           default          : return(foundCTF(transfilename));
 	}
 }
@@ -262,6 +263,7 @@ int hasCTM(const char *transfilename) {
 * 			remove/purge CTM data from
 */
 void purgeCTM(const char *transfilename) {
+	printf("purgeCTM transfilename: %s\n", transfilename);
 	CTM_ITYPE itype =  _whichCTM(transfilename);		// implementation type. Get how the CTM is stored in persistent store
 	char *chnkfname;					// holds the md5 name if CTM is implemented with CTF files
 
@@ -270,7 +272,7 @@ void purgeCTM(const char *transfilename) {
 			     break;
 								// have to generate the md5 name for CTF files
 	  case CTM_FILE    : chnkfname = genCTFFilename(transfilename);
-
+				printf("gen\n");
 			     unlinkCTF(chnkfname);		// don't care about return code
 			     if(chnkfname) free(chnkfname);	// we done with the temporary name
 			     break;

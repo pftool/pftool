@@ -65,7 +65,7 @@
 // ---------------------------------------------------------------------------
 
 
-
+#include <time.h>
 #include "pfutils.h"
 
 
@@ -73,7 +73,6 @@
 #include <stdint.h>
 #include <stdarg.h>             // va_list, va_start(), va_arg(), va_end()
 #include <string.h>             // strerror()
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -671,7 +670,6 @@ public:
    // if you just want to know whether stat succeeded call this
    virtual bool    stat()     { return do_stat(false); }
    virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
-
    // These are all stat-related, chosen to allow interpretation in the
    // context of non-POSIX sub-classes.  We assume all subclasses can
    // "fake" a struct stat.
@@ -682,6 +680,15 @@ public:
 
    virtual time_t  ctime()    { do_stat(); return _item->st.st_ctime; }
    virtual time_t  mtime()    { do_stat(); return _item->st.st_mtime; }
+   virtual char*   getPath()
+   {
+	return _item->path;
+   }
+   virtual void    getMTime(char* str)
+   {
+	do_stat();
+	epoch_to_str(str, 64, (const time_t*)&_item->st.st_mtime);
+   }
    virtual mode_t  mode()     { do_stat(); return _item->st.st_mode; }
    virtual size_t  size()     { do_stat(); return _item->st.st_size; }
 
@@ -746,8 +753,14 @@ public:
    virtual bool    open(int flags, mode_t mode, size_t offset, size_t length) {
       open(flags, mode);        // default is to ignore <offset> and <length>
    }
+   
+   //get file handle
+   virtual void* getHandle(){return NULL;};
 
-
+   //get timing stats
+   //virtual int getTimingStats(TimingStats* timingStats){return 0;};   
+   virtual TimingStats* getTimingStats(){return 0;};
+   virtual unsigned int getNumPods(){return 0;};
    // read/write to/from caller's buffer
    virtual ssize_t read( char* buf, size_t count, off_t offset)   = 0; // e.g. pread()
    virtual ssize_t write(char* buf, size_t count, off_t offset)   = 0; // e.g. pwrite()
@@ -2016,7 +2029,6 @@ protected:
    IOBufPtr         _iobuf;
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
-
    // decides wether or not this object is using the packed fh
    bool             usePacked;
 
@@ -2029,6 +2041,7 @@ protected:
 
    uint64_t         _open_offset;
    uint64_t         _open_size;
+   
 
    //   PathInfo         _info;  // just use fh.info, instead
 
@@ -2087,6 +2100,36 @@ protected:
       _err_str.clear();
    }
 
+   static void send_manager_libne_stats(MarFS_FileHandle* fh)
+   {
+	int rank;
+        int i;
+	double buffer[5];
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        send_command(MANAGER_PROC, NESTATSCMD);
+	//first send totalblks, totalHandleTime, totalErasureTime
+	buffer[0] = (double)fh->timingFlag;
+	buffer[1] = (double)fh->num_pods;
+	buffer[2] = (double)fh->totalBlks;
+	buffer[3] = fh->totalHandleTime;
+	buffer[4] = fh->totalErasureTime;
+        if(MPI_Send(buffer, 5, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+        {
+                fprintf(stderr, "Failed to send totalBlks %d to rank %d\n", fh->totalBlks, MANAGER_PROC);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+	if(MPI_Send((unsigned char*)fh->histos1, sizeof(uint16_t) * fh->num_pods * MAXPARTS * 65 * 5,  MPI_UNSIGNED_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+	{
+		fprintf(stderr, "Failed to send timing stats to rank %d\n", MANAGER_PROC);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+	//reset stats
+	fh->copyCnt = 0;
+	fh->totalHandleTime = 0;
+	fh->totalErasureTime = 0;
+	memset((void*)fh->histos1, 0, sizeof(uint16_t) * fh->num_pods * MAXPARTS * 65 * 5);
+   }
 
 public:
 
@@ -2179,6 +2222,17 @@ public:
       return true;
    }
 
+/*
+   virtual char* getMTime(char* str)
+   {
+	PathInfo info = {0};
+	expand_path_info(&info, marfs_sub_path(_item->path));
+	stat_xattrs(&info, 0);
+	epoch_to_str(str, 64, &info.pre.obj_ctime);
+	
+	printf("test creationt time is %s\n", testTime);
+   }
+*/
    // pftool calls this when it knows the total size of the source-file
    // that is going to be copied to a MarFS destination (i.e. to us), and
    // knows the file is going to be treated as N:1.  The individual opens
@@ -2372,6 +2426,7 @@ public:
       return (_rc == 0);
    }
 
+
    // This is what allows N:1 writes (i.e. concurrent writers to the same
    // MarFS file).  Caller takes responsibility to assure that all writes
    // will be at object-boundaries.  The offset is the logical-offset in
@@ -2388,6 +2443,11 @@ public:
       _open_offset = offset;
       _open_size   = length;
       return open(flags, mode);
+   }
+
+   virtual unsigned int getNumPods()
+   {
+	return 0;
    }
 
    virtual bool    open(int flags, mode_t mode) {
@@ -2499,12 +2559,25 @@ public:
       //return true;
    }
 
-
+   //This allows us to get the correct file handle so that we can access
+   //the ne_handle for libned stats
+   virtual void* getHandle()
+   {
+	MarFS_FileHandle *whichFH;
+	if(usePacked)
+	{
+		whichFH = &packedFh;
+	}
+	else
+	{
+		whichFH = &fh;
+	}
+	return (void *)whichFH;
+   }
 
    virtual bool    close() {
       int rc;
       MarFS_FileHandle *whichFh;
-
       if(usePacked) {
          whichFh = &packedFh;
          packedFhInUse = false;
@@ -2513,15 +2586,22 @@ public:
       else {
          whichFh = &fh;
       }
-
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
+      
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
       }
-
+      //printf("calling marfs_gettimestats\n");
+      //marfs_getTimingStats(whichFh, &timeStats);
+      //printf("done calling marfs_gettimestats\n");
       unset(IS_OPEN);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      if (whichFh->copyCnt != 0)
+      {
+      	send_manager_libne_stats(whichFh);
+      }
+      free(whichFh->histos1);
       return true;
    }
 
@@ -2529,12 +2609,19 @@ public:
    static bool close_fh() {
       int rc = 0;
       size_t packedPathsCount;
-
+      //ne_handle handle = packedFh.mc_handle; //saves a copy first
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
-
+      //printf("calling marfs_gettimestats\n");
+      //int totalBlks = handle->N + handle->E;
+      //TimingStats* stats = (TimingStats*)malloc(sizeof(TimingStats) * totalBlks);
+      //lets just implement get data here
+      //marfs_getTimingStats(handle, totalBlks, stats);
+      //send_manager_libne_stats(totalBlks, stats);
+      //printf("done calling marfs_gettimestats\n");
+      //printf("marfs_release_fh finished\n");
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
           // successful later
@@ -2563,7 +2650,7 @@ public:
       }
 
       packedPaths.clear();
-
+      //free(handle);
       return true;
    }
 
@@ -2631,6 +2718,18 @@ public:
       }
    }
 
+   //copy timing stats and send it to manager rank
+   //if there are more than 1 ne_handles, we aggregate their stats here
+   static  void getTimingStats(MarFS_FileHandle *fh)
+   {
+	
+
+	printf("total copy cnt %d\n", fh->copyCnt);
+	printf("total blks %d\n", fh->totalBlks);
+	printf("total handle time %7.5f\n", fh->totalHandleTime);
+	printf("total erasure time %7.5f\n", fh->totalErasureTime);
+	
+   }
 
    // We've added some special handling to support restart of an N:1 pftool
    // copy to a MarFS destination, given a (recent vintage) Scality sproxyd
@@ -2675,8 +2774,10 @@ public:
       else {
          whichFh = &fh;
       }
-
+      
       bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, whichFh);
+      //lets check how many ne_handles are pushed
+     
 
       if (bytes == (ssize_t)-1) {
 
@@ -2713,7 +2814,12 @@ public:
          else
             set_err_string(errno, &whichFh->os.iob);
       }
-
+      //lets get timing stats and send them
+      //if (whichFh->count > 0)
+      if(whichFh->copyCnt != 0)
+      {
+      	MARFS_Path::send_manager_libne_stats(whichFh);
+      }
       unset(DID_STAT);           // instead of updating _item->st, just mark it out-of-date
       return bytes;
    }
