@@ -267,10 +267,10 @@ ssize_t write_field(int fd, void *start, size_t len) {
 */
 unsigned char *pathSnapshotHash(const char *path, const struct stat *st) {
     int plen = strlen(path);									// the length of the path
-    uint8_t mbuf[PATH_MAX + sizeof(time_t)];							// the data buffer that the digest is computed from
+    uint8_t mbuf[PATHSIZE_PLUS + sizeof(time_t)];							// the data buffer that the digest is computed from
     uint8_t *mptr = mbuf;									// a pointer into digest data buffer
 
-    if(!path || !plen || plen > PATH_MAX) return((unsigned char *)NULL);
+    if(!path || !plen || plen > PATHSIZE_PLUS) return((unsigned char *)NULL);
 
     memcpy(mptr,path,plen);
     mptr += (plen);
