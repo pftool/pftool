@@ -1251,6 +1251,23 @@ int stat_item(path_item *work_node, struct options& o) {
     }
 #endif
 
+    // --- is it a list?
+    if(! got_type) {
+        if (!strncmp(work_node->path, LIST_PREFIX,  strlen(LIST_PREFIX))) {
+            // TODO: Finish this
+
+            // if it matches the prefixes, it *is* an S3-path, whether it exists or not
+            work_node->ftype = LISTFILE;
+            got_type = true;
+
+            bool okay = List_Path::list_stat(work_node->path, &st, 0); // return non-zero for success
+
+            if (! okay) {
+                return -1;
+            }
+        }
+    }
+
 #ifdef MARFS
     // --- is it a MARFS path?
     if(! got_type) {
@@ -1385,6 +1402,10 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
        else if (p->node().ftype == MARFSFILE) {
           *fs = MARFSFS;
           return;
+       }
+       else if (p->node().ftype == LISTFILE) {
+           *fs = LISTFS;
+           return;
        }
 
        rc = statfs(use_path, &stfs);

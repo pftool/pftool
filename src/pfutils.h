@@ -115,7 +115,8 @@ enum SrcDstFSType {
 
    S3FS       = 6,   // everything after here is REST-ful (see REST_FS)
    PLFSFS     = 7,
-   MARFSFS    = 8
+   MARFSFS    = 8,
+   LISTFS     = 9
 };
 #define PARALLEL_DESTFS  PANASASFS /* beginning of SrcDstFSTypes supporting N:1 writes */
 #define REST_FS          S3FS      /* beginning of SrcDstFSTypes that are RESTful */
@@ -179,7 +180,8 @@ enum FileType {
 
    SYNDATA,                     // synthetic data (no file - in memory read)
    NULLFILE,
-   NULLDIR                      // no-cost writes
+   NULLDIR,                      // no-cost writes
+   LISTFILE
 };
 
 // this is currently only used in three places:

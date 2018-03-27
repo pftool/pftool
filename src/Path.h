@@ -803,7 +803,13 @@ typedef std::vector<PathPtr>                    PathVec;
 typedef std::vector<PathPtr>::iterator          PathVecIt;
 typedef std::vector<PathPtr>::const_iterator    PathVecConstIt;
 
+// ---------------------------------------------------------------------------
+// List File
+//
+// This reads or writes from a list rather than a filesystem
+// ---------------------------------------------------------------------------
 
+#include "Path-list.h"
 
 // ---------------------------------------------------------------------------
 // SYNTHETIC DATA SOURCE
@@ -2691,6 +2697,11 @@ public:
       case REGULARFILE:
          p = Pool<POSIX_Path>::get();
          break;
+
+    case LISTFILE:
+         p = Pool<List_Path>::get();
+         break;
+
 
 #ifdef S3
       case S3FILE:

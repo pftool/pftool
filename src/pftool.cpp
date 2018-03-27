@@ -439,7 +439,7 @@ int main(int argc, char *argv[]) {
                 strcpy(head->data.path, buf);
                 PathPtr p_src(PathFactory::create(head->data.path));
                 if(NULL == p_src->realpath(buf)) {
-                    fprintf(stderr, "Failed to realpath src: %s\n", head->data.path);
+                    fprintf(stderr, "Failed to realpath src \"%s\": %s\n", p_src->strerror(), head->data.path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             } while(0 != strcmp(head->data.path, buf));
