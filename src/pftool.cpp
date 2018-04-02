@@ -243,7 +243,8 @@ int main(int argc, char *argv[]) {
                 break;
             case 'n':
                 //different
-                o.different = 1;  // falls through ... on purpose?
+                o.different = 1;
+		break;
             case 'r':
                 o.recurse = 1;
                 break;
@@ -828,7 +829,8 @@ int manager(int             rank,
                 && processing_complete(proc_status, nproc) == 0) {
                 break;
             }
-            usleep(1);
+	    if (!message_ready)
+            	usleep(1);
         }
 
         // got a message, or nothing left to do
@@ -991,6 +993,19 @@ int manager(int             rank,
             sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
             write_output(message, 1);
         }
+	else {	// we're going to print the "things we think are different" message if doing meta compare only
+	    sprintf(message, "INFO  FOOTER   Total Files Different: %d\n", non_fatal);
+	    write_output(message, 1);
+	    if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+		sprintf(message, "INFO  FOOTER   Total Terabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+	    else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0) 
+                sprintf(message, "INFO  FOOTER   Total Gigabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
+	    else if ((num_copied_bytes/(1024L*1024L)) > 0) 
+                sprintf(message, "INFO  FOOTER   Total Megabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L)));
+	    else
+		sprintf(message, "INFO  FOOTER   Total Bytes Different: %zd\n", num_copied_bytes);
+	    write_output(message, 1);
+	}
     }
 
     if (elapsed_time == 1) {
@@ -1225,7 +1240,8 @@ void worker(int rank, struct options& o) {
             if  (probecount % 3000 == 0) {
                 PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
             }
-            usleep(1);
+	    if (!message_ready)
+            	usleep(1);
         }
 
         //grab message type
@@ -2327,8 +2343,11 @@ void worker_comparelist(int             rank,
             chunks_copied[buffer_count] = work_node;
             buffer_count++;
         }
-        num_compared_files +=1;
-        num_compared_bytes += length;
+        num_compared_files +=1; // always count files, we can use nonfatal errcount for the "files we would copy" message
+	if (!o.meta_data_only) // always count bytes if doing a data compare
+	    num_compared_bytes += length;
+        else if (rc) // count bytes we could move in a copy job, otherwise don't increment
+	    num_compared_bytes += length;
     }
     if (output) {
         write_buffer_output(writebuf, writesize, read_count);

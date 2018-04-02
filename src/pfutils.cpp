@@ -848,6 +848,7 @@ int compare_file(path_item*      src_file,
          crc = memcmp(ibuf,obuf,blocksize);
          if (crc != 0) {
             completed=length;
+	    break; // this code never worked prior to this addition, would read till EOF and fail.
          }
 
          completed += blocksize;
@@ -1626,12 +1627,10 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
     if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
-        && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+        && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
+//        && (src.st.st_mode == dst.st.st_mode)  // by removing this we no longer care about file permissions for transfers.  Probably the right choice, but revisit if needed
+//        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'
+	&& (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserv)) {    // only chown if preserve set
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
