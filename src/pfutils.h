@@ -324,10 +324,10 @@ void print_queue_path(path_list *head);
 void delete_queue_path(path_list **head, int *count);
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count);
 void dequeue_node(path_list **head, path_list **tail, int *count);
-void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize);
+void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 //function definitions for workbuf_list;
-void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size);
+void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
 void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
 void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
 

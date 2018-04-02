@@ -570,10 +570,13 @@ int manager(int             rank,
     size_t      num_copied_bytes = 0;
     size_t      num_copied_bytes_prev = 0; // captured at previous timer
     work_buf_list* stat_buf_list      = NULL;
+    work_buf_list* stat_buf_tail      = NULL;
     int            stat_buf_list_size = 0;
     work_buf_list* process_buf_list   = NULL;
+    work_buf_list* process_buf_tail   = NULL;
     int            process_buf_list_size = 0;
     work_buf_list* dir_buf_list       = NULL;
+    work_buf_list* dir_buf_tail       = NULL;
     int            dir_buf_list_size  = 0;
     int         mpi_ret_code;
     int         rc;
@@ -713,7 +716,7 @@ int manager(int             rank,
     }
 
     //pack our list into a buffer:
-    pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_size);
+    pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_tail, &dir_buf_list_size);
     delete_queue_path(&input_queue_head, &input_queue_count);
 
     //allocate a vector to hold proc status for every proc
@@ -870,13 +873,13 @@ int manager(int             rank,
                 manager_add_examined_stats(rank, sending_rank, &examined_file_count, &examined_byte_count, &examined_dir_count, &finished_byte_count);
                 break;
             case PROCESSCMD:
-                manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &process_buf_list, &process_buf_tail, &process_buf_list_size);
                 break;
             case DIRCMD:
-                manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_tail, &dir_buf_list_size);
                 break;
             case INPUTCMD:
-                manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_size);
+                manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_tail, &stat_buf_list_size);
                 break;
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
@@ -1077,7 +1080,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
 }
 
 // recv <path_count>, then a block of packed data.  Push block onto a work_buf_list
-void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, int *workbufsize) {
+void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     MPI_Status  status;
     int         path_count;
     char*       workbuf;
@@ -1100,7 +1103,7 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
         errsend(FATAL, "Failed to receive worksize\n");
     }
     if (path_count > 0) {
-        enqueue_buf_list(workbuflist, workbufsize, workbuf, path_count);
+        enqueue_buf_list(workbuflist, workbuftail, workbufsize, workbuf, path_count);
     }
 }
 

@@ -1511,7 +1511,7 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
     *count -= 1;
 }
 
-void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffer, int buffer_size) {
+void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
     work_buf_list *current_pos = *workbuflist;
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
     if (! new_buf_item) {
@@ -1526,13 +1526,12 @@ void enqueue_buf_list(work_buf_list **workbuflist, int *workbufsize, char *buffe
     new_buf_item->next = NULL;
     if (current_pos == NULL) {
         *workbuflist = new_buf_item;
+	*workbuftail = new_buf_item;
         (*workbufsize)++;
         return;
     }
-    while (current_pos->next != NULL) {
-        current_pos = current_pos->next;
-    }
-    current_pos->next = new_buf_item;
+    (*workbuftail)->next = new_buf_item;
+    *workbuftail = new_buf_item;
     (*workbufsize)++;
 }
 
@@ -1555,7 +1554,7 @@ void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
     *workbufsize = 0;
 }
 
-void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *workbufsize) {
+void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     int         position;
     char*       buffer;
     int         buffer_size = 0;
@@ -1574,7 +1573,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
         MPI_Pack(&iter->data, sizeof(path_item), MPI_CHAR, buffer, worksize, &position, MPI_COMM_WORLD);
         buffer_size++;
         if (buffer_size % STATBUFFER == 0 || buffer_size % MESSAGEBUFFER == 0) {
-            enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+            enqueue_buf_list(workbuflist, workbuftail, workbufsize, buffer, buffer_size);
             buffer_size = 0;
             buffer = (char *)malloc(worksize);
             if (! buffer) {
