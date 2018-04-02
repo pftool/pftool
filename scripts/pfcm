@@ -7,8 +7,9 @@ def main():
   parser = OptionParser()
   parser.usage = "%prog [options] sourcePath destinationPath"
   parser.description = "%prog -- compare file(s) from sourcePath to destinationPath in parallel"
-  parser.add_option("-R", dest="recurse", default=False, action="store_true", help="copy directories recursively")
+  parser.add_option("-R", dest="recurse", default=False, action="store_true", help="compare directories recursively")
   parser.add_option("-M", dest="metadata", default=False, action="store_true", help="changes to Block-by-Block vs Metadata only")
+  parser.add_option("-p", dest="preserve", default=False, action="store_true", help="consider user/group ownership when comparing metadata")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   (options, args) = parser.parse_args()
@@ -41,6 +42,9 @@ def main():
 
   if options.verbose:
     commands.add("-v")
+
+  if options.preserve: 				# consider uid/gid for file comparisons
+    command.add("-o")
 
   if options.exclude is not None:
       commands.add("-e")
