@@ -1584,7 +1584,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
         }
     }
     if(buffer_size != 0) {
-       enqueue_buf_list(workbuflist, workbufsize, buffer, buffer_size);
+       enqueue_buf_list(workbuflist, workbuftail, workbufsize, buffer, buffer_size);
     }
 }
 
@@ -1629,7 +1629,7 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
         && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
 //        && (src.st.st_mode == dst.st.st_mode)  // by removing this we no longer care about file permissions for transfers.  Probably the right choice, but revisit if needed
 //        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'
-	&& (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserv)) {    // only chown if preserve set
+	&& (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserve)) {    // only chown if preserve set
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
