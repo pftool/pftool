@@ -23,7 +23,7 @@ typedef CTM  HASHDATA;					// type/structure of the data of the hash table.
 
 // procedures and functions
 void hashdata_destroy(HASHDATA **theData);
-HASHDATA *hashdata_create(path_item newData);
+HASHDATA *hashdata_create(path_item newData, path_item* srcData);
 void hashdata_update(HASHDATA *theData,path_item fileinfo);
 int hashdata_filedone(HASHDATA *theData);
 

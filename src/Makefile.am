@@ -14,6 +14,7 @@ debug.h \
 cta.c ctf.c ctm.c ctm.h \
 hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
 str.c str.h \
+sig.c sig.h \
 pfutils.cpp pfutils.h \
 pftool.cpp pftool.h \
 Path.cpp Path.h

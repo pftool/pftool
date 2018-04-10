@@ -17,8 +17,9 @@
 
 #include "pfutils.h"
 #include "ctm.h"                // hasCTM()
+#include "sig.h"
 #include "debug.h"
-
+#include <time.h>
 #include <syslog.h>
 #include <signal.h>
 
@@ -245,6 +246,38 @@ ssize_t write_field(int fd, void *start, size_t len) {
 	}
 
 	return(tot);
+}
+
+/** 
+* Generate an allocated digital digest, based on the path and information 
+* in the given stat structure. This can be called a "Path Snapshot".
+* Note that it is up to the calling function/routine to deallocate the 
+* memory associated memory.
+* 
+* The size of the buffer being hashed is determined by:
+*	strlen(path) + sizeof(field(s) in stat structure)
+*
+* @param path	the full path of a file. Anything less than that would
+* 		not be a good File Snapshot
+* @param st	pointer to the stat structure for the file
+*
+* @return a digital signature in digest format that combines the full path name
+* 	and mtime. a NULL digest is returned if there are problems generateing
+* 	the hash.
+*/
+unsigned char *pathSnapshotHash(const char *path, const struct stat *st) {
+    int plen = strlen(path);									// the length of the path
+    uint8_t mbuf[PATHSIZE_PLUS + sizeof(time_t)];							// the data buffer that the digest is computed from
+    uint8_t *mptr = mbuf;									// a pointer into digest data buffer
+
+    if(!path || !plen || plen > PATHSIZE_PLUS) return((unsigned char *)NULL);
+
+    memcpy(mptr,path,plen);
+    mptr += (plen);
+    memcpy(mptr,&(st->st_mtime),sizeof(time_t));
+    mptr += (sizeof(time_t));
+
+    return(signature(mbuf,(size_t)(mptr-mbuf)));
 }
 
 #ifdef TAPE
@@ -555,12 +588,15 @@ void get_dest_path(path_item*        dest_node, // fill this in
 // If o.recurse is non-zero, then, instead of the final component of
 // src_node, use the part of src_node that extends beyond <base_path>.
 //
+// if tp_flag is non-zero, that means we must either create a timpstamp, or use the timestamp from src_node
+// to append to output path so we can create a temporary file
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
 void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
                      const path_item*  dest_node,
-                     struct options&   o) {
+                     struct options&   o,
+		     int               tp_flag) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
@@ -607,7 +643,18 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     if (path_slice_duped) {
        free((void*)path_slice);
     }
+
+
+    if (tp_flag == 1)
+    {
+	//add time stamp to outnode path to create temp file
+	strncat(out_node->path, "+", 1);
+	strncat(out_node->path, src_node->timestamp, MARFS_DATE_STRING_MAX);
+	printf("CREATED TEMPFIEL NAME %s\n", out_node->path);
+    }
 }
+
+
 
 int one_byte_read(const char *path) {
     int fd, bytes_processed;
@@ -644,6 +691,7 @@ int copy_file(PathPtr       p_src,
               int           rank,
               struct options& o)
 {
+    printf("$$$COPY_FILE p_dest path %s\n", p_dest->path());
     //MPI_Status status;
     int         rc;
     size_t      completed = 0;
@@ -707,6 +755,7 @@ int copy_file(PathPtr       p_src,
         }
 
         if (update_stats(p_src, p_dest, o) != 0) {
+		printf("COPYFILE FIRST UPDATE STATE FAILED\n");
             return -1;
         }
         return 0;
@@ -963,6 +1012,7 @@ int copy_file(PathPtr       p_src,
         ////        }
         ////#endif
         bytes_processed = p_dest->write(buf, blocksize, offset+completed);
+
         // ---------------------------------------------------------------------------
         // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
         // object-servers.  However, in the case of writes, we can't assume
@@ -1003,7 +1053,7 @@ int copy_file(PathPtr       p_src,
                && (completed == 0)) {
 
            p_dest->close();     // best effort
-
+	   printf("### IN COPY FILE, p_dest path %s\n", p_dest->path());
            if (! p_dest->open(flags, 0600, offset, length)) {
               errsend_fmt(NONFATAL, "(write-RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
                           p_dest->path(), offset, completed, p_dest->strerror());
@@ -1107,17 +1157,11 @@ int copy_file(PathPtr       p_src,
     ////#ifdef PLFS
     ////    }
     ////#endif
-
-    //get timing stats before it closes
-    //printf("rank %d calling get timing stats\n", rank);
-    //p_dest->getTimingStats(timingStats);    
-
     if (! p_dest->close()) {
        errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
                    p_dest->path(), p_dest->strerror());
        err = 1;
     }
-
 
     if (buf)
        free(buf);
@@ -1130,9 +1174,11 @@ int copy_file(PathPtr       p_src,
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, p_dest->path());
         if (update_stats(p_src, p_dest, o)) {
+		printf("COPY FILE UPDATE STATS FAILED\n");
             return -1;
         }
     }
+
     return success;             // 0: copied, 1: deemed copy
 }
 
@@ -1416,6 +1462,7 @@ int update_stats(PathPtr      p_src,
 
     // perform any final adjustments on destination, before we set atime/mtime
 //    PathPtr p_src(PathFactory::create_shallow(src_file));
+    printf("UPDATE STATS p_dest path %s\n", p_dest->path());
     p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
@@ -1447,7 +1494,7 @@ int update_stats(PathPtr      p_src,
                    p_dest->path(), p_dest->strerror());
     }
 
-
+    p_dest->rename_to_original(); //rename temporary file to original file name
     return 0;
 }
 
@@ -1572,7 +1619,6 @@ void send_manager_nonfatal_inc() {
 void send_manager_chunk_busy() {
     send_command(MANAGER_PROC, CHUNKBUSYCMD);
 }
-
 
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes) {
     send_command(MANAGER_PROC, COPYSTATSCMD);
@@ -2419,6 +2465,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, int *wor
 
     worksize = MESSAGEBUFFER * sizeof(path_item);
     buffer   = (char *)malloc(worksize);
+    memset(buffer, 0, worksize);//make sure path_item memsetted to 0 so timestamp is null
     if (! buffer) {
        fprintf(stderr, "Failed to allocate %lu bytes for buffer\n", sizeof(worksize));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -2522,32 +2569,16 @@ int MPY_Abort(MPI_Comm comm, int errorcode) {
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
-    int mode;
+
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
-    /*if (src.st.st_size == dst.st.st_size
+    if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
         && (src.st.st_mode == dst.st.st_mode)
         && (((src.st.st_uid == dst.st.st_uid)
              && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) */
-    if(!o.same_file_check_mode)
-    {
-	mode = src.st.st_size == dst.st.st_size && (src.st.st_mtime == dst.st.st_mtime) && (!(strcmp(src.path, dst.path)));
-    }
-    else
-    {
-	mode = src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
-        && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve));
-    }
-    if(mode)
-	{    // non-root doesn't chown unless '-o'           
+            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
@@ -2565,4 +2596,28 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     }
 
     return 0;
+}
+
+/*
+ *check if the src+mtime hash stored in CTM of dest matches computed hash from p_src
+ *
+ * @param outpath - destination path
+ * @param p_src - pathptr contains source file information
+ * @param targetTimestamp - this stores the timestamp in the CTM for unlink use 
+ *
+ * @return 1 if two hashes mismatch or there is no CTM file; 0 if two hashes match
+ */
+int ctmMismatch(const char* outpath, PathPtr p_src, char* targetTimestamp)
+{
+	char timestampStr[MARFS_DATE_STRING_MAX];
+	char strToHash[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX + 2];
+	time_t timestamp;
+
+	timestamp = p_src->mtime();
+	epoch_to_str(timestampStr, MARFS_DATE_STRING_MAX, &timestamp);
+
+	snprintf(strToHash, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX + 2, "%s.%s", p_src->path(), timestampStr);
+
+	return checkHash(outpath, strToHash, targetTimestamp);
+
 }

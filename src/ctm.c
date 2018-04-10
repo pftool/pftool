@@ -10,8 +10,9 @@
 #include <sys/types.h>
 #include <sys/xattr.h>
 
-#include "pfutils.h"
-#include "str.h"
+//#include "pfutils.h"
+//#include "str.h"
+//#include "sig.h"
 #include "ctm.h"
 #include "ctm_impl.h"					// holds implementation specific declarations
 
@@ -171,11 +172,11 @@ void freeCTM(CTM **pctmptr) {
 * @return a populated CTM structure. A NULL pointer is returned
 * 	if there are problems allocating the structure.
 */
-CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
+CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks, const char* srcStr, const char* timestamp) {
 	CTM *newCTM = _createCTM(transfilename);			// allocate the newCTM structure
 
 	if(newCTM) {						// we have an allocated CTM structure. Read from persistent store
-	  if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
+	  if(newCTM->impl.read(newCTM,numchnks,sizechnks, srcStr, timestamp) < 0)
 	    freeCTM(&newCTM);					// problems reading metadata -> abort get and clean up memory
 	}
 	return(newCTM);
@@ -251,10 +252,11 @@ int hasCTM(const char *transfilename) {
 	  case CTM_UNKNOWN : return(FALSE);
 	  case CTM_XATTR   : return(foundCTA(transfilename));
 	  case CTM_FILE    :
-				printf("calling FOUNDCTF\n");
           default          : return(foundCTF(transfilename));
 	}
 }
+
+
 
 /**
 * Function to purge CTM data from a given file.
@@ -263,7 +265,6 @@ int hasCTM(const char *transfilename) {
 * 			remove/purge CTM data from
 */
 void purgeCTM(const char *transfilename) {
-	printf("purgeCTM transfilename: %s\n", transfilename);
 	CTM_ITYPE itype =  _whichCTM(transfilename);		// implementation type. Get how the CTM is stored in persistent store
 	char *chnkfname;					// holds the md5 name if CTM is implemented with CTF files
 
@@ -272,7 +273,6 @@ void purgeCTM(const char *transfilename) {
 			     break;
 								// have to generate the md5 name for CTF files
 	  case CTM_FILE    : chnkfname = genCTFFilename(transfilename);
-				printf("gen\n");
 			     unlinkCTF(chnkfname);		// don't care about return code
 			     if(chnkfname) free(chnkfname);	// we done with the temporary name
 			     break;
@@ -379,4 +379,166 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 	return(*rbuf);
 }
 
+int getSrcCTMInfo(const char* outPath, char* targetHash, char* targetTimestamp)
+{
+	int retval;
+	char* chnkfname;
+	char ctmHash[SIG_DIGEST_LENGTH*2 + 1];
+	char timestamp[MARFS_DATE_STRING_MAX];
+	struct stat sbuf;
+	int ctffd;
+	
+	chnkfname = genCTFFilename(outPath);
+	if(strIsBlank(chnkfname))
+	{
+		retval = 0;
+	}
+	else if(!stat(chnkfname, &sbuf))
+	{
+		//we have a CTM file
+		if((ctffd = open(chnkfname, O_RDONLY)) <= 0)
+		{
+			return(-errno);
+		}
+		//read file to get hash
+		if(read(ctffd, ctmHash, SIG_DIGEST_LENGTH*2 + 1) <= 0)
+			return (ssize_t)(-errno);
+			
+		if(read(ctffd, timestamp, MARFS_DATE_STRING_MAX) <= 0)
+			return (ssize_t)(-errno);
+		
+		//copy string
+		strcpy(targetHash, ctmHash);
+		strcpy(targetTimestamp, timestamp);
 
+		close(ctffd);
+		retval = 1;
+	}
+	else
+	{
+		//no ctm file, no need to check
+		retval = 0;
+	}
+
+	return retval;
+}
+
+/*
+ *check if src+src_mtime hash matches with the hash in the CTF.
+ *If match, get time stamp
+ *
+ * @param output - output path from out_node.path
+ *
+ * @param p_src - PathPtr for source
+ *
+ * @param timestamp - string used to store timestamp for later use
+ *
+ * @return 1 if mismatch; 0 if match
+ */
+int checkHash(const char* outPath, char* strToHash, char* timestamp)
+{
+	int retval = 1;
+	char*srcHash;//need to be freed
+	char targetHash[SIG_DIGEST_LENGTH*2 + 1];
+	char targetTimestamp[MARFS_DATE_STRING_MAX];
+
+	//now we get src+mtime hash from CTM file
+	if(getSrcCTMInfo(outPath, targetHash, targetTimestamp))
+	{
+		printf("there is CTM for %s\n", outPath);
+		int cmp;
+		//got the target hash and timestamp
+		srcHash = str2sig(strToHash);
+		printf("srcHash %s\n targetHash %s\n", srcHash, targetHash);
+		cmp = strcmp(srcHash, targetHash);
+		if(cmp)
+		{
+			//hash does not match, need to unlink
+			retval = 1;
+		}
+		else
+		{
+			//both hash match, does not need to unlink and purge.
+			retval = 0;
+		}
+		//copy the read timestamp into the time stamp
+		strcpy(timestamp, targetTimestamp);
+		free(srcHash);
+	}
+	
+	return retval;
+}
+
+int createCTM(PathPtr& p_out, PathPtr& p_src)
+{
+	int retval = 0;
+	int i, fd;
+	char* ctmName;//must be freed
+	char filename[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+
+	memcpy(filename, p_out->path(), PATHSIZE_PLUS + MARFS_DATE_STRING_MAX);
+	//find the last + char and change it to NULL
+	for(i = strlen(filename) - 1; i >= 0; i--)
+	{
+		if (filename[i] == '+')
+		{
+			filename[i] = 0;
+			break;
+		}
+	}
+	printf("CREATE CTM FILE NAME %s\n", filename);
+	ctmName = genCTFFilename(filename);
+	
+	fd = open(ctmName, O_WRONLY | O_CREAT | O_EXCL);
+	if (fd < 0)
+	{
+		//there is another writer using the CTM, we assume that writer 
+		//started earlier than this writer, so we unlink that CTM, and
+		//reopen to let the last starter win!
+		unlink(ctmName); //unlink CTM
+		fd = open(ctmName, O_WRONLY | O_CREAT | O_EXCL);
+	}
+	if (fd > 0)
+	{
+		time_t mtime;
+		char strToHash[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+		char* tpPtr;
+		char* srcHash; //need to be freed
+		//write src+mtime and timestamp here
+		snprintf(strToHash, PATHSIZE_PLUS, "%s.", p_src->path());
+		tpPtr = strToHash + strlen(strToHash);
+
+		mtime = p_src->mtime();
+		epoch_to_str(tpPtr, MARFS_DATE_STRING_MAX, &mtime);
+
+		srcHash = str2sig(strToHash);
+
+		if(write_field(fd, srcHash, SIG_DIGEST_LENGTH*2+1) < 0)
+		{
+			printf("ERROR: Failed to write src+mtime Hash into CTM file\n");
+			retval = -errno;
+		}
+		fsync(fd);
+		free(srcHash);
+		printf("MAYBE_PRE_PROCESS CREATE CTM Writing timestamp %s to CTM\n", p_src->timestamp());
+		if(write_field(fd, p_src->timestamp(), MARFS_DATE_STRING_MAX) < 0)
+		{
+			printf("ERROR: Failed to write timestamp into CTM\n");
+			retval = -errno;
+		}
+		fsync(fd);
+		if(close(fd) < 0)
+		{
+			printf("ERROR: Failed to close CTM file\n");
+			retval -errno;
+		}
+	}	
+	else
+	{
+		//IF THIS FAILS THEN IT IS AN ERROR
+		printf("ERROR: Failed to create CTM file in pre_process\n");
+		retval = -errno;
+	}
+	free(ctmName);
+	return retval;
+}

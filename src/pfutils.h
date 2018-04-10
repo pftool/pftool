@@ -13,7 +13,6 @@
 
 #ifndef      __PF_UTILS_H
 #define      __PF_UTILS_H
-
 //lets make sure things are 64 bit
 #define _LARGEFILE64_SOURCE 1
 #define _FILE_OFFSET_BITS 64
@@ -84,7 +83,7 @@
 #define ERRORSIZE      PATHSIZE_PLUS
 #define MESSAGESIZE    16384
 #define MESSAGEBUFFER  400
-
+//#define MARFS_DATE_STRING_MAX 64 
 // if you are trying to increase max pack size, STATBUFFER must be >= to
 // COPYBUFFER because it only collets one stat buffer worth of things before
 // shipping off.
@@ -294,6 +293,7 @@ struct worker_proc_status {
 //typedef struct path_link path_item;
 //
 // the basic object used by pftool internals
+#define MARFS_DATE_STRING_MAX 64
 typedef struct path_item {
     int start; // tells us if this path item was created by the inital list provided by the user
     FileType      ftype;
@@ -305,9 +305,11 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
+    int           last_chk;
    //    off_t         offset;
    //    size_t        length;              // (remaining) data in the file
-    char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    char          path[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX]; // keep this last, for efficient init
+    char          timestamp[MARFS_DATE_STRING_MAX]; //timestamp to build temporary file name for restart
 } path_item;
 
 
@@ -338,7 +340,7 @@ void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item
                     int makedir, int num_paths, struct options& o);
 //char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
-void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
+void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o, int mode);
 
 //int one_byte_read(const char *path);
 int   one_byte_read(const char *path);
@@ -441,6 +443,7 @@ int MPY_Abort(MPI_Comm comm, int errorcode);
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
 int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
+int ctmMismatch(const char* outpath, PathPtr p_src, char* targetTimestamp);
 
 #endif
 

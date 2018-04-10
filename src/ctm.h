@@ -20,8 +20,10 @@
 #define      __CTM_H
 
 #include "config.h"
+#include "pfutils.h"
 #include <attr/xattr.h>
-
+#include "str.h"
+#include "sig.h"
 #include <asm/bitsperlong.h>
 #ifndef BITS_PER_LONG
 #  define BITS_PER_LONG __BITS_PER_LONG
@@ -33,11 +35,10 @@
 #define CTM_PREFER_NONE   0
 #define CTM_PREFER_XATTRS 1
 #define CTM_PREFER_FILES  2
-
 // Typedefs that define the functions to access Chunk Transfer Metadata (CTM) from a persistant store
 typedef struct ctm_struct CTM;				// declaration of the CTM type. Defined below
 typedef struct ctm_impl CTM_IMPL;			// declaration of the CTM_IMPL type. Defined below
-typedef int (*ctm_read_fn_t)(CTM *ctmptr, long numchunks, size_t chunksize);
+typedef int (*ctm_read_fn_t)(CTM *ctmptr, long numchunks, size_t chunksize, const char* srcStr, const char* timestamp);
 typedef int (*ctm_write_fn_t)(CTM *ctmptr);
 typedef int (*ctm_delete_fn_t)(const char *chnkfname);
 
@@ -65,6 +66,8 @@ struct ctm_struct {
 	long chnknum;					// number of chunks to transfer
 	size_t chnksz;					// size of the chunk for this file during a transfer
 	unsigned long *chnkflags;			// a bit array of longs (64 bit), which indicate if a chunk has been transferred or not
+	char timestamp[MARFS_DATE_STRING_MAX];          //used to store timestamp
+	char srcHash[SIG_DIGEST_LENGTH*2 + 1];
 	CTM_IMPL impl;					// structure holding the function pointers for this CTM storage implementation
 };
 
@@ -85,11 +88,12 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen);
 int transferredCTM(CTM *ctmptr);
 
 
-CTM *getCTM(const char *transfilename, long numchunks, size_t chunksize);
+CTM *getCTM(const char *transfilename, long numchunks, size_t chunksize, const char* srcStr, const char* timestamp);
 int updateCTM(CTM *ctmptr, long chnkidx);
 int removeCTM(CTM **pctmptr);
 int hasCTM(const char *transfilename);
 void purgeCTM(const char *transfilename);
 size_t allocateCTMFlags(CTM *ctmptr);
-
+int checkHash(const char* outPath, char* strToHash, char* timestamp);
+int createCTM(PathPtr& p_out, PathPtr& p_src);
 #endif //__CTM_H

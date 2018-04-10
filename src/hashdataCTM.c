@@ -28,9 +28,25 @@
 * 	node. NULL is returned if there are problems
 * 	allocating/creating the node.
 */
-HASHDATA *hashdata_create(path_item newData) {
+HASHDATA *hashdata_create(path_item newData, path_item* srcData) {
+	printf("IN HASHDATA CREATE\n");
+	time_t mtime;
+	char strToHash[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+	char timestamp[MARFS_DATE_STRING_MAX];
+	char* tpPtr;
+	//need to construct src+mtimt hash AND get the timestamp string
+	PathPtr p_work(PathFactory::create_shallow(srcData));
+	snprintf(strToHash, PATHSIZE_PLUS, "%s.", p_work->path()); //first put path in to src+mtime str
+
+	mtime = p_work->mtime();
+	tpPtr = strToHash + strlen(strToHash);
+	epoch_to_str(tpPtr, MARFS_DATE_STRING_MAX, &mtime); //then put mtime into src+mtime str
+	
+	memcpy(timestamp, srcData->timestamp, MARFS_DATE_STRING_MAX); //srcData->timestamp must have been set by copylist by now	
+	printf("###src+mtime %s\n",strToHash);
+	printf("###timestamp for tempfilfe %s\n", timestamp);
 	long numofchnks = (long)ceil(newData.st.st_size/((double)newData.chksz));		// number of chunks this file will have
-	CTM *newCTM = getCTM(newData.path,numofchnks,newData.chksz);	// the new CTM for the file. This also initializes the persistent store
+	CTM *newCTM = getCTM(newData.path,numofchnks,newData.chksz, strToHash, timestamp);	// the new CTM for the file. This also initializes the persistent store
 
 	return((HASHDATA *)newCTM);
 }
@@ -57,6 +73,9 @@ void hashdata_destroy(HASHDATA **theData) {
 * 			updating the CTM
 */
 void hashdata_update(HASHDATA *theData,path_item fileinfo) {
+	//first construct src+mtime str so that it can get written to the 
+	//CTM file
+
 	updateCTM((CTM *)theData,fileinfo.chkidx);			// marks the chunk transferred
 	return;
 }

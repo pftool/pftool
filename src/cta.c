@@ -67,7 +67,7 @@
 * 	means that the ctmptr was invalid. (-ENOTSUP) means that
 * 	the xattr entries could not be read.
 */
-int populateCTA(CTM *ctmptr, long numchunks, size_t chunksize) {
+int populateCTA(CTM *ctmptr, long numchunks, size_t chunksize, const char*srcHash, const char* timestamp) {
 	ssize_t axist;							// hold the size of the returned chunknum xattr. Acts as a flag
 	long anumchunks;						// value of number of chunks from the xattr
 	size_t achunksize;						// value of chunk size from the xattr

@@ -506,6 +506,7 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
+	    printf("PFTOOL BEGINNING real path %s\n", p_dest->realpath(buf));
         } while(0 != strcmp(dest_path, buf));
 
         if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
@@ -1376,6 +1377,7 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
     }
     worksize =  path_count * sizeof(path_list);
     workbuf = (char *) malloc(worksize * sizeof(char));
+    memset(workbuf, 0, worksize * sizeof(char));
     if (! workbuf) {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", sizeof(workbuf));
     }
@@ -1731,6 +1733,7 @@ void worker_update_chunk(int            rank,
     int         path_count;
     path_item   work_node;
     path_item   out_node;
+    path_item   out_node_temp;
     char*       workbuf;
     int         worksize;
     int         position;
@@ -1778,15 +1781,15 @@ void worker_update_chunk(int            rank,
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
         // CTM is based off of destination file. Populate out_node
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
-
+        // NOTE: out_node path should be the original output path, AKA NO TIMESTAMP
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
+	get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
         // let sub-classes do any per-chunk work they want to do
         //        PathPtr p_out(PathFactory::create_shallow(out_node));
         //        p_out->chunk_complete();
         Path::ChunkInfo chunk_info;
         chunk_info.index = work_node.chkidx;
         chunk_info.size  = work_node.chksz;
-
         size_t chunk_start = (chunk_info.index * chunk_info.size);
         size_t chunk_end   = chunk_start + chunk_info.size;
         if (chunk_end > work_node.st.st_size) {
@@ -1804,7 +1807,7 @@ void worker_update_chunk(int            rank,
             Path::ChunkInfoVec vec;
             vec.push_back(chunk_info);
         
-            PathPtr      p_out(PathFactory::create_shallow(&out_node));
+            PathPtr      p_out(PathFactory::create_shallow(&out_node_temp));
             p_out->chunks_complete(vec);
 #endif
         }
@@ -1821,8 +1824,7 @@ void worker_update_chunk(int            rank,
                 hashtbl_resize(*chunk_hash, *hash_count+100);
             }
             *hash_count += 1;
-
-            if(hash_value = hashdata_create(out_node)) {
+            if(hash_value = hashdata_create(out_node, &work_node)) {
                 hashtbl_insert(*chunk_hash, out_node.path, hash_value);
                 hashdata_update(hash_value,out_node);                        // make sure the new structure has recorded this chunk!
             }
@@ -1852,7 +1854,9 @@ void worker_update_chunk(int            rank,
             hashdata_destroy(&hash_value);                          // we are done with the data
 
             PathPtr p_work(PathFactory::create_shallow(&work_node));
-            PathPtr p_out(PathFactory::create_shallow(&out_node));
+	    printf("###WORKER_UPDATE_CHUNK WORK_NODE LAST_CHK FLAG %d\n", work_node.last_chk);
+            PathPtr p_out(PathFactory::create_shallow(&out_node_temp));
+	    printf("### IN WORKER UPDATE CHUNK UPDATE STATS, p_out path %s\n", p_out->path());
             update_stats(p_work, p_out, o);
         }
     }
@@ -2099,7 +2103,7 @@ void worker_readdir(int         rank,
 
 
             if (makedir == 1) {
-                get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o);
+                get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o, 0);
 
                 ////#ifdef PLFS
                 ////                struct stat st_temp;
@@ -2312,27 +2316,30 @@ int maybe_pre_process(int&         pre_process,
                       const struct options& o,
                       PathPtr&     p_out,
                       PathPtr&     p_work) {
+
+    
     if (pre_process &&
         (o.work_type == COPYWORK) &&
-        ! p_out->pre_process(p_work)) {
-
-        return -1;
+        p_out->pre_process(p_work)) {
+    //we create a CTM file right now so that if another writer starts
+    //later than this writer, the later starter can successfully get the
+    //timestamp from the CTM and unlinks the temporary file of this writer
+    	if(createCTM(p_out, p_work) < 0)
+    	{
+    	    errsend_fmt(FATAL, "Failed to create CTM in maybe_pre_process");
+    	}
+    }
+    else if (pre_process &&
+        (o.work_type == COPYWORK) &&
+        !p_out->pre_process(p_work))
+    {
+	return -1;
     }
 
     return 0;
 }
 
 
-void constructCTMPath(char* newPath, PathPtr work_node, PathPtr out_node)
-{
-	char* ptr = newPath;
-	char srcMTime[64];
-	
-	work_node->getMTime(srcMTime);
-	printf("test srcMtime %s\n", srcMTime);
-	snprintf(ptr, PATHSIZE_PLUS, "%s.%s.%s", work_node->getPath(), srcMTime, out_node->getPath());
-	printf("constructed CTMPath: %s\n", newPath);
-}
 
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
@@ -2407,6 +2414,7 @@ void process_stat_buffer(path_item*      path_buffer,
     char        statrecord[MESSAGESIZE];
     ////    path_item   work_node;
     path_item   out_node;
+    path_item   out_node_temp;
     int         out_unlinked = 0;
 
     int         process = 0;
@@ -2463,6 +2471,10 @@ void process_stat_buffer(path_item*      path_buffer,
     int         numchars;
 #endif
 
+    char        timestamp[MARFS_DATE_STRING_MAX];
+
+    time_t      tp = time(NULL);
+    epoch_to_str(timestamp, MARFS_DATE_STRING_MAX, &tp);
 
     //write_count = stat_count;
     writesize = MESSAGESIZE * MESSAGEBUFFER;
@@ -2495,13 +2507,13 @@ void process_stat_buffer(path_item*      path_buffer,
         ////            continue;
         ////        }
         path_item&  work_node = path_buffer[i]; // avoid a copy
-
+	memcpy(work_node.timestamp, timestamp, MARFS_DATE_STRING_MAX); // add timestamp to work_node, it will get overwritten if there is a CTM
         work_node.start = 0;
 
         PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
         PathPtr p_out;
-
+	PathPtr p_out_temp;
         PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
                        rank, i, work_node.path);
         // Are these items *identical* ? (e.g. same POSIX inode)
@@ -2528,12 +2540,14 @@ void process_stat_buffer(path_item*      path_buffer,
 
             //do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
-            get_output_path(&out_node, base_path, &work_node, dest_node, o);
-
+            get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
             //// rc = stat_item(&out_node, o);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
+	
             dest_exists = p_out->exists();
+		    
+		    
 	    printf("DEST_EXISTS VAL %d\n", dest_exists);
 
             // if selected options require reading the source-file, and the
@@ -2561,22 +2575,11 @@ void process_stat_buffer(path_item*      path_buffer,
 
             else if (o.work_type == COPYWORK) {
                 process = 1;
-
-                ////#ifdef PLFS
-                ////       if(out_node.ftype == PLFSFILE) {
-                ////           parallel_dest = 1;
-                ////           work_node.dest_ftype = PLFSFILE;
-                ////       }
-                ////       else {
-                ////           parallel_dest = o.parallel_dest;
-                ////       }
-                ////#endif
                 p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
                 if (p_out->supports_n_to_1())
                     parallel_dest = 1;
 
                 //if the out path exists
-                ////                if (rc == 0)
                 if (dest_exists) {
 
                     // Maybe user only wants to operate on source-files
@@ -2593,10 +2596,7 @@ void process_stat_buffer(path_item*      path_buffer,
                     // (i.e. the only way a zero-size file could have CTM),
                     // then any CTM that may exist is definitely obsolete
                     if (out_node.st.st_size == 0) {
-			char newPath[PATHSIZE_PLUS* 3];
-			constructCTMPath(newPath, p_work, p_out);
-                        //purgeCTM(out_node.path);
-			purgeCTM(newPath);
+                        purgeCTM(out_node.path);
                     }
 
                     if (process == 1) {
@@ -2649,29 +2649,6 @@ void process_stat_buffer(path_item*      path_buffer,
 #endif
                             // it's not fuse, unlink
 
-                            ////#ifdef PLFS
-                            ////                            if (out_node.ftype == PLFSFILE){
-                            ////                                rc = plfs_unlink(out_node.path);
-                            ////                            }
-                            ////                            else {
-                            ////#endif
-                            ////                                if (!o.different || work_node.st.st_size < o.chunk_at)
-                            ////                                    // remove the destination file only if
-                            ////                                    // not doing a conditional transfer, or
-                            ////                                    // source file size <= chunk_at size
-                            ////                                     rc = unlink(out_node.path);
-                            ////#ifdef PLFS
-                            ////                            }
-                            ////#endif
-                            ////                            if (rc < 0) {
-                            ////                                snprintf(errmsg, MESSAGESIZE,
-                            ////                                         "Failed to unlink %s",
-                            ////                                         out_node.path);
-                            ////                                errsend(FATAL, errmsg);
-                            ////                            }
-                            ////                            out_node.ftype = NONE;
-
-
                             // remove the destination-file if the transfer
                             // is unconditional or the source-file size <=
                             // chunk_at size
@@ -2696,18 +2673,43 @@ void process_stat_buffer(path_item*      path_buffer,
                 }
                 else {
                     // destination doesn't already exist
-
+		    printf("### HERE IN NOT EXISTS o.different val %d\n", o.different);
                     // p_out.reset(); // p_out was created shallow, and we're going to change ftype
                     // out_node.ftype = NONE;
-                    out_unlinked = 1; // don't unset the ftype to communicate
-                    pre_process = 1;
+                    //out_unlinked = 1; // don't unset the ftype to communicate
+                    //pre_process = 1;
+		    char ctmTimestamp[MARFS_DATE_STRING_MAX];
+		    char tempfilePath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX + 2];
+		    int mismatch = ctmMismatch(out_node.path, p_work, ctmTimestamp);
+		    printf("CURRENT TIMESTAMP %s; CTM TIMESTAMP %s\n", timestamp, ctmTimestamp);
+		    snprintf(tempfilePath, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX + 2, "%s+%s", out_node.path, ctmTimestamp);
+		    
+		    p_out = PathFactory::create(tempfilePath);
+		    if (mismatch || !o.different)
+		    {
+			printf("CTM mismatch or o.different set DO NOT CARE ABOUT PREVIOUS TEMP FILE\n");
+			out_unlinked = 1;
+			pre_process = 1;
+			//we either have a mismatch or no CTM, need to unlink and purge
+			p_out->unlink(); // does not care about return code
+			purgeCTM(out_node.path);
+		    }
+		    else
+		    {
+			printf("WE HAVE A CTM MATCH WITH TIME STAMP %s\n", timestamp);
+			//we have a matching CTM, try to restart using the previous temp file
+			dest_exists = 2; //set exist
+			//p_out->copyPathItem(&out_node);
+			//No need to purge
+		    }
+
 
                     // if someone deleted the destination,
                     // then any CTM that may exist is definitely obsolete
-		    char newPath[PATHSIZE_PLUS * 3];
-		    constructCTMPath(newPath, p_work, p_out);
-                    purgeCTM(newPath); //was out_node.path
+                    //purgeCTM(out_node.path); //was out_node.path
                 }
+
+	    
             } // end COPYWORK
 
             // preping for COMPAREWORK, which means we simply assign the
@@ -2716,10 +2718,6 @@ void process_stat_buffer(path_item*      path_buffer,
                 process = 1;
                 work_node.dest_ftype = out_node.ftype;
             }
-
-
-
-
 
             if (process == 1) {
 
@@ -2812,16 +2810,30 @@ void process_stat_buffer(path_item*      path_buffer,
 
                     else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
                         // int ctmExists = hasCTM(out_node.path);
-                        char newPath[PATHSIZE_PLUS * 3];
-			constructCTMPath(newPath, p_work, p_out);
-                        //int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
-			int ctmExists = ((dest_exists) ? hasCTM(newPath) : 0);
+			int ctmExists; //= ((dest_exists) ? hasCTM(out_node.path) : 0);
+			switch (dest_exists)
+			{
+				case 0:
+					ctmExists = 0;
+					break;
+				case 1:
+                			ctmExists = !ctmMismatch(out_node.path, p_work, NULL);
+					break;
+				case 2:
+					//there is a matching CTM with src
+					ctmExists = 1;
+					break;
+			}
+			printf("CTMEXITS VALUE %d\n", ctmExists);
                         // we are doing a conditional transfer & CTM exists
                         // -> populate CTM structure
                         if (o.different && ctmExists) {
-                            ctm = getCTM(newPath,//out_node.path,
+                            ctm = getCTM(out_node.path,
                                          ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
-                                         chunk_size);
+                                         chunk_size, NULL, NULL);
+			    //ctm has the timestamp, put it in the work_node
+			    memcpy(work_node.timestamp, ctm->timestamp, MARFS_DATE_STRING_MAX);
+			    printf("ctm time stamp %s\n", ctm->timestamp);
                             if(IO_DEBUG_ON) {
                                 char ctm_flags[2048];
                                 char *ctmstr = ctm_flags;
@@ -2835,19 +2847,22 @@ void process_stat_buffer(path_item*      path_buffer,
                         else if (ctmExists) {
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer/compare.
-                            purgeCTM(newPath); // was out_node.path
+                            purgeCTM(out_node.path); // was out_node.path
                             pre_process = 1;
                         }
                     }
 
-
-                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+		    //remake p_out to make it use temporary file name
+		    get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
+		    p_out_temp = PathFactory::create_shallow(&out_node_temp);
+		    printf("###BEFORE PRE PROCESS PARALLEL DEST P_OUT PATH %s, PRE_PROCESS VAL %d\n", p_out_temp->path(), pre_process);
+                    if (maybe_pre_process(pre_process, o, p_out_temp, p_work)) {
                         errsend_fmt(NONFATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",
                                     rank, p_out->path(), ::strerror(errno));
                     }
                     else {
-
+			printf("### IN CHUNKING LOOP\n");
                         // --- CHUNKING-LOOP
                         chunk_curr_offset = 0; // keeps track of current offset in file for chunk.
                         idx = 0;               // keeps track of the chunk index
@@ -2872,6 +2887,8 @@ void process_stat_buffer(path_item*      path_buffer,
                                                       // should this be (work_node.chksz - chunk_curr_offset)?
                                                       ? (work_node.st.st_size - chunk_curr_offset)
                                                       : work_node.chksz);
+				//made the change so that we can set last_chk for a given work_node
+				//and let it rename to original output path
                                 idx++;
                             }
 #ifdef TAPE
@@ -2911,6 +2928,7 @@ void process_stat_buffer(path_item*      path_buffer,
                                     }
                                 } // end send test
                                 else {
+				    printf("###IN CHUNKING LOOP, THIS CHUNK ID %d HAS BEEN TRANSFERRED\n", work_node.chkidx);
                                     num_finished_bytes += work_node.chksz;
                                 }
 #ifdef TAPE
@@ -2925,7 +2943,9 @@ void process_stat_buffer(path_item*      path_buffer,
                 } // end Parallel destination
 
                 else {  // non-parallel destination
-
+                    get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
+                    p_out_temp = PathFactory::create_shallow(&out_node_temp);
+                    printf("###BEFORE PRE PROCESS NON-PARALLEL DEST P_OUT PATH %s\n", p_out_temp->path());		    
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
                         errsend_fmt(NONFATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",
@@ -3151,7 +3171,7 @@ void worker_copylist(int             rank,
     gid_t          groupid;
     gid_t          chunk_groupid;
 #endif
-
+    printf("### IN COPY FILE LIST\n");
     PRINT_MPI_DEBUG("rank %d: worker_copylist() Receiving the read_count from %d\n",
                     rank, sending_rank);
     if (MPI_Recv(&read_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
@@ -3200,8 +3220,9 @@ void worker_copylist(int             rank,
         PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. "
                         "offset = %ld   length = %ld\n",
                         rank, work_node.chkidx, offset, length);
-
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+	printf("@#### copylist getting output path with mode 1\n");
+	printf("WORK_NODE CHKID %d, LAST CHUNK FLAG %d\n", work_node.chkidx, work_node.last_chk);
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 1);
         out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
 
         // Need Path objects for the copy_file at this point ...
@@ -3272,7 +3293,6 @@ void worker_copylist(int             rank,
         send_manager_chunk_busy();
         update_chunk(chunks_copied, &buffer_count);
     }
-
 
     if (num_copied_files > 0 || num_copied_bytes > 0) {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
@@ -3345,7 +3365,7 @@ void worker_comparelist(int             rank,
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
 
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
         stat_item(&out_node, o);
         //sprintf(copymsg, "INFO  DATACOPY Copied %s offs %lld len %lld to %s\n", slavecopy.req, (long long) slavecopy.offset, (long long) slavecopy.length, copyoutpath)
         offset = work_node.chkidx*work_node.chksz;

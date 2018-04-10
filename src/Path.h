@@ -680,14 +680,18 @@ public:
 
    virtual time_t  ctime()    { do_stat(); return _item->st.st_ctime; }
    virtual time_t  mtime()    { do_stat(); return _item->st.st_mtime; }
-   virtual char*   getPath()
-   {
-	return _item->path;
-   }
+  
+   virtual char*   timestamp() { return _item->timestamp; }
+   virtual int    rename_to_original()   {return 0;}
    virtual void    getMTime(char* str)
    {
 	do_stat();
-	epoch_to_str(str, 64, (const time_t*)&_item->st.st_mtime);
+	epoch_to_str(str, MARFS_DATE_STRING_MAX, (const time_t*)&_item->st.st_mtime);
+   }
+
+   virtual int    copyPathItem(path_item* out_node)
+   {
+	return 0;
    }
    virtual mode_t  mode()     { do_stat(); return _item->st.st_mode; }
    virtual size_t  size()     { do_stat(); return _item->st.st_size; }
@@ -2140,7 +2144,12 @@ public:
    virtual ~MARFS_Path() {
       close_all();              // see Path::operator=()
    }
-
+/*
+   virtual int copyPathItem(path_item* out_node)
+   {
+	memcpy((void*)out_node, (void*)_item, sizeof(path_item));
+   }
+*/
    virtual void close_all() {
       Path::close_all();
 
@@ -2307,6 +2316,7 @@ public:
       //     Therefore, we can't just leave the md_fd open and expect the
       //     Path destructor to do everything, in worker_update_chunk().
       expand_path_info(info, marfs_sub_path(_item->path));
+      printf("IN CHUNKS_COMPLETE PATH %s\n", marfs_sub_path(_item->path));
       stat_xattrs(info, 0);
 
       // we don't expect to be opened, but, if so, assure FH_WRITING is set
@@ -2322,7 +2332,9 @@ public:
       ChunkInfoVecIt it;
       for (it=vec.begin(); it!=vec.end(); ++it) {
          const ChunkInfo& chunk_info = *it;
-
+	 int rank;
+	 MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	 printf("PATH RANK CALLING WRITE_CHUNK_INFO %d\n", rank);
          info->pre.chunk_no = chunk_info.index;
          if (write_chunkinfo(&fh, chunk_info.size, 1)) {
             fprintf(stderr, "couldn't update chunkinfo for chunk %ld in '%s': %s\n",
@@ -2342,6 +2354,7 @@ public:
    virtual bool    post_process(PathPtr src) {
 //      if(!src->is_link()) {
          const char* marPath   = marfs_sub_path(_item->path);
+	 printf("MArFS POSt PROCESS PATH %s\n", marPath);
          size_t      file_size = src->st().st_size;
 
          if (batch_post_process(marPath, file_size))
@@ -2453,7 +2466,7 @@ public:
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath = marfs_sub_path(_item->path);
-
+      printf("####PATH OPEN MARPATH %s\n", marPath);
       // initally we will assume we are not using a packed file
       usePacked=false;
 
@@ -2575,8 +2588,46 @@ public:
 	return (void *)whichFH;
    }
 
+   int getOriginalPath(char* origPath, const char* tempPath)
+   {
+	int strLen, i, retval;
+	
+	retval = 1;
+
+	memcpy(origPath, tempPath, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX);
+	//find the last "."
+	strLen = strlen(origPath);
+	for(i = strLen - 1; i >= 0; i--)
+	{
+		if (origPath[i] == '+')
+		{
+			//found the last dot
+			origPath[i] = 0;
+			retval = 0;
+			break;
+		}
+	}
+
+	return retval;
+   }
+
+   virtual int     rename_to_original()
+   {
+	int rc = 0;
+	char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+	getOriginalPath(origPath, _item->path);
+	printf("### TEMP FILE PATH %s\n ORIGINAL PATH %s\n", _item->path, origPath);
+	rc = marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(origPath));
+	if (rc != 0)
+	{
+		fprintf(stderr, "FAILED TO RENAME TO ORIGINAL FILE PATH\n");
+	}
+	return rc;
+   }
+
    virtual bool    close() {
       int rc;
+      char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
       MarFS_FileHandle *whichFh;
       if(usePacked) {
          whichFh = &packedFh;
@@ -2587,7 +2638,11 @@ public:
          whichFh = &fh;
       }
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
-      
+      if (rc != 0)
+      {
+	 fprintf(stderr, "Failed to rebuild original output path\n");
+	 return false;
+      }
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
@@ -2842,9 +2897,11 @@ public:
    // continue to be usable until no one is referring to it, or having it
    // open.  S3 don't play that.
    virtual bool    unlink() {
+      printf("UNLINKING TEMP FILE %s\n", _item->path);
       if (_rc = marfs_unlink(marfs_sub_path(_item->path)))
          set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
+      printf("PATH MARFS UNLINKING RET %d\n", _rc);
       return (_rc == 0);
    }
 
