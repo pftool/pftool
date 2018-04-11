@@ -1674,32 +1674,45 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
-
+    int check;
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
-    if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
+    if (o.same_file_check_mode == 0)
+    {
+	//default, only check for filename, mtime, and size
+	check =  src.st.st_size == dst.st.st_size 
+	    && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
-        && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+	    && (strcmp(src.path, dst.path) == 0);
+    }
+    else
+    {
+    	check = src.st.st_size == dst.st.st_size
+    	    && (src.st.st_mtime == dst.st.st_mtime
+    	        || S_ISLNK(src.st.st_mode))
+    	    && (src.st.st_mode == dst.st.st_mode)
+    	    && (((src.st.st_uid == dst.st.st_uid)
+    	         && (src.st.st_gid == dst.st.st_gid))
+    	        || (geteuid() && !o.preserve));
 
-       // if a chunkable file matches metadata, but has CTM,
-       // then files are NOT the same.
-       if ((o.work_type == COPYWORK)
-           && (src.st.st_size >= o.chunk_at)
-           && (hasCTM(dst.path)))
-          return 0;
-
-       // class-specific techniques (e.g. MarFS file has RESTART?)
-       if (p_dst->incomplete())
-          return 0;
-
-       // Files are the "same", as far as MD is concerned.
-       return 1;
     }
 
+    if (check == 1)
+    {
+	       // if a chunkable file matches metadata, but has CTM,
+	       // then files are NOT the same.
+	       if ((o.work_type == COPYWORK)
+	           && (src.st.st_size >= o.chunk_at)
+	           && (hasCTM(dst.path)))
+	          return 0;
+	
+	       // class-specific techniques (e.g. MarFS file has RESTART?)
+	       if (p_dst->incomplete())
+	          return 0;
+	
+	       // Files are the "same", as far as MD is concerned.
+	       return 1;
+    }
     return 0;
 }
 
