@@ -787,7 +787,7 @@ int compare_file(path_item*      src_file,
    // assure dest exists
    if (! p_dest->stat())
       return 2;
-
+   printf("src path %s; dest path %s\n", p_src->path(), p_dest->path());
    if (samefile(p_src, p_dest, o)) {
 
       //metadata compare
@@ -963,8 +963,10 @@ int update_stats(PathPtr      p_src,
        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
-
-    p_dest->rename_to_original(); //rename temporary file to original file name
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    //printf("RANK %d calling rename\n", rank);
+    //p_dest->rename_to_original(); //rename temporary file to original file name
     return 0;
 }
 
@@ -1675,6 +1677,9 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
     int check;
+    char* src_basepath = basename((char*)src.path);
+    char* dest_basepath = basename((char*)dst.path);
+    
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
     if (o.same_file_check_mode == 0)
@@ -1683,7 +1688,8 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 	check =  src.st.st_size == dst.st.st_size 
 	    && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
-	    && (strcmp(src.path, dst.path) == 0);
+	    && (strcmp(src_basepath, dest_basepath) == 0);
+	
     }
     else
     {

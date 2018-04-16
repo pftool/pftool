@@ -2343,7 +2343,7 @@ public:
 	return (void *)whichFH;
    }
 
-   int getOriginalPath(char* origPath, const char* tempPath)
+   static int getOriginalPath(char* origPath, const char* tempPath)
    {
 	int strLen, i, retval;
 	
@@ -2365,7 +2365,7 @@ public:
 
 	return retval;
    }
-
+/*
    virtual int     rename_to_original()
    {
 	int rc = 0;
@@ -2379,7 +2379,7 @@ public:
 	}
 	return rc;
    }
-
+*/
    virtual bool    close() {
       int rc;
       char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
@@ -2393,6 +2393,7 @@ public:
          whichFh = &fh;
       }
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
+      printf("CLOSING %s ret %d\n", marfs_sub_path(_item->path), rc);
       if (rc != 0)
       {
 	 fprintf(stderr, "Failed to rebuild original output path\n");
@@ -2459,6 +2460,14 @@ public:
          marfs_packed_clear_restart(marfs_sub_path(it->path));
       }
 
+      //test
+      for(std::vector<path_item>::iterator it = packedPaths.begin(); it < packedPaths.end(); it++)
+      {
+	 char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+	 MARFS_Path::getOriginalPath(origPath, it->path);
+	 printf("CLOSE_FH RENAME: TEMP PATH %s; ORIGINAL PATH %s\nRename retval %d\n", it->path, origPath, marfs_rename(marfs_sub_path(it->path), marfs_sub_path(origPath)));
+      }
+      
       packedPaths.clear();
       //free(handle);
       return true;

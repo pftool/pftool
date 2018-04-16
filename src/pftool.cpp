@@ -1546,6 +1546,7 @@ void worker_update_chunk(int            rank,
     HASHDATA*   hash_value;
     int         i;
 
+    printf("IN UPATE CHUNK\n");
     //gather the # of files
     if (MPI_Recv(&path_count, 1, MPI_INT, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
         errsend(FATAL, "Failed to receive path_count\n");
@@ -2153,9 +2154,10 @@ void process_stat_buffer(path_item*      path_buffer,
                             // remove the destination-file if the transfer
                             // is unconditional or the source-file size <=
                             // chunk_at size
+			    printf("CHUNK AT %ld\n", p_out->chunk_at(o.chunk_at));
                             if (! o.different
                                 || (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))) {
-
+				
                                 if (! p_out->unlink() && (errno != ENOENT)) {
                                     errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
                                                 p_out->path(), p_out->strerror());
@@ -2623,6 +2625,7 @@ void worker_comparelist(int             rank,
 
         get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
         stat_item(&out_node, o);
+	printf("COMPARE LIST OUT_NODE PATH %s\n", out_node.path);
         offset = work_node.chkidx*work_node.chksz;
         length = work_node.chksz;
         rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only, o);
