@@ -1919,27 +1919,22 @@ int maybe_pre_process(int&         pre_process,
                       PathPtr&     p_out,
                       PathPtr&     p_work) {
 
-    
+    int ret = 0;
+
     if (pre_process &&
-        (o.work_type == COPYWORK) &&
-        p_out->pre_process(p_work)) {
-
-        //we create a CTM file right now so that if another writer starts
-        //later than this writer, the later starter can successfully get the
-        //timestamp from the CTM and unlinks the temporary file of this writer
-        if(createCTM(p_out, p_work) < 0)
-            {
-                errsend_fmt(FATAL, "Failed to create CTM in maybe_pre_process");
-            }
-    }
-    else if (pre_process &&
-        (o.work_type == COPYWORK) &&
-        !p_out->pre_process(p_work))
+        (o.work_type == COPYWORK))
     {
-	return -1;
+	ret = 0 - (!(p_out->pre_process(p_work)));
+	if (ret == 0 && pre_process == 2)
+	{
+		//if pre_process indicates that there is chunking,
+		//we create a CTM right now 
+		if(createCTM(p_out, p_work) < 0)
+			errsend_fmt(FATAL, "Failed to create CTM in maybe_pre_process");
+	}
     }
 
-    return 0;
+    return ret;
 }
 
 
@@ -2285,7 +2280,10 @@ void process_stat_buffer(path_item*      path_buffer,
                             pre_process = 1;
                         }
                     }
-
+		    if (pre_process == 1 && work_node.st.st_size > chunk_at)
+		    {
+			pre_process = 2; //indicates that we need to create a CTM file!
+		    }
                     //remake p_out to make it use temporary file name
                     get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
                     p_out_temp = PathFactory::create_shallow(&out_node_temp);

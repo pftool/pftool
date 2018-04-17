@@ -966,7 +966,7 @@ int update_stats(PathPtr      p_src,
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     //printf("RANK %d calling rename\n", rank);
-    //p_dest->rename_to_original(); //rename temporary file to original file name
+    p_dest->rename_to_original(); //ONLY POSIX NEEDS THIS NOW BECAUSE MARFS DOES IT IN CLOSE_FH
     return 0;
 }
 

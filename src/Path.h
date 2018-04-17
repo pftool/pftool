@@ -981,10 +981,46 @@ public:
       return true;
    }
 
+   virtual int rename_to_original()
+   {
+      char orig_path[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+      int strLen = strlen(_item->path);
+      int i;
+      memcpy(orig_path, _item->path, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX);
+      for(i = strLen - 1; i >= 0; i--)
+      {
+         if (orig_path[i] == '+')
+         {
+                orig_path[i] = 0;
+         }
+      }
+      if(rename(_item->path, orig_path) != 0)
+      {
+	 printf("ERROR: Failed to rename to original file name\n");
+         return 1;
+      }
+      return 0;
+   }
 
    // NOTE: We don't protect user from calling close when already closed
    virtual bool    close() {
       _rc = ::close(_fd);
+      /*char orig_path[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
+      int strLen = strlen(_item->path);
+      int i;
+      memcpy(orig_path, _item->path, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX);
+      for(i = strLen - 1; i >= 0; i--)
+      {
+	 if (orig_path[i] == '+')
+	 {
+		orig_path[i] = 0;
+	 }
+      }
+      if(rename(_item->path, orig_path) != 0)
+      {
+	 return false;
+      }*/
+
       if (_rc < 0) {
          _errno = errno;
          return false;  // return _rc;
