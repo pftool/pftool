@@ -576,7 +576,6 @@ public:
    typedef std::vector<ChunkInfo>            ChunkInfoVec;
    typedef std::vector<ChunkInfo>::iterator  ChunkInfoVecIt;
 
-
    virtual ~Path() {
       close_all();   // Wrong.  close() is abstract in Path.
    }
@@ -683,6 +682,8 @@ public:
   
    virtual char*   timestamp() { return _item->timestamp; }
    virtual int    rename_to_original()   {return 0;}
+   virtual int    get_rename_flag() {return _item->renameFlag;}
+   virtual void    set_rename_flag() {_item->renameFlag = 1;}
    virtual void    getMTime(char* str)
    {
 	do_stat();
@@ -2401,7 +2402,6 @@ public:
 
 	return retval;
    }
-/*
    virtual int     rename_to_original()
    {
 	int rc = 0;
@@ -2411,11 +2411,10 @@ public:
 	rc = marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(origPath));
 	if (rc != 0)
 	{
-		fprintf(stderr, "FAILED TO RENAME TO ORIGINAL FILE PATH\n");
+		fprintf(stderr, "Failed to rename. Could have been renamed in closeFH\n");
 	}
 	return rc;
    }
-*/
    virtual bool    close() {
       int rc;
       char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
@@ -2452,8 +2451,14 @@ public:
       return true;
    }
 
+   static bool getPackedFhInitialized()
+   {
+	return packedFhInitialized;
+   }
+
    // closes the underlying fh stream for packed files
    static bool close_fh() {
+      printf("IN CLOSE FH\n");
       int rc = 0;
       size_t packedPathsCount;
       //ne_handle handle = packedFh.mc_handle; //saves a copy first
@@ -2477,7 +2482,7 @@ public:
       }
 
       packedPathsCount = packedPaths.size();
-
+      printf("Packed count %d\n", packedPathsCount);
       // set the post xattr for the files
       for(
               std::vector<path_item>::iterator it = packedPaths.begin();

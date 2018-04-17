@@ -752,6 +752,11 @@ int copy_file(PathPtr       p_src,
     if (offset == 0 && length == p_src->size()) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, p_dest->path());
+	if (MARFS_Path::getPackedFhInitialized())
+	{
+		printf("PACKEDFH INITIALIZED!!!\n");
+		p_dest->set_rename_flag();
+	}
         if (update_stats(p_src, p_dest, o)) {
 		printf("COPY FILE UPDATE STATS FAILED\n");
             return -1;
@@ -966,7 +971,9 @@ int update_stats(PathPtr      p_src,
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     //printf("RANK %d calling rename\n", rank);
-    p_dest->rename_to_original(); //ONLY POSIX NEEDS THIS NOW BECAUSE MARFS DOES IT IN CLOSE_FH
+    printf("### RENAME FLAG VALUE %d\n", p_dest->get_rename_flag());
+    if (p_dest->get_rename_flag() != 1)
+    	p_dest->rename_to_original(); //ONLY POSIX NEEDS THIS NOW BECAUSE MARFS DOES IT IN CLOSE_FH
     return 0;
 }
 
