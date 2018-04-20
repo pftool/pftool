@@ -2466,6 +2466,7 @@ public:
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
+      printf("CLOSEFH finisehd release_fh\n");
       //printf("calling marfs_gettimestats\n");
       //int totalBlks = handle->N + handle->E;
       //TimingStats* stats = (TimingStats*)malloc(sizeof(TimingStats) * totalBlks);
@@ -2483,6 +2484,7 @@ public:
 
       packedPathsCount = packedPaths.size();
       printf("Packed count %d\n", packedPathsCount);
+      
       // set the post xattr for the files
       for(
               std::vector<path_item>::iterator it = packedPaths.begin();
@@ -2502,13 +2504,16 @@ public:
       }
 
       //test
+      printf("Before rename\n");
+      fflush(stdout);
       for(std::vector<path_item>::iterator it = packedPaths.begin(); it < packedPaths.end(); it++)
       {
 	 char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
 	 MARFS_Path::getOriginalPath(origPath, it->path);
 	 printf("CLOSE_FH RENAME: TEMP PATH %s; ORIGINAL PATH %s\nRename retval %d\n", it->path, origPath, marfs_rename(marfs_sub_path(it->path), marfs_sub_path(origPath)));
       }
-      
+      printf("done rename\n");
+      fflush(stdout);
       packedPaths.clear();
       //free(handle);
       return true;
