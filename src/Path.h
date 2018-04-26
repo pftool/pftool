@@ -469,10 +469,10 @@ protected:
    void factory_install(int count, ...) {
       va_list list;
       va_start(list, count);
-
+      va_end(list);
       factory_install_list(count, list);
 
-      va_end(list);
+      //va_end(list);
    }
 
    // easy generic way for subclasses to have a private method, with custom
@@ -694,6 +694,10 @@ public:
    {
 	return 0;
    }
+
+   virtual bool   check_packable(size_t length) { return false; }
+   virtual bool   get_packable() { return _item->packable; }
+   virtual void    copy_packable(int packable) {; }
    virtual mode_t  mode()     { do_stat(); return _item->st.st_mode; }
    virtual size_t  size()     { do_stat(); return _item->st.st_size; }
 
@@ -2048,6 +2052,7 @@ public:
    //     calling truncate or batch_pre_process on an existing N:1 file
    //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
+      printf("PREPROCESS SRC PATH %s\n", _item->path);
       const char* marPath   = marfs_sub_path(_item->path);
       size_t      file_size = src->st().st_size;
 
@@ -2065,20 +2070,23 @@ public:
             //
             //   assert(0); // DEBUGGING: does this ever run, now? [ANS: No.]
             //
-            fprintf(stderr, "pre_process() -- file exists '%s'\n",
+            fprintf(stdout, "pre_process() -- file exists '%s'\n",
                     _item->path);
             return false;
          }
          else {
-            fprintf(stderr, "couldn't create file '%s': %s\n",
+            fprintf(stdout, "couldn't create file '%s': %s\n",
                     _item->path, ::strerror(errno));
             return false;
          }
       }
 
       if (batch_pre_process(marPath, file_size))
+      {
+	printf("BACHE PRE PROCESS FAILED\n");
          return false;
-
+      }
+      printf("PRE_PROCEESS RETURNING TRUE\n");
       return true;
    }
 
@@ -2254,6 +2262,24 @@ public:
    {
 	return 0;
    }
+/*
+   virtual bool get_packable()
+   {
+	return _item->packable;
+   }
+*/
+   virtual bool check_packable(size_t length)
+   {
+	printf("Path %s\n", _item->path);
+	const char* marPath = marfs_sub_path(_item->path);
+	return marfs_check_packable(marPath, length);
+   }
+
+   virtual void copy_packable(int packable)
+   {
+	_item->packable = packable;
+	printf("item packable %d\n", _item->packable);
+   }
 
    virtual bool    open(int flags, mode_t mode) {
       int rc;
@@ -2316,12 +2342,23 @@ public:
          return false;
       }
       else {
+	 printf("&&&&open_packed succeeded, NS_PATH %s\n", packedFh.ns_path);
          packedFhInitialized = true;
          packedFhInUse = true;
          usePacked = true;
          _open_offset = 0;
          _open_size   = 0;
+	 printf("#####pushed backed item path %s\n", _item->path);
          packedPaths.push_back(*_item);
+	// test to check path
+      for(
+              std::vector<path_item>::iterator it = packedPaths.begin();
+              it < packedPaths.end();
+              it++
+        )
+        {
+                printf("PUSHED_BACK PackedPath individual file path %s\n", it->path);
+        }	
       }
 
       set(IS_OPEN);
@@ -2421,6 +2458,7 @@ public:
       MarFS_FileHandle *whichFh;
       if(usePacked) {
          whichFh = &packedFh;
+	 printf("CLOSING PACKED FILE NS_PATH %s\n", whichFh->ns_path);
          packedFhInUse = false;
          usePacked = false;
       }
@@ -2459,6 +2497,18 @@ public:
    // closes the underlying fh stream for packed files
    static bool close_fh() {
       printf("IN CLOSE FH\n");
+      for(
+              std::vector<path_item>::iterator it = packedPaths.begin();
+              it < packedPaths.end();
+              it++
+        )
+        {
+                printf("BEGINNING PackedPath individual file path %s\n", it->path);
+                if (it->path[0] == '0')
+                {
+                        it->path[0] = '/';
+                }
+        }
       int rc = 0;
       size_t packedPathsCount;
       //ne_handle handle = packedFh.mc_handle; //saves a copy first
@@ -2467,14 +2517,6 @@ public:
          packedFhInitialized = false;
       }
       printf("CLOSEFH finisehd release_fh\n");
-      //printf("calling marfs_gettimestats\n");
-      //int totalBlks = handle->N + handle->E;
-      //TimingStats* stats = (TimingStats*)malloc(sizeof(TimingStats) * totalBlks);
-      //lets just implement get data here
-      //marfs_getTimingStats(handle, totalBlks, stats);
-      //send_manager_libne_stats(totalBlks, stats);
-      //printf("done calling marfs_gettimestats\n");
-      //printf("marfs_release_fh finished\n");
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
           // successful later
@@ -2484,7 +2526,18 @@ public:
 
       packedPathsCount = packedPaths.size();
       printf("Packed count %d\n", packedPathsCount);
-      
+      for(
+              std::vector<path_item>::iterator it = packedPaths.begin();
+              it < packedPaths.end();
+              it++
+	)
+	{
+		printf("PackedPath individual file path %s\n", it->path);
+		if (it->path[0] == '0')
+		{
+			it->path[0] = '/';
+		}
+	}
       // set the post xattr for the files
       for(
               std::vector<path_item>::iterator it = packedPaths.begin();
@@ -2504,15 +2557,15 @@ public:
       }
 
       //test
-      printf("Before rename\n");
       fflush(stdout);
+	/*
       for(std::vector<path_item>::iterator it = packedPaths.begin(); it < packedPaths.end(); it++)
       {
 	 char origPath[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX];
 	 MARFS_Path::getOriginalPath(origPath, it->path);
 	 printf("CLOSE_FH RENAME: TEMP PATH %s; ORIGINAL PATH %s\nRename retval %d\n", it->path, origPath, marfs_rename(marfs_sub_path(it->path), marfs_sub_path(origPath)));
       }
-      printf("done rename\n");
+      printf("done rename\n");*/
       fflush(stdout);
       packedPaths.clear();
       //free(handle);
@@ -2635,6 +2688,7 @@ public:
          // we need to correct the offset to account for previous files in the
          // object
          offset = whichFh->os.written - whichFh->write_status.sys_writes;
+	 printf("PACKED WRITE, write count %ld; offset %ld\n", count, offset);
       }
       else {
          whichFh = &fh;

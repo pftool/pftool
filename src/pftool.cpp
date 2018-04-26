@@ -1937,7 +1937,47 @@ int maybe_pre_process(int&         pre_process,
     return ret;
 }
 
+//v2 accommodates new logic used to handle rename, CTM, and packed file.
+bool maybe_pre_process_v2(int& pre_process, const struct options& o, PathPtr& p_out, PathPtr& p_out_temp, PathPtr& p_work, path_item* work_node)
+{
+	off_t offset;
+	size_t length;
+	bool packable;
+	int ret = 0;
+        length = work_node->st.st_size;
+	
+        printf("WORK_NODE LEN %ld\n", length);
+	//use original p_out to check if packable
+	packable = p_out->check_packable(length);
+	printf("##DEST FILE %s packable? %d\n", p_out->path(), packable);
+	work_node->packable = packable;
+	if (pre_process && (o.work_type == COPYWORK) && !packable)
+	{
+		//not packable, write to temporary
+                //get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
+                //p_out_temp = PathFactory::create_shallow(&out_node_temp);
+		printf("DEST FILE NOT PACKABLE, creating temp file %s\n", p_out_temp->path());
+		ret = 0 - (!(p_out_temp->pre_process(p_work)));
+		if (ret == 0 && pre_process == 2)
+		{
+			//pre_process indicates chunking, create CTM now
+			if(createCTM(p_out_temp, p_work) < 0)
+				errsend_fmt(FATAL, "Failed to create CTM in maybe_pre_process\n");
+		}
+	}
+	else if (pre_process && (o.work_type == COPYWORK) && packable)
+	{
+		printf("DEST FILE PACKABLE\n");
+		//packable, no need for CTM or temp file
+		ret = 0 - (!(p_out->pre_process(p_work)));
+		if (ret)
+		{
+			errsend_fmt(NONFATAL, "Failed to pre process destination file\n");
+		}
+	}
 
+	return ret;
+}
 
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
@@ -2177,13 +2217,13 @@ void process_stat_buffer(path_item*      path_buffer,
                     printf("CURRENT TIMESTAMP %s; CTM TIMESTAMP %s\n", timestamp, ctmTimestamp);
                     snprintf(tempfilePath, PATHSIZE_PLUS + MARFS_DATE_STRING_MAX + 2, "%s+%s", out_node.path, ctmTimestamp);
 		    
-                    p_out = PathFactory::create(tempfilePath);
+                    PathPtr p_out1 = PathFactory::create(tempfilePath);
                     if (mismatch || !o.different) {
                         printf("CTM mismatch or o.different set DO NOT CARE ABOUT PREVIOUS TEMP FILE\n");
                         out_unlinked = 1;
                         pre_process = 1;
                         //we either have a mismatch or no CTM, need to unlink and purge
-                        p_out->unlink(); // does not care about return code
+                        p_out1->unlink(); // does not care about return code
                         purgeCTM(out_node.path);
                     }
                     else {
@@ -2284,11 +2324,10 @@ void process_stat_buffer(path_item*      path_buffer,
 		    {
 			pre_process = 2; //indicates that we need to create a CTM file!
 		    }
-                    //remake p_out to make it use temporary file name
+
                     get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
                     p_out_temp = PathFactory::create_shallow(&out_node_temp);
-                    printf("###BEFORE PRE PROCESS PARALLEL DEST P_OUT PATH %s, PRE_PROCESS VAL %d\n", p_out_temp->path(), pre_process);
-                    if (maybe_pre_process(pre_process, o, p_out_temp, p_work)) {
+                    if (maybe_pre_process_v2(pre_process, o, p_out, p_out_temp, p_work, &work_node)) {
 
                         errsend_fmt(NONFATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",
@@ -2357,9 +2396,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
                     get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
                     p_out_temp = PathFactory::create_shallow(&out_node_temp);
-                    printf("###BEFORE PRE PROCESS NON-PARALLEL DEST P_OUT PATH %s\n", p_out_temp->path());		    
-
-                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+                    if (maybe_pre_process_v2(pre_process, o, p_out, p_out_temp, p_work, &work_node)) {
                         errsend_fmt(NONFATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",
                                     rank, p_out->path(), ::strerror(errno));
@@ -2517,7 +2554,9 @@ void worker_copylist(int             rank,
         // Need Path objects for the copy_file at this point ...
         PathPtr p_work( PathFactory::create_shallow(&work_node));
         PathPtr p_out(PathFactory::create_shallow(&out_node));
+	printf("COPYLIST: Src %s; Dest %s; src packable %d\n", p_work->path(), p_out->path(), p_work->get_packable());
         rc = copy_file(p_work, p_out, o.blocksize, rank, o);
+	printf("COPY_FILE returned %d\n", rc);
         if (rc >= 0) {
             if (o.verbose >= 1) {
                 if (S_ISLNK(work_node.st.st_mode)) {
@@ -2535,6 +2574,7 @@ void worker_copylist(int             rank,
             num_copied_files +=1;
             if (!S_ISLNK(work_node.st.st_mode)) {
                 num_copied_bytes += length;
+		printf("bytes copied %ld\n", num_copied_bytes);
             }
             //file is chunked
             if (offset != 0 || (offset == 0 && length != work_node.st.st_size)) {

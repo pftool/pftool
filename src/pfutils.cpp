@@ -403,8 +403,8 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
        free((void*)path_slice);
     }
 
-
-    if (tp_flag == 1)
+    printf("IN GET OUTPUT PATH SRC %s PACKABLE %d\n", src_node->path, src_node->packable);
+    if (tp_flag == 1 && src_node->packable == 0)
     {
 	//add time stamp to outnode path to create temp file
 	strncat(out_node->path, "+", 1);
@@ -451,6 +451,7 @@ int copy_file(PathPtr       p_src,
               struct options& o)
 {
     printf("$$$COPY_FILE p_dest path %s\n", p_dest->path());
+    printf("### checking p_dest packable %d\n", p_dest->get_packable());
     //MPI_Status status;
     int         rc;
     size_t      completed = 0;
@@ -752,11 +753,11 @@ int copy_file(PathPtr       p_src,
     if (offset == 0 && length == p_src->size()) {
         PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
                        rank, p_dest->path());
-	if (MARFS_Path::getPackedFhInitialized())
+	/*if (MARFS_Path::getPackedFhInitialized())
 	{
 		printf("PACKEDFH INITIALIZED!!!\n");
 		p_dest->set_rename_flag();
-	}
+	}*/
         if (update_stats(p_src, p_dest, o)) {
 		printf("COPY FILE UPDATE STATS FAILED\n");
             return -1;
@@ -971,9 +972,13 @@ int update_stats(PathPtr      p_src,
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     //printf("RANK %d calling rename\n", rank);
-    printf("### RENAME FLAG VALUE %d\n", p_dest->get_rename_flag());
-    if (p_dest->get_rename_flag() != 1)
+    printf("### RENAME FLAG VALUE %d P_SRC PACKABLE %d\n", p_dest->get_rename_flag(), p_src->get_packable());
+    //if (p_dest->get_rename_flag() != 1 || !p_dest->get_packable())
+    if (!p_src->get_packable())
+    {
+	printf("renaming %s\n", p_dest->path());
     	p_dest->rename_to_original(); //ONLY POSIX NEEDS THIS NOW BECAUSE MARFS DOES IT IN CLOSE_FH
+    }
     return 0;
 }
 

@@ -247,6 +247,7 @@ typedef struct path_item {
     int           chkidx;              // the chunk index or number of the chunk being processed
     int           last_chk;
     int		  renameFlag;
+    int          packable;
    //    off_t         offset;
    //    size_t        length;              // (remaining) data in the file
     char          path[PATHSIZE_PLUS + MARFS_DATE_STRING_MAX]; // keep this last, for efficient init
