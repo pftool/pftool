@@ -946,7 +946,14 @@ int update_stats(PathPtr      p_src,
                    p_dest->path(), p_dest->strerror());
     }
    
-    if()
+    if(!p_src->get_packable())
+    {
+	printf("File %s not packable, rename\n");
+	if(p_dest->rename_to_original())
+	{
+		errsend_fmt(FATAL, "update_stats -- Failed to rename to original file path\n");
+	}
+    }
 
     return 0;
 }

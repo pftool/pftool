@@ -769,8 +769,11 @@ public:
    virtual ssize_t readlink(char *buf, size_t bufsiz) { _errno=0; return -1; }
    virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
+   //all additional functions needed for renaming, creating temp files, etc
    virtual int check_packable(size_t length) {return 0;}
    virtual int get_packable() {return _item->packable;}
+   virtual int rename_to_original() {return false;}
+
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
