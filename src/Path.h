@@ -772,7 +772,7 @@ public:
    //all additional functions needed for renaming, creating temp files, etc
    virtual int check_packable(size_t length) {return 0;}
    virtual int get_packable() {return _item->packable;}
-   virtual int rename_to_original() {return false;}
+   virtual int rename_to_original() {return 0;}
 
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after

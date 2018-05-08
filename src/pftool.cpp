@@ -1843,7 +1843,7 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      ship_off = SHIPOFF;
     off_t       chunk_curr_offset = 0;
     int         idx = 0;
-
+    char        timestamp[DATE_STRING_MAX];
     //classification
     path_item   dirbuffer[DIRBUFFER];
     int         dir_buffer_count = 0;

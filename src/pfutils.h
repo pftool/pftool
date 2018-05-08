@@ -52,7 +52,7 @@
 
 #include "debug.h"
 
-
+#define DATE_STRING_MAX 64
 #define PATHSIZE_PLUS  (FILENAME_MAX+30)
 #define ERRORSIZE      PATHSIZE_PLUS
 #define MESSAGESIZE    PATHSIZE_PLUS
@@ -245,6 +245,7 @@ typedef struct path_item {
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
     char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    char          timestamp[DATE_STRING_MAX];
     int           packable;
 } path_item;
 
