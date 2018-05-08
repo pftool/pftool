@@ -2027,6 +2027,11 @@ void process_stat_buffer(path_item*      path_buffer,
                             pre_process = 1;
                         }
                     }
+		    else //working with a non-chunkable file, either small enough to be packed, or not packed
+		    {
+				
+		    }
+
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
                         errsend_fmt(NONFATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",

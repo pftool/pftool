@@ -245,6 +245,7 @@ typedef struct path_item {
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
     char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    int           packable;
 } path_item;
 
 // A queue to store all of our input nodes
