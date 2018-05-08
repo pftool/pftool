@@ -769,6 +769,7 @@ public:
    virtual ssize_t readlink(char *buf, size_t bufsiz) { _errno=0; return -1; }
    virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
+   virtual int check_packable(size_t length) {return 0;}
 
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
@@ -2278,6 +2279,13 @@ public:
       unset(IS_OPEN);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       return true;
+   }
+
+   virtual int check_packable(size_t length)
+   {
+        printf("Path %s\n", _item->path);
+        const char* marPath = marfs_sub_path(_item->path);
+        return marfs_check_packable(marPath, length);
    }
 
    // closes the underlying fh stream for packed files

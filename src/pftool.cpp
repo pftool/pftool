@@ -2029,7 +2029,8 @@ void process_stat_buffer(path_item*      path_buffer,
                     }
 		    else //working with a non-chunkable file, either small enough to be packed, or not packed
 		    {
-				
+			int packable = p_out->check_packable(work_node.st.st_size);
+			printf("output %s is packed? %d\n", p_out->path(), packable);
 		    }
 
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
