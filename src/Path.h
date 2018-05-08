@@ -770,7 +770,7 @@ public:
    virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
    virtual int check_packable(size_t length) {return 0;}
-
+   virtual int get_packable() {return _item->packable;}
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
