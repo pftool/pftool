@@ -945,6 +945,8 @@ int update_stats(PathPtr      p_src,
        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
+   
+    if()
 
     return 0;
 }
