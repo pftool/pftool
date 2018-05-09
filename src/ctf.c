@@ -186,7 +186,7 @@ char *genCTFFilename(const char *transfilename) {
 	if(strIsBlank(transfilename) || !ctfdir)	// if no filename -> nothing to do ... or problems retrieving directory  
 	  return((char *)NULL);	
 
-	md5fname = str2md5(transfilename);
+	md5fname = str2sig(transfilename);
 	sprintf(tmpname, "%s/%s", ctfdir, md5fname);
 	if(md5fname) free(md5fname);			// we are done with this name ... clean up memory
 
