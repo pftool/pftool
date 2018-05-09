@@ -388,7 +388,7 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 	ctm_name = genCTFFilename(filename);
 	src_hash = str2sig(src_to_hash);
         printf("in ctm src_to_hash %s; src hash %s\n", src_to_hash, src_hash);
-	if (stat(ctm_name))
+	if (stat(ctm_name, &sbuf))
 	{
 		ret = 0; //there is no ctm, not match
 	}
