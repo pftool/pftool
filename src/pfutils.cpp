@@ -1695,4 +1695,5 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 int check_temporary(path_item* work_node, path_item* out_node)
 {
 	
+	return 1;
 }
