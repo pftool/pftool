@@ -1829,6 +1829,10 @@ void process_stat_buffer(path_item*      path_buffer,
     char        timebuf[30];
     int         rc;
     int         i;
+    char        timestamp[DATE_STRING_MAX];
+    time_t      tp = time(NULL);
+    epoch_to_str(timestamp, DATE_STRING_MAX, &tp);
+    printf("Unique stamp %s\n", timestamp);
 
     //chunks
     //place_holder for current chunk_size
@@ -1843,7 +1847,6 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      ship_off = SHIPOFF;
     off_t       chunk_curr_offset = 0;
     int         idx = 0;
-    char        timestamp[DATE_STRING_MAX];
     //classification
     path_item   dirbuffer[DIRBUFFER];
     int         dir_buffer_count = 0;
@@ -1895,6 +1898,10 @@ void process_stat_buffer(path_item*      path_buffer,
             p_out->stat();
             dest_exists = p_out->exists();
 
+	    if (!dest_exists) //now we check for temporary files
+	    {
+		dest_exists = check_temporary(work_node, out_node);
+	    }
             // if selected options require reading the source-file, and the
             // source-file is not readable, we have a problem
             if (((o.work_type == COPYWORK)

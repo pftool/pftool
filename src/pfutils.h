@@ -333,7 +333,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
 void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
-
+int  check_temporary(path_item* work_node, path_item* out_node);
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
