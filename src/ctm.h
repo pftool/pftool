@@ -83,7 +83,7 @@ int putCTM(CTM *ctmptr);
 void setCTM(CTM *ctmptr, long chnkidx);
 char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen);
 int transferredCTM(CTM *ctmptr);
-
+int check_ctm_match(const char* filename, const char* src_to_hash);
 
 CTM *getCTM(const char *transfilename, long numchunks, size_t chunksize);
 int updateCTM(CTM *ctmptr, long chnkidx);

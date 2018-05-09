@@ -1692,9 +1692,45 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     return 0;
 }
 
-int check_temporary(path_item* work_node, path_item* out_node)
+int epoch_to_string(char* str, size_t size, const time_t* time) {
+   struct tm tm;
+
+   LOG(LOG_INFO, " epoch_to_str epoch:            %016lx\n", *time);
+
+   // time_t -> struct tm
+   if (! localtime_r(time, &tm)) {
+      LOG(LOG_ERR, "localtime_r failed: %s\n", strerror(errno));
+      return -1;
+   }
+
+   size_t strf_size = strftime(str, size, MARFS_DATE_FORMAT, &tm);
+   if (! strf_size) {
+      LOG(LOG_ERR, "strftime failed even more than usual: %s\n", strerror(errno));
+      return -1;
+   }
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (1)      %s\n", str);
+
+   // add DST indicator
+   snprintf(str+strf_size, size-strf_size, MARFS_DST_FORMAT, tm.tm_isdst);
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (2)      %s\n", str);
+
+   return 0;
+}
+
+int check_temporary(PathPtr p_src, path_item* out_node)
 {
-	char* srcHash;
-	
-	return 1;
+	int ret;
+	char src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX];
+	char src_mtime_str[DATE_STRING_MAX];
+
+	time_t src_mtime = p_src->mtime();
+	epoch_to_string(src_mtime_str, DATE_STRING_MAX, src_mtime);
+	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
+		
+	ret = check_ctm_match(out_node->path, src_to_hash);
+	return ret;
 }

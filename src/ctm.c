@@ -377,4 +377,45 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 	return(*rbuf);
 }
 
+int check_ctm_match(const char* filename, const char* src_to_hash)
+{
+	int ret = 0;
+	int fd;
+	char* ctm_name, src_hash; //must be freed
+	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
+	struct stat sbuf;
 
+	ctm_name = genCTFFilename(filename);
+	src_hash = str2sig(src_to_hash);
+        printf("in ctm src_to_hash %s; src hash %s\n", src_to_hash, src_hash);
+	if (stat(ctm_name))
+	{
+		ret = 0; //there is no ctm, not match
+	}
+	else
+	{
+		if((fd = open(ctm_name, O_RDONLY)) < 0)
+		{
+			free(ctm_name);
+			free(src_hash);
+			return -errno;
+		}
+		//read src hash
+		if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
+		{
+			free(ctm_name);
+			free(src_hash);
+			return -errno;
+		}
+		
+		if(!strcmp(ctm_src_hash, src_hash, SIG_DIGEST_LENGTH * 2 + 1))
+		{
+			//we have a match!
+			ret = 2;
+		}
+	}
+
+	free(ctm_name);
+	free(src_hash);
+	return ret;
+}

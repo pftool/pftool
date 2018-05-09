@@ -14,9 +14,10 @@ debug.h \
 cta.c ctf.c ctm.c ctm.h \
 hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
 str.c str.h \
+sig.c sig.h \
 pfutils.cpp pfutils.h \
 pftool.cpp pftool.h \
-Path.cpp Path.h
+Path.cpp Path.h 
 
 if SYNDATA
 __top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h

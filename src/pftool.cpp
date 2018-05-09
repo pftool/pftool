@@ -1897,10 +1897,11 @@ void process_stat_buffer(path_item*      path_buffer,
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
             dest_exists = p_out->exists();
-
+	      
 	    if (!dest_exists) //now we check for temporary files
 	    {
-		dest_exists = check_temporary(work_node, out_node);
+		dest_exists = check_temporary(p_work, &out_node);
+		print("in process_stat After check_temporary, dest_exist %d\n", dest_exists);
 	    }
             // if selected options require reading the source-file, and the
             // source-file is not readable, we have a problem

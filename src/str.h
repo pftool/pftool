@@ -6,7 +6,7 @@
 #define      __STR_H
 
 #include <ctype.h>
-
+#include "sig.h"
 #ifndef TRUE
 #  define TRUE 1
 #endif
