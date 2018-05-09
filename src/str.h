@@ -12,7 +12,6 @@
 #ifndef FALSE
 #  define FALSE 0
 #endif
-#include "sig.h"
 // Function Declarations
 char *str2sig(const char *str);
 size_t str2Size(char *ss);

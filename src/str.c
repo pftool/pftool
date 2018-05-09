@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "str.h"
-
+#include "sig.h"
 //
 // Conversion functions
 //

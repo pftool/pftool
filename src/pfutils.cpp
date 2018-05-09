@@ -17,6 +17,7 @@
 
 #include "pfutils.h"
 #include "ctm.h"                // hasCTM()
+#include "sig.h"
 #include "debug.h"
 
 #include <syslog.h>
