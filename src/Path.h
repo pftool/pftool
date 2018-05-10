@@ -794,6 +794,8 @@ public:
 	}
 	printf("After restore original path, path is %s\n", _item->path);
    }
+   virtual char* get_timestamp() {return _item->timestamp;}
+
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
