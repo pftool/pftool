@@ -1738,13 +1738,33 @@ int maybe_pre_process(int&         pre_process,
                       const struct options& o,
                       PathPtr&     p_out,
                       PathPtr&     p_work) {
-    if (pre_process == 2 &&
+
+    int ret;
+    if (pre_process == 1 &&
         (o.work_type == COPYWORK))
     {
-	//we are working with a chunkable file, must use temporary file.
+	//we are working with a either a size 0 file or a packable file
+	//or a non chunkable non packable file
+	//do not need to create temporary file
+        if (!p_out->pre_process(p_work))
+        	return -1;
+    }
+    else if (pre_process == 2 &&
+        (o.work_type == COPYWORK))
+    {
+	//we are working with a chunkable file
 	p_out->create_temporary_path(p_work->get_timestamp());
-        p_out->pre_process(p_work);
-        return -1;
+	if (!p_out->pre_process(p_work))
+	{
+		return -1;
+	}
+	else
+	{
+		//create CTM NOW
+		//first restore to original output path
+		p_out->restore_original_path();
+		create_CTM(p_out->path(), p_work->path(), p_work->get_timestamp());
+	}
     }
 
     return 0;
@@ -2079,7 +2099,12 @@ void process_stat_buffer(path_item*      path_buffer,
 		    {
 			work_node.packable = p_out->check_packable(work_node.st.st_size);
 			printf("output %s is packed? %d\n", p_out->path(), work_node.packable);
-			pre_process = 1; //indicates that we do not need to create a CTM
+			
+			if (!work_node.packable)
+			{
+				work_node.packable = 2; // we identify non chunkable non packable file with packable set to 2
+			}
+			pre_process = 1;
 		    }
 
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {

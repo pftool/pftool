@@ -85,7 +85,6 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen);
 int transferredCTM(CTM *ctmptr);
 int check_ctm_match(const char* filename, const char* src_to_hash);
 int get_ctm_timestamp(const char* filename, char* timestamp);
-
 CTM *getCTM(const char *transfilename, long numchunks, size_t chunksize);
 int updateCTM(CTM *ctmptr, long chnkidx);
 int removeCTM(CTM **pctmptr);
