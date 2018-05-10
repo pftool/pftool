@@ -773,7 +773,27 @@ public:
    virtual int check_packable(size_t length) {return 0;}
    virtual int get_packable() {return _item->packable;}
    virtual int rename_to_original() {return 0;}
+   virtual void create_temporary_path(const char* timestamp)
+   {
+	char* tp_ptr = (_item->path) + strlen(_item->path);
+	snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
+	printf("After create_temporary_path, out_node Path %s\n", _item->path);
+   }
+   virtual void restore_original_path()
+   {
+	int i;
+	int pathlen = strlen(_item->path);
 
+	for(i = pathlen - 1; i >= 0; i--)
+	{
+		if (_item->path[i] == '+')
+		{
+			_item->path[i] = 0;
+			break;
+		}
+	}
+	printf("After restore original path, path is %s\n", _item->path);
+   }
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For

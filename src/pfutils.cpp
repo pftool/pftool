@@ -1475,6 +1475,7 @@ int processing_complete(struct worker_proc_status *proc_status, int free_worker_
 // push path onto the tail of the queue
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
+    memset(new_node, 0, sizeof(path_list));
     if (! new_node) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1517,6 +1518,7 @@ void delete_queue_path(path_list **head, int *count) {
 // us to pass nodes instead of paths)
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+    memset(temp_node, 0, sizeof(path_list));
     if (! temp_node) {
        fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1550,6 +1552,7 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
 
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
+    memset(new_buf_item, 0, sizeof(work_buf_list));
     if (! new_buf_item) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
        MPI_Abort(MPI_COMM_WORLD, -1);

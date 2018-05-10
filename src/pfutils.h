@@ -247,6 +247,7 @@ typedef struct path_item {
     char          path[PATHSIZE_PLUS+DATE_STRING_MAX]; // keep this last, for efficient init
     char          timestamp[DATE_STRING_MAX];
     int           packable;
+    int           temp_flag;
 } path_item;
 
 // A queue to store all of our input nodes

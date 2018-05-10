@@ -1738,9 +1738,12 @@ int maybe_pre_process(int&         pre_process,
                       const struct options& o,
                       PathPtr&     p_out,
                       PathPtr&     p_work) {
-    if (pre_process &&
-        (o.work_type == COPYWORK) &&
-        ! p_out->pre_process(p_work)) {
+    if (pre_process == 2 &&
+        (o.work_type == COPYWORK))
+    {
+	//we are working with a chunkable file, must use temporary file.
+	
+        p_out->pre_process(p_work)
         return -1;
     }
 
@@ -1864,6 +1867,7 @@ void process_stat_buffer(path_item*      path_buffer,
         process = 0;
         pre_process = 0;
         path_item&  work_node = path_buffer[i]; // avoid a copy
+ 	memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX); //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
         work_node.start = 0;
         PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
@@ -1968,11 +1972,34 @@ void process_stat_buffer(path_item*      path_buffer,
                             }
                     }
                 }
-		else if (dest_exists == 2)
+		else if (dest_exists > 1)
 		{
-			//a temporary file exists due to matching CTM src hash
-			//we extract timestamp out
-
+			//a temporary file exists
+			//we extract timestamp out and put it in work_node
+			char timestamp[DATE_STRING_MAX];
+			if (get_ctm_timestamp(out_node.path, timestamp) < 0)
+			{
+				errsend_fmt(FATAL, "Failed to read timestamp for temporary file\n");
+			}
+			//now we have the time stamp, deal with each accordingly
+			if (dest_exists == 2 && o.different == 1)
+			{
+				//in this case we have a match AND restart is enabled
+				//mark work_node with temp flag and copy timestamp
+				memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
+			}
+			else if (dest_exists == 3 || o.different == 0)
+			{
+				//either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
+				p_out->create_temporary_path(timestamp);
+				if (!p_out->unlink() && (errno != ENOENT))
+				{
+					errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
+				}
+				//now we undo the temorary path
+				p_out->restore_original_path();
+				
+			}
 		}
                 else {
                     // destination doesn't already exist
@@ -2018,11 +2045,12 @@ void process_stat_buffer(path_item*      path_buffer,
                         out_unlinked = 1;
                         work_node.chkidx = 0;
                         work_node.chksz = 0;
+			work_node.packable = 0;
                         regbuffer[reg_buffer_count] = work_node;
                         reg_buffer_count++;
                     }
                     else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
-                        int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
+                        int ctmExist = ((dest_exists) ? hasCTM(out_node.path) : 0);
                         // we are doing a conditional transfer & CTM exists
                         // -> populate CTM structure
                         if (o.different && ctmExists) {
@@ -2042,13 +2070,16 @@ void process_stat_buffer(path_item*      path_buffer,
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer/compare.
                             purgeCTM(out_node.path);
-                            pre_process = 1;
+                            pre_process = 2;
                         }
+			work_node.packable = 0;//mark work_node not pacakble
+			work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
                     }
 		    else //working with a non-chunkable file, either small enough to be packed, or not packed
 		    {
 			work_node.packable = p_out->check_packable(work_node.st.st_size);
 			printf("output %s is packed? %d\n", p_out->path(), work_node.packable);
+			pre_process = 1; //indicates that we do not need to create a CTM
 		    }
 
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {

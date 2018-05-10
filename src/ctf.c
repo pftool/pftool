@@ -167,6 +167,49 @@ ssize_t _readCTF(int fd, CTM **pctmptr) {
 	return(tot);
 }
 
+ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
+        long cknum;                                             // holds the number of chunks from file
+        size_t cksz;                                            // holds the chunk size of the transfer
+        size_t bufsz = (size_t)0;                               // size of the flag buffer
+        ssize_t n;                                              // current bytes read
+        ssize_t tot = (ssize_t)0;                               // total bytes read
+
+        //we skip the src hash and timestamp
+	if(lseek(fd, (off_t)(PATHSIZE_PLUS + DATE_STRING_MAX), SEEK_CUR) < 0)
+		return -errno;
+
+        if((n=read(fd,&cknum,sizeof(long))) <= 0)               // if error on read ...
+          return((ssize_t)(-errno));
+        tot += n;
+        if(!cknum) return((ssize_t)(-EINVAL));                  // read zero chunks for file -> invalid
+
+        if((n=read(fd,&cksz,sizeof(size_t))) <= 0)              // if error on read ...
+          return((ssize_t)(-errno));
+        tot += n;
+        if(!cknum) return((ssize_t)(-EINVAL));                  // read zero chunks for file -> invalid
+
+        if(!(*pctmptr)) return((ssize_t)(-EINVAL));             // NULL structure passed in -> invalid
+
+        (*pctmptr)->chnksz = cksz;                              // assign chunk size from value in file
+        if(cknum != (*pctmptr)->chnknum) {                      // ... and number of chunks differ -> reallocate flag array
+          (*pctmptr)->chnknum = cknum;                          // assign chunk number from file
+          if((*pctmptr)->chnkflags) free((*pctmptr)->chnkflags);
+          bufsz = allocateCTMFlags((*pctmptr));                 // resize CTM flag array
+        }
+        else if(!(*pctmptr)->chnkflags)                         // flag array needs to be allocated
+          bufsz = allocateCTMFlags((*pctmptr));                 // create CTM flag array
+
+        if(bufsz < (ssize_t)0)                                  // problems allocating flags
+          return((ssize_t)bufsz);                               // ... return error, which is negative
+        else if(!bufsz)                                         // bufsz needs to be computed ...
+          bufsz = (size_t)(sizeof(unsigned long)*GetBitArraySize(*pctmptr));
+
+        if((n=read(fd,(*pctmptr)->chnkflags,bufsz)) <= 0)       // if error on read ...
+          return((ssize_t)(-errno));
+        tot += n;
+
+        return(tot);
+}
 /**
 * This function generates the CTF file name, based on the 
 * transfer file name. The transfer file name should be an
@@ -250,7 +293,7 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
 	else {								// file exists -> read it to populate CTF structure
 	  if((ctffd = open(ctmptr->chnkfname,O_RDONLY)) < 0) 		// if error on open ...
 	    return(syserr = -errno);					//	return a negative errno
-	  if((syserr=(int)_readCTF(ctffd,&ctmptr)) < 0) { 		// if error on read ...
+	  if((syserr=(int)_readCTF_v2(ctffd,&ctmptr)) < 0) { 		// if error on read ...
 	    return(syserr);						// 	syserr should be negative at this point -> we are out a here!
 	  }
 	  close(ctffd);							// close file if open

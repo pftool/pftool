@@ -416,6 +416,11 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 			//we have a match!
 			ret = 2;
 		}
+		else
+		{
+			//we dont have a match
+			ret = 3;
+		}
 		if(close(fd) < 0)
 		{
 			return -errno;
@@ -424,5 +429,37 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 
 	free(ctm_name);
 	free(src_hash);
+	return ret;
+}
+
+int get_ctm_timestamp(const char* filename, char* timestamp)
+{
+	char* ctm_name;//need free
+	struct stat sbuf;
+	int fd;
+	int ret = 0;
+	
+	ctm_name = genCTFFilename(filename);
+	if (stat(ctm_name, &sbuf))
+	{
+		//CTM file should be there unelss another process started
+		//copying. REPORT ERROR
+		ret = -1;
+	}
+	else
+	{
+		if((fd = open(ctm_name, O_RDONLY)) < 0)
+		{
+			free(ctm_name);
+			return -errno;
+		}
+		if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
+		{
+			//something wrong with timestamp, repor error
+			ret = -2;
+		}
+	}
+
+	free(ctm_name);
 	return ret;
 }
