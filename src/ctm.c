@@ -463,3 +463,56 @@ int get_ctm_timestamp(const char* filename, char* timestamp)
 	free(ctm_name);
 	return ret;
 }
+
+size_t _writeCTF(int fd, CTM *ctmptr) {
+        size_t n;                                       // number of bytes written
+        ssize_t tot = 0;                                // total number of bytes written
+
+                // Write out the chunk count
+        if((n = write_field(fd,&ctmptr->chnknum,sizeof(ctmptr->chnknum))) < 0)
+          return(n);
+        tot += n;
+                // Write out the chunk size
+        if((n = write_field(fd,&ctmptr->chnksz,sizeof(ctmptr->chnksz))) < 0)
+          return(n);
+        tot += n;
+
+                // Write out the flags
+        if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
+          return(n);
+        tot += n;
+
+        return(tot);
+}
+int create_CTM(PathPtr p_out, PathPtr p_src)
+{
+	int fd;
+	time_t mtime = p_src->mtime();
+	char* ctm_name;//need free
+	char* src_hash;//need free
+	char src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX];
+	char src_mtime[DATE_STRING_MAX];
+
+	//construct src hash
+	epoch_to_string(src_mtime, DATE_STRING_MAX, &mtime);
+	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime);
+	src_hash = str2sig(src_to_hash);
+
+	ctm_name = genCTFFilename(p_out->path());
+	
+	if((fd = open(ctm_name, O_WRONLY)) < 0)
+		return -errno;
+
+	//first write out the src_hash
+	if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
+		return -1;
+
+	//write out temporary file's timestamp stored in p_src
+	if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
+		return -1;
+
+	if (close(fd) < 0)
+		return -errno;
+
+	return 0;
+}

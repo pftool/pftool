@@ -1743,6 +1743,7 @@ int maybe_pre_process(int&         pre_process,
     if (pre_process == 1 &&
         (o.work_type == COPYWORK))
     {
+	printf("proprocess small files\n");
 	//we are working with a either a size 0 file or a packable file
 	//or a non chunkable non packable file
 	//do not need to create temporary file
