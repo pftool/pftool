@@ -1742,7 +1742,7 @@ int maybe_pre_process(int&         pre_process,
         (o.work_type == COPYWORK))
     {
 	//we are working with a chunkable file, must use temporary file.
-	
+	p_out->
         p_out->pre_process(p_work)
         return -1;
     }
