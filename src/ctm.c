@@ -464,27 +464,7 @@ int get_ctm_timestamp(const char* filename, char* timestamp)
 	return ret;
 }
 
-size_t _writeCTF(int fd, CTM *ctmptr) {
-        size_t n;                                       // number of bytes written
-        ssize_t tot = 0;                                // total number of bytes written
-
-                // Write out the chunk count
-        if((n = write_field(fd,&ctmptr->chnknum,sizeof(ctmptr->chnknum))) < 0)
-          return(n);
-        tot += n;
-                // Write out the chunk size
-        if((n = write_field(fd,&ctmptr->chnksz,sizeof(ctmptr->chnksz))) < 0)
-          return(n);
-        tot += n;
-
-                // Write out the flags
-        if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
-          return(n);
-        tot += n;
-
-        return(tot);
-}
-int create_CTM(PathPtr p_out, PathPtr p_src)
+int create_CTM(PathPtr& p_out, PathPtr& p_src)
 {
 	int fd;
 	time_t mtime = p_src->mtime();

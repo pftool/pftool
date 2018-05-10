@@ -1764,7 +1764,7 @@ int maybe_pre_process(int&         pre_process,
 		//create CTM NOW
 		//first restore to original output path
 		p_out->restore_original_path();
-		create_CTM(p_out->path(), p_work->path(), p_work->get_timestamp());
+		create_CTM(p_out, p_work);
 	}
     }
 
@@ -2071,7 +2071,7 @@ void process_stat_buffer(path_item*      path_buffer,
                         reg_buffer_count++;
                     }
                     else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
-                        int ctmExist = ((dest_exists) ? hasCTM(out_node.path) : 0);
+                        int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
                         // we are doing a conditional transfer & CTM exists
                         // -> populate CTM structure
                         if (o.different && ctmExists) {

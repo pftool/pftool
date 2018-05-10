@@ -20,6 +20,7 @@
 #define      __CTM_H
 
 #include "config.h"
+#include "pfutils.h"
 #include <attr/xattr.h>
 
 #include <asm/bitsperlong.h>
@@ -85,7 +86,7 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen);
 int transferredCTM(CTM *ctmptr);
 int check_ctm_match(const char* filename, const char* src_to_hash);
 int get_ctm_timestamp(const char* filename, char* timestamp);
-int create_CTM(PathPtr p_out, PathPtr p_src);
+int create_CTM(PathPtr& p_out, PathPtr& p_src);
 CTM *getCTM(const char *transfilename, long numchunks, size_t chunksize);
 int updateCTM(CTM *ctmptr, long chnkidx);
 int removeCTM(CTM **pctmptr);
