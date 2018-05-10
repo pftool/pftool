@@ -354,7 +354,8 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
                      const path_item*  dest_node,
-                     struct options&   o) {
+                     struct options&   o,
+		     int               rename_flag) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
@@ -398,6 +399,12 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     }
     if (path_slice_duped) {
        free((void*)path_slice);
+    }
+
+    if (rename_flag == 1 and src_node->packable == 0)
+    {
+	//NEED TO CREATE TEMPORARY FILE NAME!
+	strcat(out_node->path, );
     }
 }
 
