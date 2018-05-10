@@ -1729,7 +1729,7 @@ int check_temporary(PathPtr p_src, path_item* out_node)
 	char src_mtime_str[DATE_STRING_MAX];
 
 	time_t src_mtime = p_src->mtime();
-	epoch_to_string(src_mtime_str, DATE_STRING_MAX, src_mtime);
+	epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
 	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
 		
 	ret = check_ctm_match(out_node->path, src_to_hash);

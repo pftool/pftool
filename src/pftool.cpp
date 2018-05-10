@@ -1901,7 +1901,11 @@ void process_stat_buffer(path_item*      path_buffer,
 	    if (!dest_exists) //now we check for temporary files
 	    {
 		dest_exists = check_temporary(p_work, &out_node);
-		print("in process_stat After check_temporary, dest_exist %d\n", dest_exists);
+		printf("in process_stat After check_temporary, dest_exist %d\n", dest_exists);
+		if (dest_exists < 0)
+		{
+			errsend_fmt(FATAL, "Failed to check for temporary files\n");
+		}
 	    }
             // if selected options require reading the source-file, and the
             // source-file is not readable, we have a problem
@@ -1930,7 +1934,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 if (p_out->supports_n_to_1())
                     parallel_dest = 1;
                 //if the out path exists
-                if (dest_exists) {
+                if (dest_exists == 1) {
                     // Maybe user only wants to operate on source-files
                     // that are "different" from the corresponding
                     // dest-files.
@@ -1964,6 +1968,12 @@ void process_stat_buffer(path_item*      path_buffer,
                             }
                     }
                 }
+		else if (dest_exists == 2)
+		{
+			//a temporary file exists due to matching CTM src hash
+			//we extract timestamp out
+
+		}
                 else {
                     // destination doesn't already exist
 

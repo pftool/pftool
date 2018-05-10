@@ -13,7 +13,7 @@
 #  define FALSE 0
 #endif
 // Function Declarations
-char *str2sig(const char *str);
+char* str2sig(const char *str);
 size_t str2Size(char *ss);
 int strIsBlank(const char *s);
 int strHasPrefix(const char *prefixes[],const char *s);

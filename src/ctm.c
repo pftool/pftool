@@ -12,6 +12,7 @@
 
 #include "pfutils.h"
 #include "str.h"
+#include "sig.h"
 #include "ctm.h"
 #include "ctm_impl.h"					// holds implementation specific declarations
 
@@ -381,7 +382,8 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 {
 	int ret = 0;
 	int fd;
-	char* ctm_name, src_hash; //must be freed
+	char* ctm_name;
+	char* src_hash; //must be freed
 	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
 	struct stat sbuf;
 
@@ -391,6 +393,7 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 	if (stat(ctm_name, &sbuf))
 	{
 		ret = 0; //there is no ctm, not match
+		printf("No match due to NO CTM\n");
 	}
 	else
 	{
@@ -408,10 +411,14 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 			return -errno;
 		}
 		
-		if(!strcmp(ctm_src_hash, src_hash, SIG_DIGEST_LENGTH * 2 + 1))
+		if(!strcmp(ctm_src_hash, src_hash))
 		{
 			//we have a match!
 			ret = 2;
+		}
+		if(close(fd) < 0)
+		{
+			return -errno;
 		}
 	}
 

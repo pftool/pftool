@@ -244,7 +244,7 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
-    char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    char          path[PATHSIZE_PLUS+DATE_STRING_MAX]; // keep this last, for efficient init
     char          timestamp[DATE_STRING_MAX];
     int           packable;
 } path_item;
