@@ -404,7 +404,9 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     if (rename_flag == 1 and src_node->packable == 0)
     {
 	//NEED TO CREATE TEMPORARY FILE NAME!
-	strcat(out_node->path, );
+	strcat(out_node->path, "+");
+	strcat(out_node->path, src_node->timestamp);
+	printf("get_output_path created Tempfile %s\n", out_node->path);
     }
 }
 

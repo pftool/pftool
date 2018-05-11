@@ -1393,7 +1393,7 @@ void worker_update_chunk(int            rank,
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
         // CTM is based off of destination file. Populate out_node
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
 
         // let sub-classes do any per-chunk work they want to do
         //        PathPtr p_out(PathFactory::create_shallow(out_node));
@@ -1629,7 +1629,7 @@ void worker_readdir(int         rank,
             }
 
             if (makedir == 1) {
-                get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o);
+                get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o, 0);
                 PathPtr p_dir(PathFactory::create_shallow(&mkdir_node));
                 if (! p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO))
                     && (p_dir->get_errno() != EEXIST)) {
@@ -1918,7 +1918,7 @@ void process_stat_buffer(path_item*      path_buffer,
         else {
             //do this for all regular files AND fuse+symylinks
             parallel_dest = o.parallel_dest;
-            get_output_path(&out_node, base_path, &work_node, dest_node, o);
+            get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
             dest_exists = p_out->exists();
@@ -2317,7 +2317,7 @@ void worker_copylist(int             rank,
                         "offset = %ld   length = %ld\n",
                         rank, work_node.chkidx, offset, length);
 
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 1);
         out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
 
         // Need Path objects for the copy_file at this point ...
@@ -2427,7 +2427,7 @@ void worker_comparelist(int             rank,
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n", rank, sending_rank);
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
 
-        get_output_path(&out_node, base_path, &work_node, dest_node, o);
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
         stat_item(&out_node, o);
         offset = work_node.chkidx*work_node.chksz;
         length = work_node.chksz;
