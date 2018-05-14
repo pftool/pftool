@@ -305,21 +305,19 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
 	int syserr;							// holds any system errrno
 	struct stat sbuf;						// holds stat info of md5 file
 	int ctffd;							// file descriptor of CTF file
-	
+	memset(&sbuf, 0, sizeof(sbuf));
 	if(!ctmptr || strIsBlank(ctmptr->chnkfname))			// make sure we have a valid structure
 	  return(-1);
 
-		// Manage CTF file
-	if(stat(ctmptr->chnkfname,&sbuf)) {				// file does NOT exist. We are testing the md5 filename (generated when allocating the CTM structure)
-	  ctmptr->chnknum = numchunks;					// now assign number of chunks to CTM structure
-	  ctmptr->chnksz = chunksize;					// assign chunk size to CTM structure
-	  if((syserr=(int)allocateCTMFlags(ctmptr)) <= 0)		// allocate the chunk flag bit array
-	    return(syserr);						//    problems? -> return an error. allocateCTMFlags() returns a negative error
-	}
-	else if(sbuf.st_size <= SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX)
+	// Manage CTF file
+	stat(ctmptr->chnkfname,&sbuf);
+	if(sbuf.st_size <= SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX)
 	{
 		//this is just a stub
-
+          	ctmptr->chnknum = numchunks;                                  // now assign number of chunks to CTM structure
+          	ctmptr->chnksz = chunksize;                                   // assign chunk size to CTM structure
+          	if((syserr=(int)allocateCTMFlags(ctmptr)) <= 0)               // allocate the chunk flag bit array
+          	  return(syserr);
 	}
 	else {	
 	  printf("ctf.c popuatelate CTF opening %s\n", ctmptr->chnkfname);							// file exists -> read it to populate CTF structure
@@ -349,15 +347,14 @@ int storeCTF(CTM *ctmptr) {
 	int ctffd;							// file descriptor of CTF file
 	int rc = 0;							// return code for function
 	int n;								// number of bytes written to CTF file
-
 	if(!ctmptr || strIsBlank(ctmptr->chnkfname)) 
 	  return(EINVAL);						// Nothing to write, because there is no structure, or it is invalid!
-
+	
 	if(ctmptr->chnkstore < CTF_UPDATE_STORE_LIMIT) {		// this function has not been called enough times to cause a file to be written
 	  ctmptr->chnkstore++;						// increment counter of calls
 	  return(rc);
 	}
-		// Manage CTF file
+	// Manage CTF file
 	if(stat(ctmptr->chnkfname,&sbuf)) {				// file does NOT exist. We are testing the md5 filename (generated when allocating the CTM structure)
 	  if((ctffd = creat(ctmptr->chnkfname,S_IRWXU)) < 0)		// if error on create ...
 	    rc = errno;							// ... save off errno 
