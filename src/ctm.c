@@ -476,13 +476,14 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	//construct src hash
 	epoch_to_string(src_mtime, DATE_STRING_MAX, &mtime);
 	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime);
+	printf("src to hash %s\n", src_to_hash);
 	src_hash = str2sig(src_to_hash);
 
 	ctm_name = genCTFFilename(p_out->path());
-	
-	if((fd = open(ctm_name, O_WRONLY)) < 0)
+	printf("create_CTM ctm_name %s\n", ctm_name);
+	if((fd = open(ctm_name, O_WRONLY | O_CREAT)) < 0)
 		return -errno;
-
+	printf("finished open\n");
 	//first write out the src_hash
 	if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
 		return -1;
@@ -490,9 +491,11 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	//write out temporary file's timestamp stored in p_src
 	if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
 		return -1;
-
+	printf("finished write\n");
 	if (close(fd) < 0)
 		return -errno;
-
+	printf("closed ctm\n");
+	free(ctm_name);
+	free(src_hash);
 	return 0;
 }

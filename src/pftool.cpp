@@ -1363,6 +1363,7 @@ void worker_update_chunk(int            rank,
     int         path_count;
     path_item   work_node;
     path_item   out_node;
+    path_item   out_node_temp;
     char*       workbuf;
     int         worksize;
     int         position;
@@ -1393,8 +1394,8 @@ void worker_update_chunk(int            rank,
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
         // CTM is based off of destination file. Populate out_node
-        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
-
+        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);//original destination path is used to generate CTM, no need for temp file name
+	get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
         // let sub-classes do any per-chunk work they want to do
         //        PathPtr p_out(PathFactory::create_shallow(out_node));
         //        p_out->chunk_complete();
@@ -1414,9 +1415,9 @@ void worker_update_chunk(int            rank,
             // just call the update per-chunk, instead of trying to accumulate updates
             Path::ChunkInfoVec vec;
             vec.push_back(chunk_info);
-        
-            PathPtr      p_out(PathFactory::create_shallow(&out_node));
-            p_out->chunks_complete(vec);
+            path_item    temp_out_node;
+            PathPtr      p_out_temp(PathFactory::create_shallow(&out_node_temp));
+            p_out_temp->chunks_complete(vec);
         }
 
         out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
@@ -1764,7 +1765,12 @@ int maybe_pre_process(int&         pre_process,
 		//create CTM NOW
 		//first restore to original output path
 		p_out->restore_original_path();
-		create_CTM(p_out, p_work);
+		if(create_CTM(p_out, p_work) < 0)
+		{
+			printf("Failed CTM??\n");
+			return -1;
+		}
+		printf("created CTM in maybe pre process\n");
 	}
     }
 
@@ -2019,7 +2025,10 @@ void process_stat_buffer(path_item*      path_buffer,
 				}
 				//now we undo the temorary path
 				p_out->restore_original_path();
-				
+				purgeCTM(out_node.path);
+				out_unlinked = 1;
+				pre_process = 1;
+				printf("either mismatch or o.differetn = 0\npurgeCTM and pre_process\n");
 			}
 		}
                 else {
@@ -2091,8 +2100,8 @@ void process_stat_buffer(path_item*      path_buffer,
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer/compare.
                             purgeCTM(out_node.path);
-                            pre_process = 2;
                         }
+			pre_process = 2;
 			work_node.packable = 0;//mark work_node not pacakble
 			work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
                     }
@@ -2138,10 +2147,11 @@ void process_stat_buffer(path_item*      path_buffer,
                                                       : work_node.chksz);
                                 idx++;
                             }
-                                // if a non-conditional transfer or if the
-                                // chunk did not make on the first one ...
-                                if (!o.different
-                                    || !chunktransferredCTM(ctm, work_node.chkidx)) {
+                            // if a non-conditional transfer or if the
+                            // chunk did not make on the first one ...
+                            if (!o.different
+                                    || !chunktransferredCTM(ctm, work_node.chkidx)) 
+			    {
 
                                     num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
                                     regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
@@ -2154,13 +2164,15 @@ void process_stat_buffer(path_item*      path_buffer,
                                         PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
                                                         "- sending %d reg buffers to manager.\n",
                                                         rank, reg_buffer_count);
+					printf("reg_buffer_count %d\n", reg_buffer_count);
                                         send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                                         num_bytes_seen = 0;
                                     }
-                                } // end send test
-                                else {
+                             } // end send test
+                             else 
+			     {
                                     num_finished_bytes += work_node.chksz;
-                                }
+                             }
                         } // end file/chunking loop
                     }
                     // if CTM structure allocated it -> free the memory now
@@ -2169,7 +2181,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 } // end Parallel destination
                 else {  // non-parallel destination
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                        errsend_fmt(NONFATAL,
+                        errsend_fmt(FATAL,
                                     "Rank %d: couldn't prepare destination-file '%s': %s\n",
                                     rank, p_out->path(), ::strerror(errno));
                     }
@@ -2305,6 +2317,7 @@ void worker_copylist(int             rank,
 
     position = 0;
     out_position = 0;
+    printf("copylist read chunk %d\n", read_count);
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n",
                         rank, sending_rank);

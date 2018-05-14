@@ -114,6 +114,32 @@ ssize_t _writeCTF(int fd, CTM *ctmptr) {
 	return(tot);
 }
 
+ssize_t _writeCTF_v2(int fd, CTM *ctmptr) {
+        size_t n;                                       // number of bytes written
+        ssize_t tot = 0;                                // total number of bytes written
+
+	//CTM file must have been created in maybe_pre_process
+        if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
+                return -errno;
+
+                // Write out the chunk count
+        if((n = write_field(fd,&ctmptr->chnknum,sizeof(ctmptr->chnknum))) < 0)
+          return(n);
+        tot += n;
+                // Write out the chunk size
+        if((n = write_field(fd,&ctmptr->chnksz,sizeof(ctmptr->chnksz))) < 0)
+          return(n);
+        tot += n;
+
+                // Write out the flags
+        if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
+          return(n);
+        tot += n;
+
+        return(tot);
+}
+
+
 /**
 * Low level function to read from the file descriptor into
 * a CTM structure. Note that this function may allocate and
@@ -173,11 +199,11 @@ ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
         size_t bufsz = (size_t)0;                               // size of the flag buffer
         ssize_t n;                                              // current bytes read
         ssize_t tot = (ssize_t)0;                               // total bytes read
-
+	printf("ctf.c read CTF\n");
         //we skip the src hash and timestamp
-	if(lseek(fd, (off_t)(PATHSIZE_PLUS + DATE_STRING_MAX), SEEK_CUR) < 0)
+	if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
 		return -errno;
-
+	printf("");
         if((n=read(fd,&cknum,sizeof(long))) <= 0)               // if error on read ...
           return((ssize_t)(-errno));
         tot += n;
@@ -207,7 +233,7 @@ ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
         if((n=read(fd,(*pctmptr)->chnkflags,bufsz)) <= 0)       // if error on read ...
           return((ssize_t)(-errno));
         tot += n;
-
+	printf("total read %ld\n", tot);
         return(tot);
 }
 /**
@@ -290,7 +316,8 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
 	  if((syserr=(int)allocateCTMFlags(ctmptr)) <= 0)		// allocate the chunk flag bit array
 	    return(syserr);						//    problems? -> return an error. allocateCTMFlags() returns a negative error
 	}
-	else {								// file exists -> read it to populate CTF structure
+	else {	
+	  printf("ctf.c popuatelate CTF opening %s\n", ctmptr->chnkfname);							// file exists -> read it to populate CTF structure
 	  if((ctffd = open(ctmptr->chnkfname,O_RDONLY)) < 0) 		// if error on open ...
 	    return(syserr = -errno);					//	return a negative errno
 	  if((syserr=(int)_readCTF_v2(ctffd,&ctmptr)) < 0) { 		// if error on read ...
@@ -336,7 +363,7 @@ int storeCTF(CTM *ctmptr) {
 	}
 
 	if(!rc) {							// opened or created without errors ...
-	  if((n = (int)_writeCTF(ctffd,ctmptr)) < 0)			// write the structure to the file failed
+	  if((n = (int)_writeCTF_v2(ctffd,ctmptr)) < 0)			// write the structure to the file failed
 	    rc = n;							// ... save off error from _writeCTF()
 	}
 

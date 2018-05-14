@@ -968,6 +968,27 @@ public:
       return (_rc == 0);
    }
 
+   virtual int rename_to_original()
+   {
+        char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
+        int i;
+        int pathlen;
+
+        strcpy(original_path, _item->path);
+        pathlen = strlen(original_path);
+
+        for(i = pathlen - 1; i >= 0; i--)
+        {
+                if (original_path[i] == '+')
+                {
+                        original_path[i] = 0;
+                        break;
+                }
+        }
+
+        return rename(_item->path, original_path);
+   }
+
    // see comments at Path::open()
    // NOTE: We don't protect user from calling open when already open
    virtual bool    open(int flags, mode_t mode) {
@@ -1975,6 +1996,7 @@ public:
    //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
       const char* marPath   = marfs_sub_path(_item->path);
+      printf("Path preprocess marPath %s\n", marPath);
       size_t      file_size = src->st().st_size;
 
       // pftool should only call this from single-threaded code, after
@@ -1991,12 +2013,12 @@ public:
             //
             //   assert(0); // DEBUGGING: does this ever run, now? [ANS: No.]
             //
-            fprintf(stderr, "pre_process() -- file exists '%s'\n",
+            fprintf(stdout, "pre_process() -- file exists '%s'\n",
                     _item->path);
             return false;
          }
          else {
-            fprintf(stderr, "couldn't create file '%s': %s\n",
+            fprintf(stdout, "couldn't create file '%s': %s\n",
                     _item->path, ::strerror(errno));
             return false;
          }
@@ -2174,7 +2196,7 @@ public:
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath = marfs_sub_path(_item->path);
-
+      printf("Path open marPath %s\n", marPath);
       // initally we will assume we are not using a packed file
       usePacked=false;
 
@@ -2311,6 +2333,27 @@ public:
         printf("Path %s\n", _item->path);
         const char* marPath = marfs_sub_path(_item->path);
         return marfs_check_packable(marPath, length);
+   }
+
+   virtual int rename_to_original()
+   {
+	char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
+	int i;
+	int pathlen;
+
+	strcpy(original_path, _item->path);
+	pathlen = strlen(original_path);
+
+	for(i = pathlen - 1; i >= 0; i--)
+	{
+		if (original_path[i] == '+')
+		{
+			original_path[i] = 0;
+			break;
+		}
+	}
+
+	return marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(original_path));
    }
 
    // closes the underlying fh stream for packed files

@@ -908,7 +908,7 @@ int update_stats(PathPtr      p_src,
     int            mode;
 
 
-    printf("IN UPDATE_STATS src packable %d; dst packable %d\n", p_src->get_packable(), p_dst->get_packable());
+    printf("IN UPDATE_STATS src packable %d\n", p_src->get_packable());
     // don't touch the destination, unless this is a COPY
     if (o.work_type != COPYWORK)
        return 0;
