@@ -316,6 +316,11 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
 	  if((syserr=(int)allocateCTMFlags(ctmptr)) <= 0)		// allocate the chunk flag bit array
 	    return(syserr);						//    problems? -> return an error. allocateCTMFlags() returns a negative error
 	}
+	else if(sbuf.st_size <= SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX)
+	{
+		//this is just a stub
+
+	}
 	else {	
 	  printf("ctf.c popuatelate CTF opening %s\n", ctmptr->chnkfname);							// file exists -> read it to populate CTF structure
 	  if((ctffd = open(ctmptr->chnkfname,O_RDONLY)) < 0) 		// if error on open ...
