@@ -453,6 +453,11 @@ int get_ctm_timestamp(const char* filename, char* timestamp)
 			free(ctm_name);
 			return -errno;
 		}
+		if (lseek(fd, SIG_DIGEST_LENGTH * 2 + 1, SEEK_CUR) < 0)
+		{
+			//fail to seek
+			return -errno;
+		}
 		if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
 		{
 			//something wrong with timestamp, repor error

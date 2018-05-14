@@ -1923,21 +1923,28 @@ void process_stat_buffer(path_item*      path_buffer,
         //it's not a directory
         else {
             //do this for all regular files AND fuse+symylinks
+	    int temp_exists;
             parallel_dest = o.parallel_dest;
             get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
             p_out = PathFactory::create_shallow(&out_node);
             p_out->stat();
             dest_exists = p_out->exists();
 	      
-	    if (!dest_exists) //now we check for temporary files
-	    {
-		dest_exists = check_temporary(p_work, &out_node);
+	    //if (!dest_exists) //now we check for temporary files
+	    //{
+		temp_exists = check_temporary(p_work, &out_node);
 		printf("in process_stat After check_temporary, dest_exist %d\n", dest_exists);
 		if (dest_exists < 0)
 		{
 			errsend_fmt(FATAL, "Failed to check for temporary files\n");
 		}
+	    if (temp_exists)
+	    {
+		printf("temp_exists val %d\n", temp_exists);
+		dest_exists = temp_exists; //restart with a temporary file
 	    }
+	    
+	    //}
             // if selected options require reading the source-file, and the
             // source-file is not readable, we have a problem
             if (((o.work_type == COPYWORK)
@@ -2097,12 +2104,18 @@ void process_stat_buffer(path_item*      path_buffer,
                                                rank, tostringCTM(ctm,&ctmstr,&ctmlen));
                             }
                         }
-                        else if (ctmExists) {
+                        else if (!ctmExists && o.different)
+			{
+				printf("file chunkable but does not have CTM\n");
+				pre_process = 2;
+			}
+			else
+			{
                             // get rid of the CTM on the file if we are NOT
                             // doing a conditional transfer/compare.
                             purgeCTM(out_node.path);
+			    pre_process = 2;
                         }
-			pre_process = 2;
 			work_node.packable = 0;//mark work_node not pacakble
 			work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
                     }
@@ -2165,13 +2178,13 @@ void process_stat_buffer(path_item*      path_buffer,
                                         PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
                                                         "- sending %d reg buffers to manager.\n",
                                                         rank, reg_buffer_count);
-					printf("reg_buffer_count %d\n", reg_buffer_count);
                                         send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                                         num_bytes_seen = 0;
                                     }
                              } // end send test
                              else 
 			     {
+				    printf("in chunking loop; chunk %d has been transferred\n", work_node.chkidx);
                                     num_finished_bytes += work_node.chksz;
                              }
                         } // end file/chunking loop
@@ -2318,7 +2331,6 @@ void worker_copylist(int             rank,
 
     position = 0;
     out_position = 0;
-    printf("copylist read chunk %d\n", read_count);
     for (i = 0; i < read_count; i++) {
         PRINT_MPI_DEBUG("rank %d: worker_copylist() unpacking work_node from %d\n",
                         rank, sending_rank);

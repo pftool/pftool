@@ -135,7 +135,7 @@ ssize_t _writeCTF_v2(int fd, CTM *ctmptr) {
         if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
           return(n);
         tot += n;
-
+	fsync(fd);
         return(tot);
 }
 
@@ -199,7 +199,6 @@ ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
         size_t bufsz = (size_t)0;                               // size of the flag buffer
         ssize_t n;                                              // current bytes read
         ssize_t tot = (ssize_t)0;                               // total bytes read
-	printf("ctf.c read CTF\n");
         //we skip the src hash and timestamp
 	if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
 		return -errno;
@@ -233,7 +232,6 @@ ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
         if((n=read(fd,(*pctmptr)->chnkflags,bufsz)) <= 0)       // if error on read ...
           return((ssize_t)(-errno));
         tot += n;
-	printf("total read %ld\n", tot);
         return(tot);
 }
 /**
