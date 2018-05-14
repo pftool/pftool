@@ -492,6 +492,7 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
 		return -1;
 	printf("finished write\n");
+	fsync(fd);
 	if (close(fd) < 0)
 		return -errno;
 	printf("closed ctm\n");

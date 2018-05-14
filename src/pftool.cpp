@@ -1462,7 +1462,7 @@ void worker_update_chunk(int            rank,
             hashdata_destroy(&hash_value);                          // we are done with the data
 
             PathPtr p_work(PathFactory::create_shallow(&work_node));
-            PathPtr p_out(PathFactory::create_shallow(&out_node));
+            PathPtr p_out(PathFactory::create_shallow(&out_node_temp)); //use temporary file due to chunking
             update_stats(p_work, p_out, o);
         }
     }
@@ -2019,6 +2019,7 @@ void process_stat_buffer(path_item*      path_buffer,
 			{
 				//either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
 				p_out->create_temporary_path(timestamp);
+				printf("p_out temp for unlink path %s\n", p_out->path());
 				if (!p_out->unlink() && (errno != ENOENT))
 				{
 					errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
