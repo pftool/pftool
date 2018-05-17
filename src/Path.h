@@ -777,7 +777,6 @@ public:
    {
 	char* tp_ptr = (_item->path) + strlen(_item->path);
 	snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
-	printf("After create_temporary_path, out_node Path %s\n", _item->path);
    }
    virtual void restore_original_path()
    {
@@ -792,7 +791,6 @@ public:
 			break;
 		}
 	}
-	printf("After restore original path, path is %s\n", _item->path);
    }
    virtual char* get_timestamp() {return _item->timestamp;}
 
@@ -1996,7 +1994,6 @@ public:
    //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
       const char* marPath   = marfs_sub_path(_item->path);
-      printf("Path preprocess marPath %s\n", marPath);
       size_t      file_size = src->st().st_size;
 
       // pftool should only call this from single-threaded code, after
@@ -2196,7 +2193,6 @@ public:
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath = marfs_sub_path(_item->path);
-      printf("Path open marPath %s\n", marPath);
       // initally we will assume we are not using a packed file
       usePacked=false;
 
@@ -2330,7 +2326,6 @@ public:
 
    virtual int check_packable(size_t length)
    {
-        printf("Path %s\n", _item->path);
         const char* marPath = marfs_sub_path(_item->path);
         return marfs_check_packable(marPath, length);
    }

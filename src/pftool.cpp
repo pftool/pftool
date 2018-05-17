@@ -34,6 +34,8 @@
 #include <vector>
 using namespace std;
 
+char* temp_file = NULL;
+
 int main(int argc, char *argv[]) {
     //general variables
     int i;
@@ -53,7 +55,7 @@ int main(int argc, char *argv[]) {
     // should we run (this allows for a clean exit on -h)
     int ret_val = 0;
     int run = 1;
-
+    //char* temp_file = NULL;
 #ifdef S3
     // aws_init() -- actually, curl_global_init() -- is supposed to be
     // called before *any* threads are created.  Could MPI_Init() create
@@ -1329,6 +1331,14 @@ void worker(int rank, struct options& o) {
         worker_flush_output(output_buffer, &output_count);
         free(output_buffer);
     }
+    if (temp_file != NULL)
+    {
+	printf("rank %d unlinking temp file %s at the end\n", rank, temp_file);
+	PathPtr tempPtr = PathFactory::create(temp_file);
+	tempPtr->unlink();
+	//free
+	free(temp_file);
+    }
 }
 
 /**
@@ -1744,7 +1754,6 @@ int maybe_pre_process(int&         pre_process,
     if (pre_process == 1 &&
         (o.work_type == COPYWORK))
     {
-	printf("proprocess small files\n");
 	//we are working with a either a size 0 file or a packable file
 	//or a non chunkable non packable file
 	//do not need to create temporary file
@@ -1770,7 +1779,6 @@ int maybe_pre_process(int&         pre_process,
 			printf("Failed CTM??\n");
 			return -1;
 		}
-		printf("created CTM in maybe pre process\n");
 	}
     }
 
@@ -1862,7 +1870,6 @@ void process_stat_buffer(path_item*      path_buffer,
     char        timestamp[DATE_STRING_MAX];
     time_t      tp = time(NULL);
     epoch_to_str(timestamp, DATE_STRING_MAX, &tp);
-    printf("Unique stamp %s\n", timestamp);
 
     //chunks
     //place_holder for current chunk_size
@@ -1932,15 +1939,13 @@ void process_stat_buffer(path_item*      path_buffer,
 	      
 	    //if (!dest_exists) //now we check for temporary files
 	    //{
-		temp_exists = check_temporary(p_work, &out_node);
-		printf("in process_stat After check_temporary, dest_exist %d\n", dest_exists);
-		if (dest_exists < 0)
-		{
-			errsend_fmt(FATAL, "Failed to check for temporary files\n");
-		}
+	    temp_exists = check_temporary(p_work, &out_node);
+	    if (dest_exists < 0)
+	    {
+		errsend_fmt(FATAL, "Failed to check for temporary files\n");
+	    }
 	    if (temp_exists)
 	    {
-		printf("temp_exists val %d\n", temp_exists);
 		dest_exists = temp_exists; //restart with a temporary file
 	    }
 	    
@@ -2026,7 +2031,8 @@ void process_stat_buffer(path_item*      path_buffer,
 			{
 				//either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
 				p_out->create_temporary_path(timestamp);
-				printf("p_out temp for unlink path %s\n", p_out->path());
+				temp_file = (char*)malloc(PATHSIZE_PLUS + DATE_STRING_MAX);
+				memcpy(temp_file, p_out->path(), PATHSIZE_PLUS + DATE_STRING_MAX);
 				if (!p_out->unlink() && (errno != ENOENT))
 				{
 					errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
@@ -2036,7 +2042,6 @@ void process_stat_buffer(path_item*      path_buffer,
 				purgeCTM(out_node.path);
 				out_unlinked = 1;
 				pre_process = 1;
-				printf("either mismatch or o.differetn = 0\npurgeCTM and pre_process\n");
 			}
 		}
                 else {
@@ -2106,7 +2111,6 @@ void process_stat_buffer(path_item*      path_buffer,
                         }
                         else if (!ctmExists && o.different)
 			{
-				printf("file chunkable but does not have CTM\n");
 				pre_process = 2;
 			}
 			else
@@ -2122,7 +2126,6 @@ void process_stat_buffer(path_item*      path_buffer,
 		    else //working with a non-chunkable file, either small enough to be packed, or not packed
 		    {
 			work_node.packable = p_out->check_packable(work_node.st.st_size);
-			printf("output %s is packed? %d\n", p_out->path(), work_node.packable);
 			
 			if (!work_node.packable)
 			{
@@ -2184,7 +2187,7 @@ void process_stat_buffer(path_item*      path_buffer,
                              } // end send test
                              else 
 			     {
-				    printf("in chunking loop; chunk %d has been transferred\n", work_node.chkidx);
+				    printf("file %s chunk %d has been transferred\n", work_node.path, work_node.chkidx);
                                     num_finished_bytes += work_node.chksz;
                              }
                         } // end file/chunking loop

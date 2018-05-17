@@ -406,7 +406,6 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
 	//NEED TO CREATE TEMPORARY FILE NAME!
 	strcat(out_node->path, "+");
 	strcat(out_node->path, src_node->timestamp);
-	printf("get_output_path created Tempfile %s\n", out_node->path);
     }
 }
 
@@ -908,7 +907,6 @@ int update_stats(PathPtr      p_src,
     int            mode;
 
 
-    printf("IN UPDATE_STATS src packable %d\n", p_src->get_packable());
     // don't touch the destination, unless this is a COPY
     if (o.work_type != COPYWORK)
        return 0;
@@ -958,7 +956,6 @@ int update_stats(PathPtr      p_src,
    
     if(!p_src->get_packable())
     {
-	printf("File %s not packable, rename\n", p_dest->path());
 	if(p_dest->rename_to_original())
 	{
 		errsend_fmt(FATAL, "update_stats -- Failed to rename to original file path\n");
