@@ -57,7 +57,8 @@
 #define ERRORSIZE      PATHSIZE_PLUS
 #define MESSAGESIZE    PATHSIZE_PLUS
 #define MESSAGEBUFFER  400
-
+#define MAX_TEMP_UNLINK_ITER 3
+#define TEMP_UNLINK_WAIT_TIME 1
 // if you are trying to increase max pack size, STATBUFFER must be >= to
 // COPYBUFFER because it only collets one stat buffer worth of things before
 // shipping off.

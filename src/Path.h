@@ -2565,7 +2565,6 @@ public:
       if (_rc = marfs_unlink(marfs_sub_path(_item->path)))
          set_err_string(errno, NULL);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
-      printf("unlinked %s; ret val %d\n", marfs_sub_path(_item->path), _rc);
       return (_rc == 0);
    }
 

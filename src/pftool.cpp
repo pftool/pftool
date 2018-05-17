@@ -34,7 +34,6 @@
 #include <vector>
 using namespace std;
 
-char* temp_file = NULL;
 
 int main(int argc, char *argv[]) {
     //general variables
@@ -1331,14 +1330,6 @@ void worker(int rank, struct options& o) {
         worker_flush_output(output_buffer, &output_count);
         free(output_buffer);
     }
-    if (temp_file != NULL)
-    {
-	printf("rank %d unlinking temp file %s at the end\n", rank, temp_file);
-	PathPtr tempPtr = PathFactory::create(temp_file);
-	tempPtr->unlink();
-	//free
-	free(temp_file);
-    }
 }
 
 /**
@@ -2029,14 +2020,25 @@ void process_stat_buffer(path_item*      path_buffer,
 			}
 			else if (dest_exists == 3 || o.different == 0)
 			{
+				int i;
 				//either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
+				printf("DETECTED OLD TEMPORARY FILE WITH MISMATCHING SRC HASH, REMOVING TEMP FILE\n");
 				p_out->create_temporary_path(timestamp);
-				temp_file = (char*)malloc(PATHSIZE_PLUS + DATE_STRING_MAX);
-				memcpy(temp_file, p_out->path(), PATHSIZE_PLUS + DATE_STRING_MAX);
 				if (!p_out->unlink() && (errno != ENOENT))
 				{
 					errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
 				}
+				//now we have to wait for first writer to quit completely and unlinks again
+				for(i = 0; i < MAX_TEMP_UNLINK_ITER; i++)
+				{
+					sleep(TEMP_UNLINK_WAIT_TIME);
+					if (p_out->unlink())
+					{
+						//writer 1 has completely quit
+						break;
+					}
+				}
+				printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
 				//now we undo the temorary path
 				p_out->restore_original_path();
 				purgeCTM(out_node.path);
