@@ -34,6 +34,7 @@
 #include <vector>
 using namespace std;
 
+map<string, repo_stats> timing_stats_table;//ONLY MANAGER WOULD USE THIS
 
 int main(int argc, char *argv[]) {
     //general variables
@@ -418,6 +419,7 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
+	    //let p_dest setup marfs repo timing stats allocation
         } while(0 != strcmp(dest_path, buf));
 
         if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
@@ -802,6 +804,7 @@ int manager(int             rank,
                         if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank].inuse = 1;
                             free_worker_count -= 1;
+				printf("rank %d calling send worker_copy path\n", rank);
                             send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
                         else
@@ -836,6 +839,7 @@ int manager(int             rank,
                         free_worker_count  -= 1;
                         proc_status[work_rank].readdir = 1;
                         readdir_rank_count += 1;
+			printf("rank %d call send worker readdir\n", rank);
                         send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
                         start = 0;
                     }
@@ -910,6 +914,9 @@ int manager(int             rank,
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
+	    case STATS:
+		manager_add_timing_stats(sending_rank);
+		break;
             default:
                 break;
             }
@@ -1197,6 +1204,57 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
     }
 }
 
+void manager_add_timing_stats(int sending_rank)
+{
+	MPI_Status status;
+	int tot_stats;
+	int pod_id;
+	int total_blk;
+	size_t timing_stats_buff_size;
+	char* timing_stats; //need free
+	char* repo = (char*) malloc(MARFS_MAX_REPO_SIZE);//need free
+	char* buffer = (char*) malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+	char* cursor = buffer;
+	if(MPI_Recv(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+	{
+		errsend(FATAL, "Failed to receive meta data of timing stats\n");
+	}
+
+	//copy meta data from buffer to variables
+	memcpy(&tot_stats, cursor, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(&pod_id, cursor, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(&total_blk, cursor, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(&timing_stats_buff_size, cursor, sizeof(size_t));
+	cursor += sizeof(size_t);
+
+	memcpy(repo, cursor, MARFS_MAX_REPO_SIZE);
+
+	//allocate timing stats buffer
+	timing_stats = (char*)malloc(timing_stats_buff_size);
+	if(MPI_Recv(timing_stats, timing_stats_buff_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+	{
+		errsend(FATAL, "Failed to receive timing stats\n");
+	}
+
+	printf("manager_add_timing_stats testing for OPEN identifier: %c", timing_stats[0]);
+	printf("%c\n", timing_stats[1]);
+
+	//need to add to table and accumulate
+	
+
+	free(timing_stats);
+	free(repo);
+	free(buffer);
+}
+
+
+//worker
 void worker(int rank, struct options& o) {
     MPI_Status status;
     int sending_rank;
@@ -1684,6 +1742,7 @@ void worker_readdir(int         rank,
                         workbuffer[buffer_count] = p_new->node();
                         buffer_count++;
                         if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
+			    printf("rank %d calling process stat buf at pos 1\n", rank);
                             process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                         }
                     }
@@ -1705,6 +1764,7 @@ void worker_readdir(int         rank,
 
     // process any remaining partially-filled workbuffer contents
     while(buffer_count != 0) {
+	printf("rank %d calling process stat buf at pos 2\n", rank);
         process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
     }
 
@@ -1886,7 +1946,6 @@ void process_stat_buffer(path_item*      path_buffer,
     if (! writebuf) {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
     }
-
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
         process = 0;

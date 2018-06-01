@@ -148,7 +148,8 @@ enum cmd_opcode {
     NONFATALINCCMD,
     CHUNKBUSYCMD,
     COPYSTATSCMD,
-    EXAMINEDSTATSCMD
+    EXAMINEDSTATSCMD,
+    STATS
 };
 typedef enum cmd_opcode OpCode;
 
@@ -263,6 +264,12 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
+typedef struct repo_timing_stats
+{
+	int repo_count;
+	int* stat_flags;
+	char** pods_timing_stats;
+} repo_stats;
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);
@@ -310,6 +317,7 @@ void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_work_done(int ignored);
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
@@ -343,7 +351,7 @@ int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct 
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
 int  check_temporary(PathPtr p_src, path_item* out_node);
 int epoch_to_string(char* str, size_t size, const time_t* time);
-
+//void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 #endif
 

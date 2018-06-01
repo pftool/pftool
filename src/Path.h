@@ -794,6 +794,8 @@ public:
    }
    virtual char* get_timestamp() {return _item->timestamp;}
 
+   //additional functions needed for timing collection fron libne
+   virtual int build_repo_info(repo_stats timing_stats) {return 0;}
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
@@ -1906,7 +1908,15 @@ public:
          close_md(&fh);
    }
 
-
+   virtual int build_repo_info(repo_stats timing_stats)
+   {
+	int ret = 1;
+	int i;
+	int repo_count;
+	printf("repo count from marfs %d\n", get_repo_count());
+	repo_count = get_repo_count();
+        return ret;
+   }
    // pftool gets a chunksize from the command-line, or a default.  Such
    // values won't understand about MarFS recovery-info, or about repos
    // having different chunksizes based on the total size of the file.  We
@@ -2298,22 +2308,41 @@ public:
       //return true;
    }
 
-
+   static void send_to_manager(MarFS_FileHandle* whichFh)
+   {
+	//send logics
+	send_manager_timing_stats(whichFh->tot_stats, whichFh->pod_id, whichFh->total_blk, whichFh->timing_stats_buff_size, whichFh->repo, whichFh->timing_stats);
+	//now free buffers
+	free(whichFh->repo);
+	free(whichFh->timing_stats);
+	printf("send_to_manager freed buffer in marfs handle\n");
+   }
 
    virtual bool    close() {
       int rc;
+      char packed = 0;
       MarFS_FileHandle *whichFh;
 
       if(usePacked) {
          whichFh = &packedFh;
          packedFhInUse = false;
          usePacked = false;
+	 packed = 1;
       }
       else {
          whichFh = &fh;
       }
 
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
+      //we send timing info to manager in close if files is not packed
+      //and deallocate the buffer after send is complete
+      if (!packed)
+      {
+		//we send timing info to manager in close if file is not packed
+		//and deallocate the buffer after send is complete
+		MARFS_Path::send_to_manager(whichFh);
+
+      }
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
@@ -2361,6 +2390,10 @@ public:
          packedFhInitialized = false;
       }
 
+
+      //send time info back to manager
+      MARFS_Path::send_to_manager(&packedFh);
+      memset(&packedFh, 0, sizeof(MarFS_FileHandle));
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
           // successful later

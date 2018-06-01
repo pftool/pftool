@@ -1105,6 +1105,44 @@ void send_manager_work_done(int ignored) {
     send_command(MANAGER_PROC, WORKDONECMD);
 }
 
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats)
+{
+	send_command(MANAGER_PROC, STATS);
+	char* cursor;
+	char* buffer = (char*)malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+
+	cursor = buffer;
+
+	memcpy(cursor, &tot_stats, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(cursor, &pod_id, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(cursor, &total_blk, sizeof(int));
+	cursor += sizeof(int);
+
+	memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
+	cursor += sizeof(size_t);
+
+	memcpy(cursor, repo, MARFS_MAX_REPO_SIZE);
+	
+	//send metadata of timing stats
+	if(MPI_Send(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+	{
+		fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+
+	//send timing_stats buffer
+	if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+	{
+		fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+	}
+
+	free(buffer);
+}
+
 //worker
 void update_chunk(path_item *buffer, int *buffer_count) {
     send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);

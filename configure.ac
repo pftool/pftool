@@ -46,7 +46,7 @@ AC_CONFIG_HEADER([config.h])
 
 
 # change defaults, instead of "-g -O2"
-: ${CFLAGS="-g -O3"} ${CXXFLAGS="-g -O3"}
+: ${CFLAGS="-g "} ${CXXFLAGS="-g"}
 
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC
