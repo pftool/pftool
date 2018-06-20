@@ -34,8 +34,9 @@
 #include <vector>
 using namespace std;
 
-map<string, repo_stats> timing_stats_table;//ONLY MANAGER WOULD USE THIS
-
+map<string, repo_stats*> timing_stats_table;//ONLY MANAGER WOULD USE THIS
+const char* stats_name[] = {"Open", "Read", "Write", "Close"};
+static int need_open = 1;
 int main(int argc, char *argv[]) {
     //general variables
     int i;
@@ -529,6 +530,135 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
     return n;
 }
 
+size_t write_histo(double* bin, char* buffer)
+{
+	int simple = 1;
+	size_t written = 0;
+	size_t tot_written = 0;
+	int i;
+	char* cursor = buffer;
+	for(i = 0; i < 65; i++)
+	{
+		if (i && !(i %  4))
+		{
+			//printf("  ");
+			written = snprintf(cursor, 64, "  ");
+			cursor += written;
+			tot_written += written;
+		}
+
+		if (bin[64 - i] || simple)
+		{
+			written = snprintf(cursor, 64, "%d ", (int)(bin[64 - i]));
+			cursor += written;
+			tot_written += written;
+			//printf("%2d", (int)(bin[64-i]));
+		}
+		else
+		{
+			written = snprintf(cursor, 64, "-- ");
+			cursor += written;
+			tot_written += written;
+			//printf("-- ");
+		}
+	}
+	tot_written += snprintf(cursor, 64, "\n");
+	//printf("\n");
+	return tot_written;
+}
+
+void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
+{
+	char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_SIZE + 512));
+	char* msg_cursor = msg;
+	int i, j;
+	char* cursor = buffer;
+	size_t written;
+	int stat_type; 
+
+	for(i = 0; i < tot_stats; i++)
+	{
+		if (strcmp(cursor, "OP") == 0)
+		{
+			stat_type = 0;
+		}
+		else if (strcmp(cursor, "RD") == 0)
+		{
+			stat_type = 1;
+		}
+		else if (strcmp(cursor, "WR") == 0)
+		{
+			stat_type = 2;
+		}
+		else if (strcmp(cursor, "CL") == 0)
+		{
+			stat_type = 3;
+		}
+		cursor += 3;
+		//printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
+		for(j = 0; j < total_blk; j++)
+		{
+			written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128, " %s %s pod %d blk %d: ", repo.c_str(), stats_name[stat_type], pod_id, j);
+			msg_cursor += written;
+			//printf("%s", msg);
+			//now write histogram
+			double* bin_in = (double*)cursor;
+			written = write_histo(bin_in, msg_cursor);
+			//printf("%dth block written %ld\n", j, written);
+			msg_cursor += written;
+			cursor += sizeof(double) * 65;
+		}
+	}
+	
+	//printf("%s\n", msg);
+	//printf("sending to syslog\n");
+        syslog (LOG_INFO, "%s", msg);
+	
+	free(msg);
+}
+
+/*
+    if (needs_open) {
+        sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+        openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
+        needs_open = 0;
+    }
+}*/
+//print data and send it to syslog
+void show_data(struct options& o)
+{
+	if (need_open)
+	{
+		char sysmsg[MESSAGESIZE + 64];
+		sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+		openlog(sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
+		need_open = 0;
+	}
+	
+	map<string, repo_stats*>::iterator it_stats;
+	for(it_stats = timing_stats_table.begin(); it_stats != timing_stats_table.end(); it_stats++)
+	{
+		if (it_stats->second->has_data)
+		{
+			//iterate though all pods
+			map<int, pod_data*>::iterator it_pods;
+			for(it_pods = it_stats->second->pod_to_stat.begin(); it_pods != it_stats->second->pod_to_stat.end(); it_pods++)
+			{
+				if (it_pods->second->buffer[0] != 0)
+				{
+					//this pod has valid data 
+					print_buffer(o, it_pods->second->buffer, it_stats->first, it_stats->second->tot_stats, it_stats->second->total_blk, it_pods->first);
+					//after we are done sending stats to syslog, we clear the buffer so that it is ready for next interval's accumulation
+					memset(it_pods->second->buffer, 0, it_pods->second->buff_size);
+				}
+			}
+			//now mark this repo does not have data since we have sent them to syslog
+			//and we set the stat buffer pointer mapped by this pod_id to NULL
+			it_stats->second->has_data = 0;
+		}
+	}
+}
+
 int manager(int             rank,
              struct options& o,
              int             nproc,
@@ -594,7 +724,7 @@ int manager(int             rank,
     // poll.  However, that will give us not-very-perfect intervals, so we
     // also mark the TOD each time we detect the expiration.  That lets us
     // compute incremental BW more accurately.
-    static const size_t  output_timeout = 10; // secs per expiration
+    static const size_t  output_timeout = 4; // secs per expiration
     timer_t              timer;
     struct sigevent      event;
     struct itimerspec    itspec_new;
@@ -804,7 +934,6 @@ int manager(int             rank,
                         if (work_rank >= 0 && process_buf_list_size > 0) {
                             proc_status[work_rank].inuse = 1;
                             free_worker_count -= 1;
-				printf("rank %d calling send worker_copy path\n", rank);
                             send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
                         }
                         else
@@ -839,7 +968,6 @@ int manager(int             rank,
                         free_worker_count  -= 1;
                         proc_status[work_rank].readdir = 1;
                         readdir_rank_count += 1;
-			printf("rank %d call send worker readdir\n", rank);
                         send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
                         start = 0;
                     }
@@ -990,7 +1118,7 @@ int manager(int             rank,
                         bw_avg, // no incremental
                         non_fatal);
                 write_output(message, 0); // stdout-only
-
+		show_data(o);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1059,7 +1187,8 @@ int manager(int             rank,
     }
 
     free(proc_status);
-
+    //show data here
+    show_data(o);
     // return nonzero for any errors
     if (0 != non_fatal) {
         return 1;
@@ -1204,6 +1333,86 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
     }
 }
 
+void accumulate_timing_stats(int tot_stats, int total_blk, char* timing_stats, char* accum_stats)
+{
+	int i,j,k;
+	for(i = 0; i < tot_stats; i++)
+	{
+		//need to copy timing stat identifier
+		char* id_acc = accum_stats + i * (3 + sizeof(double) * 65 * total_blk);
+		char* id_timing = timing_stats + i * (3 + sizeof(double) * 65 * total_blk);
+		memcpy(id_acc, id_timing, 3);
+
+		//printf("stat %s ", id_acc);
+		double* cursor_acc = (double*)(accum_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);//move cursor to the beginning of the double arary
+		double* cursor_timing = (double*)(timing_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);
+		for(j = 0; j < total_blk; j++)
+		{
+			//printf("blk %d ", j);
+			double* blk_acc = cursor_acc + (65 * j);
+			double* blk_timing = cursor_timing + (65 * j);
+			for(k = 64; k; k--)
+			{
+				blk_acc[k] += blk_timing[k];
+			//	printf("bin %d val %f\n", k, blk_acc[k]);
+			}
+		}
+	}	
+}
+
+void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_size, char* repo, char* timing_stats)
+{
+	int i;
+	map<string, repo_stats*>::iterator it;
+	string key(repo);
+
+	if ((it = timing_stats_table.find(key)) != timing_stats_table.end())
+	{
+		//we found the repo, now check if this pod exists
+		map<int, pod_data*>::iterator pod_it;
+		if((pod_it = it->second->pod_to_stat.find(pod_id)) != it->second->pod_to_stat.end())
+		{
+			//pod exists, now we can accumulate
+			accumulate_timing_stats(tot_stats, total_blk, timing_stats, pod_it->second->buffer);
+		}
+		else
+		{
+			//pod does not exist, allocate and accumulate
+			char* buffer = (char*)malloc(sizeof(buff_size));
+			memset(buffer, 0, buff_size);
+			pod_data* this_pod = new pod_data;
+			this_pod->buff_size = buff_size;
+			this_pod->buffer = buffer;
+			accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
+			//add this buffer to pod_to_state table
+			it->second->pod_to_stat.insert(make_pair(pod_id, this_pod));
+			it->second->total_pods += 1;
+		}
+		it->second->has_data = 1;
+	}
+	else
+	{
+		//repo does not exists, we need to create a repo_stat
+		repo_stats* entry = new repo_stats;//(repo_stats*) malloc(sizeof(repo_stats));
+		//allocate new accumulate buffer
+		char* buffer = (char*)malloc(buff_size);
+		memset(buffer, 0, buff_size);
+		pod_data* this_pod = new pod_data;
+		this_pod->buff_size = buff_size;
+		this_pod->buffer = buffer;
+		//now accumulate
+		accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
+		//add to pod_to_stat table
+		entry->pod_to_stat.insert(make_pair(pod_id, this_pod));
+		entry->has_data = 1;
+		entry->total_pods = 1;
+		entry->tot_stats = tot_stats;
+		entry->total_blk = total_blk;
+		//add the entry back to table
+		timing_stats_table.insert(make_pair(key, entry));
+	}
+}
+
 void manager_add_timing_stats(int sending_rank)
 {
 	MPI_Status status;
@@ -1242,11 +1451,9 @@ void manager_add_timing_stats(int sending_rank)
 		errsend(FATAL, "Failed to receive timing stats\n");
 	}
 
-	printf("manager_add_timing_stats testing for OPEN identifier: %c", timing_stats[0]);
-	printf("%c\n", timing_stats[1]);
 
 	//need to add to table and accumulate
-	
+	add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo, timing_stats);
 
 	free(timing_stats);
 	free(repo);
@@ -1742,7 +1949,6 @@ void worker_readdir(int         rank,
                         workbuffer[buffer_count] = p_new->node();
                         buffer_count++;
                         if (buffer_count != 0 && buffer_count % STATBUFFER == 0) {
-			    printf("rank %d calling process stat buf at pos 1\n", rank);
                             process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
                         }
                     }
@@ -1764,7 +1970,6 @@ void worker_readdir(int         rank,
 
     // process any remaining partially-filled workbuffer contents
     while(buffer_count != 0) {
-	printf("rank %d calling process stat buf at pos 2\n", rank);
         process_stat_buffer(workbuffer, &buffer_count, base_path, dest_node, o, rank);
     }
 

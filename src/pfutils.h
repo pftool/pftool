@@ -264,12 +264,22 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
+typedef struct pod_stat
+{
+	size_t buff_size;
+	char* buffer;
+} pod_data;
+
 typedef struct repo_timing_stats
 {
-	int repo_count;
-	int* stat_flags;
-	char** pods_timing_stats;
+	int tot_stats;
+	int total_blk;
+	int has_data;
+	int total_pods;
+	std::map<int, pod_data*> pod_to_stat;
 } repo_stats;
+
+
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);

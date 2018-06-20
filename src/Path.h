@@ -2315,7 +2315,8 @@ public:
 	//now free buffers
 	free(whichFh->repo);
 	free(whichFh->timing_stats);
-	printf("send_to_manager freed buffer in marfs handle\n");
+	//whichFh->repo = NULL; dont need to set it to NULL because it gets memset to  zero
+	//whichFh->timing_stats = NULL;
    }
 
    virtual bool    close() {
@@ -2392,7 +2393,10 @@ public:
 
 
       //send time info back to manager
-      MARFS_Path::send_to_manager(&packedFh);
+      if (packedFh.repo != NULL)
+      {
+      	MARFS_Path::send_to_manager(&packedFh);
+      }
       memset(&packedFh, 0, sizeof(MarFS_FileHandle));
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
@@ -2536,7 +2540,6 @@ public:
       }
 
       bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, whichFh);
-
       if (bytes == (ssize_t)-1) {
 
          if (// (fh.pre.obj_type == OBJ_Nto1) &&
