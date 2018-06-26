@@ -152,7 +152,9 @@ int main(int argc, char *argv[]) {
         memset((void*)&o, 0, sizeof(struct options));
         o.verbose = 0;
         o.debug = 0;
+        o.file_list[0] = '\0';
         o.use_file_list = 0;
+        o.gen_file_list = 0;
         o.recurse = 0;
         o.logging = 0;
         o.meta_data_only = 1;
@@ -203,7 +205,6 @@ int main(int argc, char *argv[]) {
                 break;
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
-                o.use_file_list = 1;
                 break;
             case 's':
                 o.blocksize = str2Size(optarg);
@@ -285,6 +286,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
+
         // Wait for someone to attach gdb, before proceeding.
         // Then you could do something like this:
         //   'ps -elf | grep pftool | egrep -v '(mpirun|grep)'
@@ -317,6 +319,16 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Invalid option set, do not  use option '-c' when listing files\n");
             return -1;
         }
+
+        // if we are using file lists then we need to figure out if we are
+        // generating or producing
+        if ('\0' != o.file_list[0]) {
+            if ('\0' == src_path[0]) {
+                o.use_file_list = 1;
+            } else {
+                o.gen_file_list = 1;
+            }
+        }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -342,8 +354,10 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.chunksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.preserve, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.use_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.gen_file_list, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.jid, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(o.exclude, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(o.file_list, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
 
 #ifdef GEN_SYNDATA
     MPI_Bcast(o.syn_pattern, 128, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
@@ -365,10 +379,12 @@ int main(int argc, char *argv[]) {
     //Modifies the path based on recursion/wildcards
     //wildcard
     if (rank == MANAGER_PROC) {
-        if ((optind < argc) && (o.use_file_list)) { // only one of them is enqueued, below
+        if ((optind < argc || 0 != strnlen(src_path, PATHSIZE_PLUS)) && (o.use_file_list)) { // only one of them is enqueued, below
             printf("Provided sources via '-i' and on the command-line\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
+
+        // TODO: we need to fix this so that it only copies what is in the src_path
         if(!o.use_file_list && 0 == strnlen(src_path, PATHSIZE_PLUS)) {
             printf("No souce was provided\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1360,12 +1376,25 @@ void worker_update_chunk(int            rank,
         // don't update chunk-info unless this is a COPY task.
         // (Only affects MarFS, currently)
         if (o.work_type == COPYWORK) {
-            // just call the update per-chunk, instead of trying to accumulate updates
-            Path::ChunkInfoVec vec;
-            vec.push_back(chunk_info);
+            // just write the list if it is a gen_file_list work
+            if(o.gen_file_list) {
+                // generate the file list
+                // TODO: don't open and close the file
+                FILE *file_list;
+                file_list = fopen(o.file_list, "a"); {
+                    if(NULL == file_list) {
+                        errsend_fmt(FATAL, "Failed to open file_list:\"%s\"\n", o.file_list);
+                    }
+                    fprintf(file_list, "%d,0%o,%s,%s,%d,%d\n", geteuid(), work_node.st.st_mode, work_node.path, out_node.path, work_node.st.st_size, work_node.st.st_mtime);
+                } fclose(file_list);
+            } else {
+                // just call the update per-chunk, instead of trying to accumulate updates
+                Path::ChunkInfoVec vec;
+                vec.push_back(chunk_info);
         
-            PathPtr      p_out(PathFactory::create_shallow(&out_node));
-            p_out->chunks_complete(vec);
+                PathPtr      p_out(PathFactory::create_shallow(&out_node));
+                p_out->chunks_complete(vec);
+            }
         }
 
         out_node.chkidx = work_node.chkidx;                   // with necessary data from work_node.
@@ -2207,7 +2236,9 @@ void worker_copylist(int             rank,
                 num_copied_bytes += length;
             }
             //file is chunked
-            if (offset != 0 || (offset == 0 && length != work_node.st.st_size)) {
+            // TODO: add check here for lists to see if we are generating
+            if (offset != 0 || (offset == 0 && length != work_node.st.st_size) || o.gen_file_list) {
+            //if (offset != 0 || (offset == 0 && length != work_node.st.st_size)) {
                 chunks_copied[buffer_count] = work_node;
                 buffer_count++;
             }

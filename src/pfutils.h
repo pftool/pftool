@@ -212,6 +212,7 @@ struct options {
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
+    int     gen_file_list;
     char    jid[128];
 
     int     max_readdir_ranks;
