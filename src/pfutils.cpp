@@ -930,16 +930,22 @@ int update_stats(PathPtr      p_src,
     if (p_src->is_link())
         return 0;
 
-    // update <dest_file> access-permissions
+    /*// update <dest_file> access-permissions
     mode = p_src->mode() & 07777;
     if (! p_dest->chmod(mode)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
                    p_dest->path(), p_dest->strerror());
-    }
+    }*/
 
     // perform any final adjustments on destination, before we set atime/mtime
     p_dest->post_process(p_src);
 
+    // update <dest_file> access-permissions
+    mode = p_src->mode() & 07777;
+    if (! p_dest->chmod(mode)) {
+    	errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+    			      p_dest->path(), p_dest->strerror());
+    }
     // update <dest_file> atime and mtime
     struct timespec times[2];
 
@@ -1714,13 +1720,16 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
-    if (src.st.st_size == dst.st.st_size
+    /*if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime
             || S_ISLNK(src.st.st_mode))
         && (src.st.st_mode == dst.st.st_mode)
         && (((src.st.st_uid == dst.st.st_uid)
              && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+            || (geteuid() && !o.preserve)))*/
+      if (src.st.st_size == dst.st.st_size
+	  && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
+	  && ((strcmp(src.path, dst.path) == 0))) {    // non-root doesn't chown unless '-o'           
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.

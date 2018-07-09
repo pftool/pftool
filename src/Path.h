@@ -670,8 +670,13 @@ public:
 
    // if you just want to know whether stat succeeded call this
    virtual bool    stat()     { return do_stat(false); }
-   virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
-
+   //virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
+   virtual bool    exists()
+   {
+	bool ret = do_stat_internal();
+        did_stat(ret);
+	return ret;
+   }
    // These are all stat-related, chosen to allow interpretation in the
    // context of non-POSIX sub-classes.  We assume all subclasses can
    // "fake" a struct stat.
@@ -1913,7 +1918,6 @@ public:
 	int ret = 1;
 	int i;
 	int repo_count;
-	printf("repo count from marfs %d\n", get_repo_count());
 	repo_count = get_repo_count();
         return ret;
    }
@@ -1980,6 +1984,7 @@ public:
 
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
+    //  printf("rank %d mar_stat calling sub path\n", MARFS_Path::_rank);
       rc = marfs_getattr(marfs_sub_path(path_name), st);
       if (rc) {
          // set_err_string(errno, NULL);
@@ -2053,7 +2058,6 @@ public:
    virtual bool    chunks_complete(ChunkInfoVec& vec) {
       PathInfo*         info = &fh.info;                  /* shorthand */
       ObjectStream*     os   = &fh.os;
-
       // iniitalize (if not already done)
       //
       // NOTE: We are only opening the MD file, rather than what open()
@@ -2276,7 +2280,6 @@ public:
    virtual bool    opendir() {
       // clear the marfs directory handle
       memset(&dh, 0, sizeof(MarFS_DirHandle));
-
       if(0 != marfs_opendir(marfs_sub_path(_item->path), &dh)) {
          set_err_string(errno, NULL);
          return false;  // return _rc;
@@ -2333,7 +2336,6 @@ public:
       else {
          whichFh = &fh;
       }
-
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
       //we send timing info to manager in close if files is not packed
       //and deallocate the buffer after send is complete
@@ -2377,7 +2379,6 @@ public:
 			break;
 		}
 	}
-
 	return marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(original_path));
    }
 
@@ -2385,7 +2386,7 @@ public:
    static bool close_fh() {
       int rc = 0;
       size_t packedPathsCount;
-
+      //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
@@ -2464,7 +2465,6 @@ public:
       if(usePacked) {
          return -1;
       }
-
       bytes = marfs_read(marfs_sub_path(_item->path), buf, count, offset, &fh);
       if (bytes == (ssize_t)-1)
          set_err_string(errno, &fh.os.iob);
@@ -2478,7 +2478,6 @@ public:
       errno = 0;
       if (size)
          path[0] = 0;
-
       marfs_dirp_t d;
       rc = marfs_readdir_wrapper(&d, marfs_sub_path(_item->path), &dh);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
@@ -2538,7 +2537,6 @@ public:
       else {
          whichFh = &fh;
       }
-
       bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, whichFh);
       if (bytes == (ssize_t)-1) {
 
@@ -2619,7 +2617,6 @@ public:
    }
  
    virtual bool    symlink(const char* link_name) {
-
       // delete the file that was created
       unlink();
 
