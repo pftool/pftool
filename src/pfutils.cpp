@@ -915,15 +915,16 @@ int update_stats(PathPtr      p_src,
     if (p_src->is_link())
         return 0;
 
+
+    // perform any final adjustments on destination, before we set atime/mtime
+    p_dest->post_process(p_src);
+
     // update <dest_file> access-permissions
     mode = p_src->mode() & 07777;
     if (! p_dest->chmod(mode)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
-
-    // perform any final adjustments on destination, before we set atime/mtime
-    p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
     struct timespec times[2];
