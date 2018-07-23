@@ -667,16 +667,10 @@ public:
    // ON SECOND THOUGHT:
    // virtual FileType ftype_for_destination() { REGULARFILE; } // subclasses do what they want
 
-
    // if you just want to know whether stat succeeded call this
    virtual bool    stat()     { return do_stat(false); }
-   //virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
-   virtual bool    exists()
-   {
-	bool ret = do_stat_internal();
-        did_stat(ret);
-	return ret;
-   }
+   virtual bool    exists()   { return do_stat(false); } // just !ENOENT?
+
    // These are all stat-related, chosen to allow interpretation in the
    // context of non-POSIX sub-classes.  We assume all subclasses can
    // "fake" a struct stat.
