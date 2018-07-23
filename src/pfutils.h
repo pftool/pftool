@@ -353,6 +353,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
 void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
+
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
@@ -361,6 +362,7 @@ int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct 
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
 int  check_temporary(PathPtr p_src, path_item* out_node);
 int epoch_to_string(char* str, size_t size, const time_t* time);
+
 //void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 #endif

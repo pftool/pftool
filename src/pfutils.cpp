@@ -81,28 +81,28 @@ void usage () {
 * @return a string representation of the command
 */
 const char *cmd2str(OpCode cmdidx) {
-	static const char *CMDSTR[] = {
-			 "EXITCMD"
-			,"UPDCHUNKCMD"
-			,"BUFFEROUTCMD"
-			,"OUTCMD"
-			,"LOGCMD"
-			,"LOGONLYCMD"
-			,"QUEUESIZECMD"
-			,"STATCMD"
-			,"COMPARECMD"
-			,"COPYCMD"
-			,"PROCESSCMD"
-			,"INPUTCMD"
-			,"DIRCMD"
-			,"WORKDONECMD"
-			,"NONFATALINCCMD"
-			,"CHUNKBUSYCMD"
-			,"COPYSTATSCMD"
-			,"EXAMINEDSTATSCMD"
-				};
+   static const char *CMDSTR[] = {
+      "EXITCMD"
+      ,"UPDCHUNKCMD"
+      ,"BUFFEROUTCMD"
+      ,"OUTCMD"
+      ,"LOGCMD"
+      ,"LOGONLYCMD"
+      ,"QUEUESIZECMD"
+      ,"STATCMD"
+      ,"COMPARECMD"
+      ,"COPYCMD"
+      ,"PROCESSCMD"
+      ,"INPUTCMD"
+      ,"DIRCMD"
+      ,"WORKDONECMD"
+      ,"NONFATALINCCMD"
+      ,"CHUNKBUSYCMD"
+      ,"COPYSTATSCMD"
+      ,"EXAMINEDSTATSCMD"
+   };
 
-	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+   return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -145,47 +145,47 @@ char *printmode (mode_t aflag, char *buf) {
 * the path as a directory - if they do not exist. It
 * basically does a "mkdir -p" programatically.
 *
-* @param thePath	the path to test and create
-* @param perms		the permission mode to use when
-* 			creating directories in this path
+* @param thePath  the path to test and create
+* @param perms    the permission mode to use when
+*        creating directories in this path
 *
 * @return 0 if all directories are succesfully created.
-* 	errno (i.e. non-zero) if there is an error. 
-* 	See "man -s 2 mkdir" for error description.
+*  errno (i.e. non-zero) if there is an error. 
+*  See "man -s 2 mkdir" for error description.
 */
 int mkpath(char *thePath, mode_t perms) {
-	char *slash = thePath;				// point at the current "/" in the path
-	struct stat sbuf;				// a buffer to hold stat information
-	int save_errno;					// errno from mkdir()
+   char *slash = thePath;       // point at the current "/" in the path
+   struct stat sbuf;            // a buffer to hold stat information
+   int save_errno;              // errno from mkdir()
 
-	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
-							// then thePath will be created relative to CWD of process.
-	while(slash = strchr(slash,'/')) {		// start parsing thePath
-	  *slash = '\0';
-	  
-	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
-	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
-	      save_errno = errno;			// save off errno - in case of error...
-	      *slash = '/';
-	      return(save_errno);
-	    }
-	  }
-	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
-	    *slash = '/';
-	    return(ENOTDIR);
-	  }
-	  *slash = '/';slash++;				// increment slash ...
-	  while( *slash == '/') slash++;		// burn through any blank path elements
-	} // end mkdir loop
+   while( *slash == '/') slash++; // burn through any leading "/". Note that if no leading "/",
+   // then thePath will be created relative to CWD of process.
+   while(slash = strchr(slash,'/')) { // start parsing thePath
+      *slash = '\0';
+     
+      if(stat(thePath,&sbuf)) {  // current path element cannot be stat'd - assume does not exist
+         if(mkdir(thePath,perms)) { // problems creating the directory - clean up and return!
+            save_errno = errno;     // save off errno - in case of error...
+            *slash = '/';
+            return(save_errno);
+         }
+      }
+      else if (!S_ISDIR(sbuf.st_mode)) { // element exists but is NOT a directory
+         *slash = '/';
+         return(ENOTDIR);
+      }
+      *slash = '/';slash++;          // increment slash ...
+      while( *slash == '/') slash++; // burn through any blank path elements
+   } // end mkdir loop
 
-	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
-	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
-	    return(save_errno = errno);			// save off errno - just to be sure ...
-	}
-	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
-	  return(ENOTDIR);
+   if(stat(thePath,&sbuf)) {   // last path element cannot be stat'd - assume does not exist
+      if(mkdir(thePath,perms)) // problems creating the directory - clean up and return!
+         return(save_errno = errno); // save off errno - just to be sure ...
+   }
+   else if (!S_ISDIR(sbuf.st_mode))  // element exists but is NOT a directory
+      return(ENOTDIR);
 
-	return(0);
+   return(0);
 }
 
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
@@ -208,30 +208,30 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
 * Low Level utility function to write a field of a data
 * structure - any data structure.
 *
-* @param fd		the open file descriptor
-* @param start		the starting memory address
-* 			(pointer) of the field
-* @param len		the length of the filed in bytes
+* @param fd    the open file descriptor
+* @param start    the starting memory address
+*        (pointer) of the field
+* @param len      the length of the filed in bytes
 *
 * @return number of bytes written, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
+*  is < 0, then there were problems writing,
+*  and the number can be taken as the errno.
 */
 ssize_t write_field(int fd, void *start, size_t len) {
-	size_t  n;					// number of bytes written for a given call to write()
-	ssize_t tot = 0;				// total number of bytes written
-	char*   wstart = (char*)start;				// the starting point in the buffer
-	size_t  wcnt = len;				// the running count of bytes to write
+   size_t  n;              // number of bytes written for a given call to write()
+   ssize_t tot = 0;           // total number of bytes written
+   char*   wstart = (char*)start;            // the starting point in the buffer
+   size_t  wcnt = len;           // the running count of bytes to write
 
-	while(wcnt > 0) {
-	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
-	    return((ssize_t)-errno);
-	  tot += n;
-	  wstart += n;					// increment the start address by n
-	  wcnt -= n;					// decreamnt byte count by n
-	}
+   while(wcnt > 0) {
+     if(!(n=write(fd,wstart,wcnt)))    // if nothing written -> assume error
+       return((ssize_t)-errno);
+     tot += n;
+     wstart += n;             // increment the start address by n
+     wcnt -= n;               // decreamnt byte count by n
+   }
 
-	return(tot);
+   return(tot);
 }
 
 // remove trailing chars w/out repeated calls to strlen();
@@ -355,7 +355,7 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
                      const path_item*  src_node,
                      const path_item*  dest_node,
                      struct options&   o,
-		     int               rename_flag) {
+                     int               rename_flag) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
@@ -403,9 +403,9 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
 
     if (rename_flag == 1 and src_node->packable == 0)
     {
-	//NEED TO CREATE TEMPORARY FILE NAME!
-	strcat(out_node->path, "+");
-	strcat(out_node->path, src_node->timestamp);
+       //NEED TO CREATE TEMPORARY FILE NAME!
+       strcat(out_node->path, "+");
+       strcat(out_node->path, src_node->timestamp);
     }
 }
 
@@ -863,6 +863,7 @@ int compare_file(path_item*      src_file,
          crc = memcmp(ibuf,obuf,blocksize);
          if (crc != 0) {
             completed=length;
+            break; // this code never worked prior to this addition, would read till EOF and fail.
          }
 
          completed += blocksize;
@@ -930,12 +931,6 @@ int update_stats(PathPtr      p_src,
     if (p_src->is_link())
         return 0;
 
-    /*// update <dest_file> access-permissions
-    mode = p_src->mode() & 07777;
-    if (! p_dest->chmod(mode)) {
-       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
-                   p_dest->path(), p_dest->strerror());
-    }*/
 
     // perform any final adjustments on destination, before we set atime/mtime
     p_dest->post_process(p_src);
@@ -943,9 +938,10 @@ int update_stats(PathPtr      p_src,
     // update <dest_file> access-permissions
     mode = p_src->mode() & 07777;
     if (! p_dest->chmod(mode)) {
-    	errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
-    			      p_dest->path(), p_dest->strerror());
+       errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+                   p_dest->path(), p_dest->strerror());
     }
+
     // update <dest_file> atime and mtime
     struct timespec times[2];
 
@@ -960,12 +956,10 @@ int update_stats(PathPtr      p_src,
                    p_dest->path(), p_dest->strerror());
     }
    
-    if(!p_src->get_packable())
-    {
-	if(p_dest->rename_to_original())
-	{
-		errsend_fmt(FATAL, "update_stats -- Failed to rename to original file path\n");
-	}
+    if(!p_src->get_packable()) {
+       if(p_dest->rename_to_original()) {
+          errsend_fmt(FATAL, "update_stats -- Failed to rename to original file path\n");
+       }
     }
 
     return 0;
@@ -1113,40 +1107,40 @@ void send_manager_work_done(int ignored) {
 
 void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats)
 {
-	send_command(MANAGER_PROC, STATS);
-	char* cursor;
-	char* buffer = (char*)malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+   send_command(MANAGER_PROC, STATS);
+   char* cursor;
+   char* buffer = (char*)malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
 
-	cursor = buffer;
+   cursor = buffer;
 
-	memcpy(cursor, &tot_stats, sizeof(int));
-	cursor += sizeof(int);
+   memcpy(cursor, &tot_stats, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(cursor, &pod_id, sizeof(int));
-	cursor += sizeof(int);
+   memcpy(cursor, &pod_id, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(cursor, &total_blk, sizeof(int));
-	cursor += sizeof(int);
+   memcpy(cursor, &total_blk, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
-	cursor += sizeof(size_t);
+   memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
+   cursor += sizeof(size_t);
 
-	memcpy(cursor, repo, MARFS_MAX_REPO_SIZE);
-	
-	//send metadata of timing stats
-	if(MPI_Send(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-	{
-		fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
-		MPI_Abort(MPI_COMM_WORLD, -1);
-	}
+   memcpy(cursor, repo, MARFS_MAX_REPO_SIZE);
+   
+   //send metadata of timing stats
+   if(MPI_Send(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+      {
+         fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+         MPI_Abort(MPI_COMM_WORLD, -1);
+      }
 
-	//send timing_stats buffer
-	if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-	{
-		fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
-	}
+   //send timing_stats buffer
+   if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+      {
+         fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+      }
 
-	free(buffer);
+   free(buffer);
 }
 
 //worker
@@ -1346,10 +1340,10 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a Synthetic Data path?
     if (! got_type) {
         if (o.syn_size && isSyndataPath(work_node->path)) { 
-	   int dlvl;					// directory level, if a directory. Currently ignored.
-	   if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
-	       return -1;				// syndataSetAttr() returns non-zero on failure
-	   work_node->ftype = SYNDATA;
+           int dlvl;        // directory level, if a directory. Currently ignored.
+           if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
+              return -1;    // syndataSetAttr() returns non-zero on failure
+           work_node->ftype = SYNDATA;
            got_type = true;
         }
     }
@@ -1598,7 +1592,6 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 }
 
 
-
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
 
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
@@ -1720,16 +1713,23 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
-    /*if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
+
+    if (src.st.st_size == dst.st.st_size
+        && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
+#if 0
+        // by removing this we no longer care about file permissions for transfers.
+        // Probably the right choice, but revisit if needed
         && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve)))*/
-      if (src.st.st_size == dst.st.st_size
-	  && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
-	  && ((strcmp(src.path, dst.path) == 0))) {    // non-root doesn't chown unless '-o'           
+
+        // non-root doesn't chown unless '-o'
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || (geteuid() && !o.preserve))
+#else
+        // only chown if preserve set
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || !o.preserve)
+#endif
+        ) {
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
@@ -1787,7 +1787,7 @@ int check_temporary(PathPtr p_src, path_item* out_node)
 	time_t src_mtime = p_src->mtime();
 	epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
 	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
-		
+
 	ret = check_ctm_match(out_node->path, src_to_hash);
 	return ret;
 }
