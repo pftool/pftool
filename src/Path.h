@@ -133,7 +133,7 @@ void no_op(T* ptr) {
 template <typename T>
 class NoOpSharedPtr : public std::tr1::shared_ptr<T> {
 public:
-  typedef std::tr1::shared_ptr<T>			BaseType;
+  typedef std::tr1::shared_ptr<T>         BaseType;
 
   NoOpSharedPtr(T* ptr)
     : std::tr1::shared_ptr<T>(ptr, no_op<T>) { // construct with no-op deleter
@@ -153,7 +153,7 @@ public:
 template <typename T>
 class MallocSharedPtr : public std::tr1::shared_ptr<T> {
 public:
-  typedef std::tr1::shared_ptr<T>			BaseType;
+  typedef std::tr1::shared_ptr<T>         BaseType;
 
   MallocSharedPtr(T* ptr)
     : std::tr1::shared_ptr<T>(ptr, free) {
@@ -780,22 +780,22 @@ public:
    virtual int rename_to_original() {return 0;}
    virtual void create_temporary_path(const char* timestamp)
    {
-	char* tp_ptr = (_item->path) + strlen(_item->path);
-	snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
+      char* tp_ptr = (_item->path) + strlen(_item->path);
+      snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
    }
    virtual void restore_original_path()
    {
-	int i;
-	int pathlen = strlen(_item->path);
+      int i;
+      int pathlen = strlen(_item->path);
 
-	for(i = pathlen - 1; i >= 0; i--)
-	{
-		if (_item->path[i] == '+')
-		{
-			_item->path[i] = 0;
-			break;
-		}
-	}
+      for(i = pathlen - 1; i >= 0; i--)
+      {
+         if (_item->path[i] == '+')
+         {
+            _item->path[i] = 0;
+            break;
+         }
+      }
    }
    virtual char* get_timestamp() {return _item->timestamp;}
 
@@ -918,7 +918,7 @@ public:
    virtual bool identical(Path* p) { 
       POSIX_Path* p2 = dynamic_cast<POSIX_Path*>(p);
       return (p2 &&
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -1201,7 +1201,7 @@ public:
    virtual bool identical(Path* p) { 
       NULL_Path* p2 = dynamic_cast<NULL_Path*>(p);
       return (p2 && 
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -1915,11 +1915,11 @@ public:
 
    virtual int build_repo_info(repo_stats timing_stats)
    {
-	int ret = 1;
-	int i;
-	int repo_count;
-	repo_count = get_repo_count();
-        return ret;
+      int ret = 1;
+      int i;
+      int repo_count;
+      repo_count = get_repo_count();
+      return ret;
    }
    // pftool gets a chunksize from the command-line, or a default.  Such
    // values won't understand about MarFS recovery-info, or about repos
@@ -1959,7 +1959,7 @@ public:
    virtual bool identical(Path* p) {
       MARFS_Path* p2 = dynamic_cast<MARFS_Path*>(p);
       return (p2 &&
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -2313,13 +2313,18 @@ public:
 
    static void send_to_manager(MarFS_FileHandle* whichFh)
    {
-	//send logics
-	send_manager_timing_stats(whichFh->tot_stats, whichFh->pod_id, whichFh->total_blk, whichFh->timing_stats_buff_size, whichFh->repo, whichFh->timing_stats);
-	//now free buffers
-	free(whichFh->repo);
-	free(whichFh->timing_stats);
-	//whichFh->repo = NULL; dont need to set it to NULL because it gets memset to  zero
-	//whichFh->timing_stats = NULL;
+      //send logics
+      send_manager_timing_stats(whichFh->tot_stats,
+                                whichFh->pod_id,
+                                whichFh->total_blk,
+                                whichFh->timing_stats_buff_size,
+                                whichFh->repo, whichFh->timing_stats);
+      //now free buffers
+      free(whichFh->repo);
+      free(whichFh->timing_stats);
+
+      //whichFh->repo = NULL; dont need to set it to NULL because it gets memset to  zero
+      //whichFh->timing_stats = NULL;
    }
 
    virtual bool    close() {
@@ -2331,7 +2336,7 @@ public:
          whichFh = &packedFh;
          packedFhInUse = false;
          usePacked = false;
-	 packed = 1;
+         packed = 1;
       }
       else {
          whichFh = &fh;
@@ -2341,9 +2346,9 @@ public:
       //and deallocate the buffer after send is complete
       if (!packed)
       {
-		//we send timing info to manager in close if file is not packed
-		//and deallocate the buffer after send is complete
-		MARFS_Path::send_to_manager(whichFh);
+         //we send timing info to manager in close if file is not packed
+         //and deallocate the buffer after send is complete
+         MARFS_Path::send_to_manager(whichFh);
 
       }
       if (0 != rc) {
@@ -2364,22 +2369,22 @@ public:
 
    virtual int rename_to_original()
    {
-	char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
-	int i;
-	int pathlen;
+      char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
+      int i;
+      int pathlen;
 
-	strcpy(original_path, _item->path);
-	pathlen = strlen(original_path);
+      strcpy(original_path, _item->path);
+      pathlen = strlen(original_path);
 
-	for(i = pathlen - 1; i >= 0; i--)
-	{
-		if (original_path[i] == '+')
-		{
-			original_path[i] = 0;
-			break;
-		}
-	}
-	return marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(original_path));
+      for(i = pathlen - 1; i >= 0; i--)
+      {
+         if (original_path[i] == '+')
+         {
+            original_path[i] = 0;
+            break;
+         }
+      }
+      return marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(original_path));
    }
 
    // closes the underlying fh stream for packed files
@@ -2396,7 +2401,7 @@ public:
       //send time info back to manager
       if (packedFh.repo != NULL)
       {
-      	MARFS_Path::send_to_manager(&packedFh);
+         MARFS_Path::send_to_manager(&packedFh);
       }
       memset(&packedFh, 0, sizeof(MarFS_FileHandle));
       if(0 != rc) {

@@ -43,7 +43,7 @@ Path::append(char* suffix) const {
 #ifdef S3
 
 // Parse metadata for a given path, and translate into a 'struct stat'.
-// Having a sat struct allows pftool to compare with results from stat() on
+// Having a stat struct allows pftool to compare with results from stat() on
 // POSIX fielsystems (or with similar faked versions from plfs_getattr()).
 // However, there's a lot of cludgery needed, to shoehorn the kind of
 // metadata we get from S3 into a stat struct (see NOTEs, inline).
@@ -88,7 +88,7 @@ Path::append(char* suffix) const {
 //        <AccessControlList>
 //          <Grant>
 //            <Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-//      			xsi:type="CanonicalUser">
+//             xsi:type="CanonicalUser">
 //              <ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID>
 //              <DisplayName>CustomersName@amazon.com</DisplayName>
 //            </Grantee>

@@ -189,37 +189,47 @@ int main(int argc, char *argv[]) {
                 //Get the source/beginning path
                 strncpy(src_path, optarg, PATHSIZE_PLUS);
                 break;
+
             case 'c':
                 //Get the destination path
                 strncpy(dest_path, optarg, PATHSIZE_PLUS);
                 break;
+
             case 'j':
                 strncpy(o.jid, optarg, 128);
                 break;
+
             case 't':
                 o.dest_fstype = Path::parse_fstype(optarg);
                 break;
+
             case 'w':
                 // this is <WorkType>, from pfutils.h
                 // 0 = copy, 1 = list, 2 = compare
                 o.work_type = atoi(optarg);
                 break;
+
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
                 o.use_file_list = 1;
                 break;
+
             case 's':
                 o.blocksize = str2Size(optarg);
                 break;
+
             case 'C':
                 o.chunk_at = str2Size(optarg);
                 break;
+
             case 'S':
                 o.chunksize = str2Size(optarg);
                 break;
+
             case 'D':
                 o.max_readdir_ranks = atoi(optarg);
                 break;
+
             case 'X':
 #ifdef GEN_SYNDATA
                 strncpy(o.syn_pattern, optarg, 128);
@@ -227,6 +237,7 @@ int main(int argc, char *argv[]) {
                 errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
 #endif
                 break;
+
             case 'x':
 #ifdef GEN_SYNDATA
                 int slen;
@@ -241,25 +252,31 @@ int main(int argc, char *argv[]) {
                 errsend(NONFATAL,"configure with --enable-syndata, to use option '-x'");
 #endif
                 break;
+
             case 'o':
                 o.preserve = 1; // preserve ownership, during copies.
                 break;
+
             case 'n':
-                //different
                 o.different = 1;
-		break;
+                break;
+
             case 'r':
                 o.recurse = 1;
                 break;
+
             case 'l':
                 o.logging = 1;
                 break;
+
             case 'P':
                 o.parallel_dest = 1;
                 break;
+
             case 'M':
                 o.meta_data_only = 0;
                 break;
+
             case 'v':
                 // each '-v' increases verbosity, as follows
                 //  = 0  minimal output enough to see that something is happening
@@ -267,21 +284,25 @@ int main(int argc, char *argv[]) {
                 //  = 2  also show the INFO messages from stat, etc
                 o.verbose += 1;
                 break;
+
             case 'g':
                 // each '-g' increases diagnostics level, as follows
                 //  = 1  means make a runtime infinite loop, for gdb
                 //  = 2  means show S3 client/server interaction
                 o.debug += 1;
                 break;
+
             case 'e':
                 strncpy(o.exclude, optarg, PATHSIZE_PLUS);
                 o.exclude[PATHSIZE_PLUS-1] = '\0';
                 break;
+
             case 'h':
                 //Help -- incoming!
                 usage();
                 run=0;
                 break;
+
             case '?':
                 return -1;
             default:
@@ -421,7 +442,7 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
-	    //let p_dest setup marfs repo timing stats allocation
+            // let p_dest setup marfs repo timing stats allocation
         } while(0 != strcmp(dest_path, buf));
 
         if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
@@ -533,89 +554,89 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
 
 size_t write_histo(double* bin, char* buffer)
 {
-	int simple = 1;
-	size_t written = 0;
-	size_t tot_written = 0;
-	int i;
-	char* cursor = buffer;
-	for(i = 0; i < 65; i++)
-	{
-		if (i && !(i %  4))
-		{
-			//printf("  ");
-			written = snprintf(cursor, 64, "  ");
-			cursor += written;
-			tot_written += written;
-		}
+   int simple = 1;
+   size_t written = 0;
+   size_t tot_written = 0;
+   int i;
+   char* cursor = buffer;
+   for(i = 0; i < 65; i++)
+   {
+      if (i && !(i %  4))
+      {
+         //printf("  ");
+         written = snprintf(cursor, 64, "  ");
+         cursor += written;
+         tot_written += written;
+      }
 
-		if (bin[64 - i] || simple)
-		{
-			written = snprintf(cursor, 64, "%d ", (int)(bin[64 - i]));
-			cursor += written;
-			tot_written += written;
-			//printf("%2d", (int)(bin[64-i]));
-		}
-		else
-		{
-			written = snprintf(cursor, 64, "-- ");
-			cursor += written;
-			tot_written += written;
-			//printf("-- ");
-		}
-	}
-	tot_written += snprintf(cursor, 64, "\n");
-	//printf("\n");
-	return tot_written;
+      if (bin[64 - i] || simple)
+      {
+         written = snprintf(cursor, 64, "%d ", (int)(bin[64 - i]));
+         cursor += written;
+         tot_written += written;
+         //printf("%2d", (int)(bin[64-i]));
+      }
+      else
+      {
+         written = snprintf(cursor, 64, "-- ");
+         cursor += written;
+         tot_written += written;
+         //printf("-- ");
+      }
+   }
+   tot_written += snprintf(cursor, 64, "\n");
+   //printf("\n");
+   return tot_written;
 }
 
 void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
 {
-	char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_SIZE + 512));
-	char* msg_cursor = msg;
-	int i, j;
-	char* cursor = buffer;
-	size_t written;
-	int stat_type; 
+   char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_SIZE + 512));
+   char* msg_cursor = msg;
+   int i, j;
+   char* cursor = buffer;
+   size_t written;
+   int stat_type; 
 
-	for(i = 0; i < tot_stats; i++)
-	{
-		if (strcmp(cursor, "OP") == 0)
-		{
-			stat_type = 0;
-		}
-		else if (strcmp(cursor, "RD") == 0)
-		{
-			stat_type = 1;
-		}
-		else if (strcmp(cursor, "WR") == 0)
-		{
-			stat_type = 2;
-		}
-		else if (strcmp(cursor, "CL") == 0)
-		{
-			stat_type = 3;
-		}
-		cursor += 3;
-		//printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
-		for(j = 0; j < total_blk; j++)
-		{
-			written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128, " %s %s pod %d blk %d: ", repo.c_str(), stats_name[stat_type], pod_id, j);
-			msg_cursor += written;
-			//printf("%s", msg);
-			//now write histogram
-			double* bin_in = (double*)cursor;
-			written = write_histo(bin_in, msg_cursor);
-			//printf("%dth block written %ld\n", j, written);
-			msg_cursor += written;
-			cursor += sizeof(double) * 65;
-		}
-	}
-	
-	//printf("%s\n", msg);
-	//printf("sending to syslog\n");
-        syslog (LOG_INFO, "%s", msg);
-	
-	free(msg);
+   for(i = 0; i < tot_stats; i++)
+   {
+      if (strcmp(cursor, "OP") == 0)
+      {
+         stat_type = 0;
+      }
+      else if (strcmp(cursor, "RD") == 0)
+      {
+         stat_type = 1;
+      }
+      else if (strcmp(cursor, "WR") == 0)
+      {
+         stat_type = 2;
+      }
+      else if (strcmp(cursor, "CL") == 0)
+      {
+         stat_type = 3;
+      }
+      cursor += 3;
+      //printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
+      for(j = 0; j < total_blk; j++)
+      {
+         written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128, " %s %s pod %d blk %d: ", repo.c_str(), stats_name[stat_type], pod_id, j);
+         msg_cursor += written;
+         //printf("%s", msg);
+         //now write histogram
+         double* bin_in = (double*)cursor;
+         written = write_histo(bin_in, msg_cursor);
+         //printf("%dth block written %ld\n", j, written);
+         msg_cursor += written;
+         cursor += sizeof(double) * 65;
+      }
+   }
+   
+   //printf("%s\n", msg);
+   //printf("sending to syslog\n");
+   syslog (LOG_INFO, "%s", msg);
+   
+   free(msg);
 }
 
 /*
@@ -628,36 +649,42 @@ void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, i
 //print data and send it to syslog
 void show_data(struct options& o)
 {
-	if (need_open)
-	{
-		char sysmsg[MESSAGESIZE + 64];
-		sprintf(sysmsg, "pftool [%s] -- ", o.jid);
-		openlog(sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
-		need_open = 0;
-	}
-	
-	map<string, repo_stats*>::iterator it_stats;
-	for(it_stats = timing_stats_table.begin(); it_stats != timing_stats_table.end(); it_stats++)
-	{
-		if (it_stats->second->has_data)
-		{
-			//iterate though all pods
-			map<int, pod_data*>::iterator it_pods;
-			for(it_pods = it_stats->second->pod_to_stat.begin(); it_pods != it_stats->second->pod_to_stat.end(); it_pods++)
-			{
-				if (it_pods->second->buffer[0] != 0)
-				{
-					//this pod has valid data 
-					print_buffer(o, it_pods->second->buffer, it_stats->first, it_stats->second->tot_stats, it_stats->second->total_blk, it_pods->first);
-					//after we are done sending stats to syslog, we clear the buffer so that it is ready for next interval's accumulation
-					memset(it_pods->second->buffer, 0, it_pods->second->buff_size);
-				}
-			}
-			//now mark this repo does not have data since we have sent them to syslog
-			//and we set the stat buffer pointer mapped by this pod_id to NULL
-			it_stats->second->has_data = 0;
-		}
-	}
+   if (need_open)
+   {
+      char sysmsg[MESSAGESIZE + 64];
+      sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+      openlog(sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
+      need_open = 0;
+   }
+   
+   map<string, repo_stats*>::iterator it_stats;
+   for(it_stats = timing_stats_table.begin(); it_stats != timing_stats_table.end(); it_stats++)
+   {
+      if (it_stats->second->has_data)
+      {
+         //iterate though all pods
+         map<int, pod_data*>::iterator it_pods;
+         for(it_pods = it_stats->second->pod_to_stat.begin();
+             it_pods != it_stats->second->pod_to_stat.end();
+             it_pods++)
+         {
+            if (it_pods->second->buffer[0] != 0)
+            {
+               //this pod has valid data 
+               print_buffer(o, it_pods->second->buffer, it_stats->first,
+                            it_stats->second->tot_stats, it_stats->second->total_blk,
+                            it_pods->first);
+               // after we are done sending stats to syslog, we clear the
+               // buffer so that it is ready for next interval's
+               // accumulation
+               memset(it_pods->second->buffer, 0, it_pods->second->buff_size);
+            }
+         }
+         //now mark this repo does not have data since we have sent them to syslog
+         //and we set the stat buffer pointer mapped by this pod_id to NULL
+         it_stats->second->has_data = 0;
+      }
+   }
 }
 
 int manager(int             rank,
@@ -1043,9 +1070,10 @@ int manager(int             rank,
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
-	    case STATS:
-		manager_add_timing_stats(sending_rank);
-		break;
+            case STATS:
+               manager_add_timing_stats(sending_rank);
+               break;
+
             default:
                 break;
             }
@@ -1119,7 +1147,7 @@ int manager(int             rank,
                         bw_avg, // no incremental
                         non_fatal);
                 write_output(message, 0); // stdout-only
-		show_data(o);
+                show_data(o);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1173,19 +1201,19 @@ int manager(int             rank,
             sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
             write_output(message, 1);
         }
-	else {	// we're going to print the "things we think are different" message if doing meta compare only
-	    sprintf(message, "INFO  FOOTER   Total Files Different: %d\n", non_fatal);
-	    write_output(message, 1);
-	    if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
-		sprintf(message, "INFO  FOOTER   Total Terabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
-	    else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0) 
+        else {   // we're going to print the "things we think are different" message if doing meta compare only
+            sprintf(message, "INFO  FOOTER   Total Files Different: %d\n", non_fatal);
+            write_output(message, 1);
+            if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Terabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+            else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0) 
                 sprintf(message, "INFO  FOOTER   Total Gigabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
-	    else if ((num_copied_bytes/(1024L*1024L)) > 0) 
+            else if ((num_copied_bytes/(1024L*1024L)) > 0) 
                 sprintf(message, "INFO  FOOTER   Total Megabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L)));
-	    else
-		sprintf(message, "INFO  FOOTER   Total Bytes Different: %zd\n", num_copied_bytes);
-	    write_output(message, 1);
-	}
+            else
+                sprintf(message, "INFO  FOOTER   Total Bytes Different: %zd\n", num_copied_bytes);
+            write_output(message, 1);
+        }
     }
 
     if (elapsed_time == 1) {
@@ -1349,129 +1377,125 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
 
 void accumulate_timing_stats(int tot_stats, int total_blk, char* timing_stats, char* accum_stats)
 {
-	int i,j,k;
-	for(i = 0; i < tot_stats; i++)
-	{
-		//need to copy timing stat identifier
-		char* id_acc = accum_stats + i * (3 + sizeof(double) * 65 * total_blk);
-		char* id_timing = timing_stats + i * (3 + sizeof(double) * 65 * total_blk);
-		memcpy(id_acc, id_timing, 3);
+    int i,j,k;
+    for(i = 0; i < tot_stats; i++) {
+        //need to copy timing stat identifier
+        char* id_acc = accum_stats + i * (3 + sizeof(double) * 65 * total_blk);
+        char* id_timing = timing_stats + i * (3 + sizeof(double) * 65 * total_blk);
+        memcpy(id_acc, id_timing, 3);
 
-		//printf("stat %s ", id_acc);
-		double* cursor_acc = (double*)(accum_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);//move cursor to the beginning of the double arary
-		double* cursor_timing = (double*)(timing_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);
-		for(j = 0; j < total_blk; j++)
-		{
-			//printf("blk %d ", j);
-			double* blk_acc = cursor_acc + (65 * j);
-			double* blk_timing = cursor_timing + (65 * j);
-			for(k = 64; k; k--)
-			{
-				blk_acc[k] += blk_timing[k];
-			//	printf("bin %d val %f\n", k, blk_acc[k]);
-			}
-		}
-	}	
+        //printf("stat %s ", id_acc);
+        double* cursor_acc = (double*)(accum_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);//move cursor to the beginning of the double arary
+        double* cursor_timing = (double*)(timing_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);
+        for(j = 0; j < total_blk; j++) {
+            //printf("blk %d ", j);
+            double* blk_acc = cursor_acc + (65 * j);
+            double* blk_timing = cursor_timing + (65 * j);
+            for(k = 64; k; k--) {
+                blk_acc[k] += blk_timing[k];
+                // printf("bin %d val %f\n", k, blk_acc[k]);
+            }
+        }
+    }  
 }
 
 void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_size, char* repo, char* timing_stats)
 {
-	int i;
-	map<string, repo_stats*>::iterator it;
-	string key(repo);
+   int i;
+   map<string, repo_stats*>::iterator it;
+   string key(repo);
 
-	if ((it = timing_stats_table.find(key)) != timing_stats_table.end())
-	{
-		//we found the repo, now check if this pod exists
-		map<int, pod_data*>::iterator pod_it;
-		if((pod_it = it->second->pod_to_stat.find(pod_id)) != it->second->pod_to_stat.end())
-		{
-			//pod exists, now we can accumulate
-			accumulate_timing_stats(tot_stats, total_blk, timing_stats, pod_it->second->buffer);
-		}
-		else
-		{
-			//pod does not exist, allocate and accumulate
-			char* buffer = (char*)malloc(sizeof(buff_size));
-			memset(buffer, 0, buff_size);
-			pod_data* this_pod = new pod_data;
-			this_pod->buff_size = buff_size;
-			this_pod->buffer = buffer;
-			accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
-			//add this buffer to pod_to_state table
-			it->second->pod_to_stat.insert(make_pair(pod_id, this_pod));
-			it->second->total_pods += 1;
-		}
-		it->second->has_data = 1;
-	}
-	else
-	{
-		//repo does not exists, we need to create a repo_stat
-		repo_stats* entry = new repo_stats;//(repo_stats*) malloc(sizeof(repo_stats));
-		//allocate new accumulate buffer
-		char* buffer = (char*)malloc(buff_size);
-		memset(buffer, 0, buff_size);
-		pod_data* this_pod = new pod_data;
-		this_pod->buff_size = buff_size;
-		this_pod->buffer = buffer;
-		//now accumulate
-		accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
-		//add to pod_to_stat table
-		entry->pod_to_stat.insert(make_pair(pod_id, this_pod));
-		entry->has_data = 1;
-		entry->total_pods = 1;
-		entry->tot_stats = tot_stats;
-		entry->total_blk = total_blk;
-		//add the entry back to table
-		timing_stats_table.insert(make_pair(key, entry));
-	}
+   if ((it = timing_stats_table.find(key)) != timing_stats_table.end()) {
+      //we found the repo, now check if this pod exists
+      map<int, pod_data*>::iterator pod_it;
+      if((pod_it = it->second->pod_to_stat.find(pod_id)) != it->second->pod_to_stat.end())
+      {
+         //pod exists, now we can accumulate
+         accumulate_timing_stats(tot_stats, total_blk, timing_stats, pod_it->second->buffer);
+      }
+      else
+      {
+         //pod does not exist, allocate and accumulate
+         char* buffer = (char*)malloc(sizeof(buff_size));
+         memset(buffer, 0, buff_size);
+         pod_data* this_pod = new pod_data;
+         this_pod->buff_size = buff_size;
+         this_pod->buffer = buffer;
+         accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
+         //add this buffer to pod_to_state table
+         it->second->pod_to_stat.insert(make_pair(pod_id, this_pod));
+         it->second->total_pods += 1;
+      }
+      it->second->has_data = 1;
+   }
+   else
+   {
+      //repo does not exists, we need to create a repo_stat
+      repo_stats* entry = new repo_stats;//(repo_stats*) malloc(sizeof(repo_stats));
+      //allocate new accumulate buffer
+      char* buffer = (char*)malloc(buff_size);
+      memset(buffer, 0, buff_size);
+      pod_data* this_pod = new pod_data;
+      this_pod->buff_size = buff_size;
+      this_pod->buffer = buffer;
+      //now accumulate
+      accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
+      //add to pod_to_stat table
+      entry->pod_to_stat.insert(make_pair(pod_id, this_pod));
+      entry->has_data = 1;
+      entry->total_pods = 1;
+      entry->tot_stats = tot_stats;
+      entry->total_blk = total_blk;
+      //add the entry back to table
+      timing_stats_table.insert(make_pair(key, entry));
+   }
 }
 
 void manager_add_timing_stats(int sending_rank)
 {
-	MPI_Status status;
-	int tot_stats;
-	int pod_id;
-	int total_blk;
-	size_t timing_stats_buff_size;
-	char* timing_stats; //need free
-	char* repo = (char*) malloc(MARFS_MAX_REPO_SIZE);//need free
-	char* buffer = (char*) malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
-	char* cursor = buffer;
-	if(MPI_Recv(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
-	{
-		errsend(FATAL, "Failed to receive meta data of timing stats\n");
-	}
+   MPI_Status status;
+   int tot_stats;
+   int pod_id;
+   int total_blk;
+   size_t timing_stats_buff_size;
+   char* timing_stats; //need free
+   char* repo = (char*) malloc(MARFS_MAX_REPO_SIZE);//need free
+   char* buffer = (char*) malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+   char* cursor = buffer;
+   if(MPI_Recv(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+   {
+      errsend(FATAL, "Failed to receive meta data of timing stats\n");
+   }
 
-	//copy meta data from buffer to variables
-	memcpy(&tot_stats, cursor, sizeof(int));
-	cursor += sizeof(int);
+   //copy meta data from buffer to variables
+   memcpy(&tot_stats, cursor, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(&pod_id, cursor, sizeof(int));
-	cursor += sizeof(int);
+   memcpy(&pod_id, cursor, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(&total_blk, cursor, sizeof(int));
-	cursor += sizeof(int);
+   memcpy(&total_blk, cursor, sizeof(int));
+   cursor += sizeof(int);
 
-	memcpy(&timing_stats_buff_size, cursor, sizeof(size_t));
-	cursor += sizeof(size_t);
+   memcpy(&timing_stats_buff_size, cursor, sizeof(size_t));
+   cursor += sizeof(size_t);
 
-	memcpy(repo, cursor, MARFS_MAX_REPO_SIZE);
+   memcpy(repo, cursor, MARFS_MAX_REPO_SIZE);
 
-	//allocate timing stats buffer
-	timing_stats = (char*)malloc(timing_stats_buff_size);
-	if(MPI_Recv(timing_stats, timing_stats_buff_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
-	{
-		errsend(FATAL, "Failed to receive timing stats\n");
-	}
+   //allocate timing stats buffer
+   timing_stats = (char*)malloc(timing_stats_buff_size);
+   if(MPI_Recv(timing_stats, timing_stats_buff_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+   {
+      errsend(FATAL, "Failed to receive timing stats\n");
+   }
 
 
-	//need to add to table and accumulate
-	add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo, timing_stats);
+   //need to add to table and accumulate
+   add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo, timing_stats);
 
-	free(timing_stats);
-	free(repo);
-	free(buffer);
+   free(timing_stats);
+   free(repo);
+   free(buffer);
 }
 
 
@@ -1675,7 +1699,7 @@ void worker_update_chunk(int            rank,
 
         // CTM is based off of destination file. Populate out_node
         get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);//original destination path is used to generate CTM, no need for temp file name
-	get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
+        get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
         // let sub-classes do any per-chunk work they want to do
         //        PathPtr p_out(PathFactory::create_shallow(out_node));
         //        p_out->chunk_complete();
@@ -2020,39 +2044,39 @@ int maybe_pre_process(int&         pre_process,
                       PathPtr&     p_out,
                       PathPtr&     p_work) {
 
-    int ret;
-    if (pre_process == 1 &&
-        (o.work_type == COPYWORK))
-    {
-	//we are working with a either a size 0 file or a packable file
-	//or a non chunkable non packable file
-	//do not need to create temporary file
-        if (!p_out->pre_process(p_work))
-        	return -1;
-    }
-    else if (pre_process == 2 &&
-        (o.work_type == COPYWORK))
-    {
-	//we are working with a chunkable file
-	p_out->create_temporary_path(p_work->get_timestamp());
-	if (!p_out->pre_process(p_work))
-	{
-		return -1;
-	}
-	else
-	{
-		//create CTM NOW
-		//first restore to original output path
-		p_out->restore_original_path();
-		if(create_CTM(p_out, p_work) < 0)
-		{
-			printf("Failed CTM??\n");
-			return -1;
-		}
-	}
-    }
+   int ret;
+   if (pre_process == 1 &&
+       (o.work_type == COPYWORK))
+   {
+      //we are working with a either a size 0 file or a packable file
+      //or a non chunkable non packable file
+      //do not need to create temporary file
+      if (!p_out->pre_process(p_work))
+         return -1;
+   }
+   else if (pre_process == 2 &&
+            (o.work_type == COPYWORK))
+   {
+      //we are working with a chunkable file
+      p_out->create_temporary_path(p_work->get_timestamp());
+      if (!p_out->pre_process(p_work))
+      {
+         return -1;
+      }
+      else
+      {
+         //create CTM NOW
+         //first restore to original output path
+         p_out->restore_original_path();
+         if(create_CTM(p_out, p_work) < 0)
+         {
+            printf("Failed CTM??\n");
+            return -1;
+         }
+      }
+   }
 
-    return 0;
+   return 0;
 }
 
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
@@ -2167,372 +2191,370 @@ void process_stat_buffer(path_item*      path_buffer,
     }
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
-        process = 0;
-        pre_process = 0;
-        path_item&  work_node = path_buffer[i]; // avoid a copy
- 	memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX); //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
-        work_node.start = 0;
-        PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
-        PathPtr p_dest(PathFactory::create_shallow(dest_node));
-        PathPtr p_out;
+       process = 0;
+       pre_process = 0;
+       path_item&  work_node = path_buffer[i]; // avoid a copy
+       memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX); //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
+       work_node.start = 0;
+       PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
+       PathPtr p_dest(PathFactory::create_shallow(dest_node));
+       PathPtr p_out;
 
-        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
-                       rank, i, work_node.path);
-        // Are these items *identical* ? (e.g. same POSIX inode)
-        // We will not have a dest in list so we will not check
-        if ((o.work_type != LSWORK)
-            && p_work->identical(p_dest)) {
-            write_count--;
-            continue;
-        }
+       PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
+                      rank, i, work_node.path);
+       // Are these items *identical* ? (e.g. same POSIX inode)
+       // We will not have a dest in list so we will not check
+       if ((o.work_type != LSWORK)
+           && p_work->identical(p_dest)) {
+          write_count--;
+          continue;
+       }
 
-        //check if the work is a directory
-        else if (p_work->is_dir()) {
-            dirbuffer[dir_buffer_count] = p_work->node();  //// work_node;
-            dir_buffer_count++;
-            if (dir_buffer_count % DIRBUFFER == 0) {
-                send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
-            }
-            num_examined_dirs++;
-        }
+       //check if the work is a directory
+       else if (p_work->is_dir()) {
+          dirbuffer[dir_buffer_count] = p_work->node();  //// work_node;
+          dir_buffer_count++;
+          if (dir_buffer_count % DIRBUFFER == 0) {
+             send_manager_dirs_buffer(dirbuffer, &dir_buffer_count);
+          }
+          num_examined_dirs++;
+       }
 
-        //it's not a directory
-        else {
-            //do this for all regular files AND fuse+symylinks
-	    int temp_exists;
-            parallel_dest = o.parallel_dest;
-            get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
-            p_out = PathFactory::create_shallow(&out_node);
-            p_out->stat();
-            dest_exists = p_out->exists();
-	      
-	    //if (!dest_exists) //now we check for temporary files
-	    //{
-	    temp_exists = check_temporary(p_work, &out_node);
-	    if (dest_exists < 0)
-	    {
-		errsend_fmt(FATAL, "Failed to check for temporary files\n");
-	    }
-	    if (temp_exists)
-	    {
-		dest_exists = temp_exists; //restart with a temporary file
-	    }
-	    
-	    //}
-            // if selected options require reading the source-file, and the
-            // source-file is not readable, we have a problem
-            if (((o.work_type == COPYWORK)
-                 || ((o.work_type == COMPAREWORK)
+       //it's not a directory
+       else {
+          //do this for all regular files AND fuse+symylinks
+          int temp_exists;
+          parallel_dest = o.parallel_dest;
+          get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
+          p_out = PathFactory::create_shallow(&out_node);
+          p_out->stat();
+          dest_exists = p_out->exists();
+         
+          //if (!dest_exists) //now we check for temporary files
+          //{
+          temp_exists = check_temporary(p_work, &out_node);
+          if (dest_exists < 0) {
+             errsend_fmt(FATAL, "Failed to check for temporary files\n");
+          }
+          if (temp_exists) {
+             dest_exists = temp_exists; //restart with a temporary file
+          }
+       
+          //}
+          // if selected options require reading the source-file, and the
+          // source-file is not readable, we have a problem
+          if (((o.work_type == COPYWORK)
+               || ((o.work_type == COMPAREWORK)
+                   && ! o.meta_data_only))
+              && (! p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
+
+             errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
+                         p_work->path(), p_work->strerror());
+             process = 0;
+          }
+          // if selected options require reading the destination-file,
+          // and destination-file is not readable, we have a problem
+          else if ((((o.work_type == COMPAREWORK)
                      && ! o.meta_data_only))
-                && (! p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
+                   && (! p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
 
-                errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
-                            p_work->path(), p_work->strerror());
-                process = 0;
-            }
-            // if selected options require reading the destination-file,
-            // and destination-file is not readable, we have a problem
-            else if ((((o.work_type == COMPAREWORK)
-                       && ! o.meta_data_only))
-                     && (! p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
+             errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
+                         p_out->path(), p_out->strerror());
+             process = 0;
+          }
+          else if (o.work_type == COPYWORK) {
+             process = 1;
+             p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
+             if (p_out->supports_n_to_1())
+                parallel_dest = 1;
+             //if the out path exists
+             if (dest_exists == 1) {
+                // Maybe user only wants to operate on source-files
+                // that are "different" from the corresponding
+                // dest-files.
+                if ((o.different == 1)
+                    && samefile(p_work, p_out, o)) {
 
-                errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
-                            p_out->path(), p_out->strerror());
-                process = 0;
-            }
-            else if (o.work_type == COPYWORK) {
-                process = 1;
-                p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
-                if (p_out->supports_n_to_1())
-                    parallel_dest = 1;
-                //if the out path exists
-                if (dest_exists == 1) {
-                    // Maybe user only wants to operate on source-files
-                    // that are "different" from the corresponding
-                    // dest-files.
-                    if ((o.different == 1)
-                        && samefile(p_work, p_out, o)) {
-
-                        process = 0; // source/dest are the same, so skip
-                        num_finished_bytes += work_node.st.st_size;
-                    }
-                    // if someone truncated the destination to zero
-                    // (i.e. the only way a zero-size file could have CTM),
-                    // then any CTM that may exist is definitely obsolete
-                    if (out_node.st.st_size == 0) {
-                        purgeCTM(out_node.path);
-                    }
-
-                    if (process == 1) {
-                            // it's not fuse, unlink
-                            // remove the destination-file if the transfer
-                            // is unconditional or the source-file size <=
-                            // chunk_at size
-                            if (! o.different
-                                || (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))) {
-
-                                if (! p_out->unlink() && (errno != ENOENT)) {
-                                    errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
-                                                p_out->path(), p_out->strerror());
-                                }
-                                out_unlinked = 1; // don't unset the ftype to communicate
-                                pre_process = 1;
-                            }
-                    }
+                   process = 0; // source/dest are the same, so skip
+                   num_finished_bytes += work_node.st.st_size;
                 }
-		else if (dest_exists > 1)
-		{
-			//a temporary file exists
-			//we extract timestamp out and put it in work_node
-			char timestamp[DATE_STRING_MAX];
-			if (get_ctm_timestamp(out_node.path, timestamp) < 0)
-			{
-				errsend_fmt(FATAL, "Failed to read timestamp for temporary file\n");
-			}
-			//now we have the time stamp, deal with each accordingly
-			if (dest_exists == 2 && o.different == 1)
-			{
-				//in this case we have a match AND restart is enabled
-				//mark work_node with temp flag and copy timestamp
-				memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
-			}
-			else if (dest_exists == 3 || o.different == 0)
-			{
-				int i;
-				//either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
-				printf("DETECTED OLD TEMPORARY FILE WITH MISMATCHING SRC HASH, REMOVING TEMP FILE\n");
-				p_out->create_temporary_path(timestamp);
-				if (!p_out->unlink() && (errno != ENOENT))
-				{
-					errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
-				}
-				//now we have to wait for first writer to quit completely and unlinks again
-				for(i = 0; i < MAX_TEMP_UNLINK_ITER; i++)
-				{
-					sleep(TEMP_UNLINK_WAIT_TIME);
-					if (p_out->unlink())
-					{
-						//writer 1 has completely quit
-						break;
-					}
-				}
-				printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
-				//now we undo the temorary path
-				p_out->restore_original_path();
-				purgeCTM(out_node.path);
-				out_unlinked = 1;
-				pre_process = 1;
-			}
-		}
-                else {
-                    // destination doesn't already exist
-
-                    out_unlinked = 1; // don't unset the ftype to communicate
-                    pre_process = 1;
-
-                    // if someone deleted the destination,
-                    // then any CTM that may exist is definitely obsolete
-                    purgeCTM(out_node.path);
+                // if someone truncated the destination to zero
+                // (i.e. the only way a zero-size file could have CTM),
+                // then any CTM that may exist is definitely obsolete
+                if (out_node.st.st_size == 0) {
+                   purgeCTM(out_node.path);
                 }
-            } // end COPYWORK
+
+                if (process == 1) {
+                   // it's not fuse, unlink
+                   // remove the destination-file if the transfer
+                   // is unconditional or the source-file size <=
+                   // chunk_at size
+                   if (! o.different
+                       || (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))) {
+
+                      if (! p_out->unlink() && (errno != ENOENT)) {
+                         errsend_fmt(FATAL, "Failed to unlink (2) %s: %s\n",
+                                     p_out->path(), p_out->strerror());
+                      }
+                      out_unlinked = 1; // don't unset the ftype to communicate
+                      pre_process = 1;
+                   }
+                }
+             }
+             else if (dest_exists > 1)
+             {
+                //a temporary file exists
+                //we extract timestamp out and put it in work_node
+                char timestamp[DATE_STRING_MAX];
+                if (get_ctm_timestamp(out_node.path, timestamp) < 0)
+                {
+                   errsend_fmt(FATAL, "Failed to read timestamp for temporary file\n");
+                }
+                //now we have the time stamp, deal with each accordingly
+                if (dest_exists == 2 && o.different == 1)
+                {
+                   //in this case we have a match AND restart is enabled
+                   //mark work_node with temp flag and copy timestamp
+                   memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
+                }
+                else if (dest_exists == 3 || o.different == 0)
+                {
+                   int i;
+                   //either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
+                   printf("DETECTED OLD TEMPORARY FILE WITH MISMATCHING SRC HASH, REMOVING TEMP FILE\n");
+                   p_out->create_temporary_path(timestamp);
+                   if (!p_out->unlink() && (errno != ENOENT))
+                   {
+                      errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
+                   }
+                   //now we have to wait for first writer to quit completely and unlinks again
+                   for(i = 0; i < MAX_TEMP_UNLINK_ITER; i++)
+                   {
+                      sleep(TEMP_UNLINK_WAIT_TIME);
+                      if (p_out->unlink())
+                      {
+                         //writer 1 has completely quit
+                         break;
+                      }
+                   }
+                   printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
+                   //now we undo the temorary path
+                   p_out->restore_original_path();
+                   purgeCTM(out_node.path);
+                   out_unlinked = 1;
+                   pre_process = 1;
+                }
+             }
+             else {
+                // destination doesn't already exist
+
+                out_unlinked = 1; // don't unset the ftype to communicate
+                pre_process = 1;
+
+                // if someone deleted the destination,
+                // then any CTM that may exist is definitely obsolete
+                purgeCTM(out_node.path);
+             }
+          } // end COPYWORK
             // preping for COMPAREWORK, which means we simply assign the
             // destination type to the source file info
-            else if (o.work_type == COMPAREWORK) {
-                process = 1;
-                work_node.dest_ftype = out_node.ftype;
-            }
+          else if (o.work_type == COMPAREWORK) {
+             process = 1;
+             work_node.dest_ftype = out_node.ftype;
+          }
 
-            if (process == 1) {
-                //parallel filesystem can do n-to-1
-                if (parallel_dest) {
-                    CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
-                    // MarFS will adjust a given chunksize to match (some
-                    // multiple of) the chunksize of the underlying repo
-                    // (the repo matching the file-size), adjusting for the
-                    // size of hidden recovery-info that must be written
-                    // into each object.  (i.e. chunk_size is smaller than
-                    // the actual amount to be written, leaving enough room
-                    // for recovery-info)
-                    chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
-                    chunk_at   = p_out->chunk_at(o.chunk_at);
-                    // handle zero-length source file - because it will not
-                    // be processed through chunk/file loop below.
-                    if (work_node.st.st_size == 0) {
-                        pre_process = 1;
-                        if ((o.work_type == COPYWORK)
-                            && !p_out->unlink()
-                            && (errno != ENOENT)) {
-                            errsend_fmt(FATAL, "Failed to unlink (3) %s: %s\n",
-                                        p_out->path(), p_out->strerror());
-                        }
-                        out_unlinked = 1;
-                        work_node.chkidx = 0;
-                        work_node.chksz = 0;
-			work_node.packable = 0;
-                        regbuffer[reg_buffer_count] = work_node;
-                        reg_buffer_count++;
-                    }
-                    else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
-                        int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
-                        // we are doing a conditional transfer & CTM exists
-                        // -> populate CTM structure
-                        if (o.different && ctmExists) {
-                            ctm = getCTM(out_node.path,
-                                         ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
-                                         chunk_size);
-                            if(IO_DEBUG_ON) {
-                                char ctm_flags[2048];
-                                char *ctmstr = ctm_flags;
-                                int ctmlen = 2048;
-                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
-                                               "Reading persistent store of CTM: %s\n",
-                                               rank, tostringCTM(ctm,&ctmstr,&ctmlen));
-                            }
-                        }
-                        else if (!ctmExists && o.different)
-			{
-				pre_process = 2;
-			}
-			else
-			{
-                            // get rid of the CTM on the file if we are NOT
-                            // doing a conditional transfer/compare.
-                            purgeCTM(out_node.path);
-			    pre_process = 2;
-                        }
-			work_node.packable = 0;//mark work_node not pacakble
-			work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
-                    }
-		    else //working with a non-chunkable file, either small enough to be packed, or not packed
-		    {
-			work_node.packable = p_out->check_packable(work_node.st.st_size);
-			
-			if (!work_node.packable)
-			{
-				work_node.packable = 2; // we identify non chunkable non packable file with packable set to 2
-			}
-			pre_process = 1;
-		    }
+          if (process == 1) {
+             //parallel filesystem can do n-to-1
+             if (parallel_dest) {
+                CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
+                // MarFS will adjust a given chunksize to match (some
+                // multiple of) the chunksize of the underlying repo
+                // (the repo matching the file-size), adjusting for the
+                // size of hidden recovery-info that must be written
+                // into each object.  (i.e. chunk_size is smaller than
+                // the actual amount to be written, leaving enough room
+                // for recovery-info)
+                chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
+                chunk_at   = p_out->chunk_at(o.chunk_at);
+                // handle zero-length source file - because it will not
+                // be processed through chunk/file loop below.
+                if (work_node.st.st_size == 0) {
+                   pre_process = 1;
+                   if ((o.work_type == COPYWORK)
+                       && !p_out->unlink()
+                       && (errno != ENOENT)) {
+                      errsend_fmt(FATAL, "Failed to unlink (3) %s: %s\n",
+                                  p_out->path(), p_out->strerror());
+                   }
+                   out_unlinked = 1;
+                   work_node.chkidx = 0;
+                   work_node.chksz = 0;
+                   work_node.packable = 0;
+                   regbuffer[reg_buffer_count] = work_node;
+                   reg_buffer_count++;
+                }
+                else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
+                   int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
+                   // we are doing a conditional transfer & CTM exists
+                   // -> populate CTM structure
+                   if (o.different && ctmExists) {
+                      ctm = getCTM(out_node.path,
+                                   ((long)ceil(work_node.st.st_size / ((double)chunk_size))),
+                                   chunk_size);
+                      if(IO_DEBUG_ON) {
+                         char ctm_flags[2048];
+                         char *ctmstr = ctm_flags;
+                         int ctmlen = 2048;
+                         PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
+                                        "Reading persistent store of CTM: %s\n",
+                                        rank, tostringCTM(ctm,&ctmstr,&ctmlen));
+                      }
+                   }
+                   else if (!ctmExists && o.different)
+                   {
+                      pre_process = 2;
+                   }
+                   else
+                   {
+                      // get rid of the CTM on the file if we are NOT
+                      // doing a conditional transfer/compare.
+                      purgeCTM(out_node.path);
+                      pre_process = 2;
+                   }
+                   work_node.packable = 0;//mark work_node not pacakble
+                   work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
+                }
+                else //working with a non-chunkable file, either small enough to be packed, or not packed
+                {
+                   work_node.packable = p_out->check_packable(work_node.st.st_size);
+         
+                   if (!work_node.packable)
+                   {
+                      work_node.packable = 2; // we identify non chunkable non packable file with packable set to 2
+                   }
+                   pre_process = 1;
+                }
 
-                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                        errsend_fmt(NONFATAL,
-                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
-                                    rank, p_out->path(), ::strerror(errno));
-                    }
-                    else {
-                        // --- CHUNKING-LOOP
-                        chunk_curr_offset = 0; // keeps track of current offset in file for chunk.
-                        idx = 0;               // keeps track of the chunk index
-                        while (chunk_curr_offset < work_node.st.st_size) {
-                            work_node.chkidx = idx;         // assign the chunk index
-                            // non-chunked file or file is a link or metadata
-                            // compare work - just send the whole file
-                            if ((work_node.st.st_size <= chunk_at)
-                                || (S_ISLNK(work_node.st.st_mode))
-                                || (o.work_type == COMPAREWORK && o.meta_data_only)) {
-                                work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
-                                chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
-                                PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
-                                               "non-chunkable file   chunk index: %d   chunk size: %ld\n",
-                                               rank, work_node.chkidx, work_node.chksz);
-                            }
-                            else {                  // having to chunk the file
-                                work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
-                                chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
-                                                      // should this be (work_node.chksz - chunk_curr_offset)?
-                                                      ? (work_node.st.st_size - chunk_curr_offset)
-                                                      : work_node.chksz);
-                                idx++;
-                            }
-                            // if a non-conditional transfer or if the
-                            // chunk did not make on the first one ...
-                            if (!o.different
-                                    || !chunktransferredCTM(ctm, work_node.chkidx)) 
-			    {
+                if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+                   errsend_fmt(NONFATAL,
+                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                               rank, p_out->path(), ::strerror(errno));
+                }
+                else {
+                   // --- CHUNKING-LOOP
+                   chunk_curr_offset = 0; // keeps track of current offset in file for chunk.
+                   idx = 0;               // keeps track of the chunk index
+                   while (chunk_curr_offset < work_node.st.st_size) {
+                      work_node.chkidx = idx;         // assign the chunk index
+                      // non-chunked file or file is a link or metadata
+                      // compare work - just send the whole file
+                      if ((work_node.st.st_size <= chunk_at)
+                          || (S_ISLNK(work_node.st.st_mode))
+                          || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+                         work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
+                         chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
+                         PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
+                                        "non-chunkable file   chunk index: %d   chunk size: %ld\n",
+                                        rank, work_node.chkidx, work_node.chksz);
+                      }
+                      else {                  // having to chunk the file
+                         work_node.chksz = ((ctm) ? ctm->chnksz : chunk_size);
+                         chunk_curr_offset += (((chunk_curr_offset + work_node.chksz) >  work_node.st.st_size)
+                                               // should this be (work_node.chksz - chunk_curr_offset)?
+                                               ? (work_node.st.st_size - chunk_curr_offset)
+                                               : work_node.chksz);
+                         idx++;
+                      }
+                      // if a non-conditional transfer or if the
+                      // chunk did not make on the first one ...
+                      if (!o.different
+                          || !chunktransferredCTM(ctm, work_node.chkidx)) 
+                      {
 
-                                    num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
-                                    regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
-                                    reg_buffer_count++;
-                                    PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk "
-                                                   "index: %d   chunk size: %ld\n",
-                                                   rank, work_node.chkidx, work_node.chksz);
-                                    if (((reg_buffer_count % COPYBUFFER) == 0)
-                                        || num_bytes_seen >= ship_off) {
-                                        PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
-                                                        "- sending %d reg buffers to manager.\n",
-                                                        rank, reg_buffer_count);
-                                        send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                                        num_bytes_seen = 0;
-                                    }
-                             } // end send test
-                             else 
-			     {
-				    printf("file %s chunk %d has been transferred\n", work_node.path, work_node.chkidx);
-                                    num_finished_bytes += work_node.chksz;
-                             }
-                        } // end file/chunking loop
-                    }
-                    // if CTM structure allocated it -> free the memory now
-                    if (ctm)
-                        freeCTM(&ctm);
-                } // end Parallel destination
-                else {  // non-parallel destination
-                    if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                        errsend_fmt(FATAL,
-                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
-                                    rank, p_out->path(), ::strerror(errno));
-                    }
-                    else {
-                        work_node.chkidx = 0;           // for non-chunked files, index is always 0
-                        work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
-                        num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
-                        regbuffer[reg_buffer_count] = work_node;
-                        reg_buffer_count++;
-                        if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
-                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
+                         num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
+                         regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
+                         reg_buffer_count++;
+                         PRINT_IO_DEBUG("rank %d: process_stat_buffer() adding chunk "
+                                        "index: %d   chunk size: %ld\n",
+                                        rank, work_node.chkidx, work_node.chksz);
+                         if (((reg_buffer_count % COPYBUFFER) == 0)
+                             || num_bytes_seen >= ship_off) {
+                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
                                             "- sending %d reg buffers to manager.\n",
                                             rank, reg_buffer_count);
                             send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                             num_bytes_seen = 0;
-                        }
-                    }
+                         }
+                      } // end send test
+                      else 
+                      {
+                         printf("file %s chunk %d has been transferred\n", work_node.path, work_node.chkidx);
+                         num_finished_bytes += work_node.chksz;
+                      }
+                   } // end file/chunking loop
                 }
-            }
-        }
+                // if CTM structure allocated it -> free the memory now
+                if (ctm)
+                   freeCTM(&ctm);
+             } // end Parallel destination
+             else {  // non-parallel destination
+                if (maybe_pre_process(pre_process, o, p_out, p_work)) {
+                   errsend_fmt(FATAL,
+                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                               rank, p_out->path(), ::strerror(errno));
+                }
+                else {
+                   work_node.chkidx = 0;           // for non-chunked files, index is always 0
+                   work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
+                   num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
+                   regbuffer[reg_buffer_count] = work_node;
+                   reg_buffer_count++;
+                   if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+                      PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
+                                      "- sending %d reg buffers to manager.\n",
+                                      rank, reg_buffer_count);
+                      send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                      num_bytes_seen = 0;
+                   }
+                }
+             }
+          }
+       }
 
-        if (! S_ISDIR(work_node.st.st_mode)) {
-            num_examined_files++;
-            num_examined_bytes += work_node.st.st_size;
-        }
+       if (! S_ISDIR(work_node.st.st_mode)) {
+          num_examined_files++;
+          num_examined_bytes += work_node.st.st_size;
+       }
 
-        //if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
-        if (o.verbose > 1) {
+       //if (work_node.st.st_size > 0 && work_node.st.st_blocks == 0){
+       if (o.verbose > 1) {
 
-            printmode(work_node.st.st_mode, modebuf);
-            memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
-            strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
-            sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
-                    modebuf, (long unsigned int) work_node.st.st_blocks,
-                    work_node.st.st_uid, work_node.st.st_gid,
-                    (size_t) work_node.st.st_size, timebuf, work_node.path);
+          printmode(work_node.st.st_mode, modebuf);
+          memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
+          strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
+          sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
+                  modebuf, (long unsigned int) work_node.st.st_blocks,
+                  work_node.st.st_uid, work_node.st.st_gid,
+                  (size_t) work_node.st.st_size, timebuf, work_node.path);
 
-            MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
+          MPI_Pack(statrecord, MESSAGESIZE, MPI_CHAR, writebuf, writesize, &out_position, MPI_COMM_WORLD);
 
-            write_count++;
-            if (write_count % MESSAGEBUFFER == 0) {
-                write_buffer_output(writebuf, writesize, write_count);
-                out_position = 0;
-                write_count = 0;
-            }
-        }
+          write_count++;
+          if (write_count % MESSAGEBUFFER == 0) {
+             write_buffer_output(writebuf, writesize, write_count);
+             out_position = 0;
+             write_count = 0;
+          }
+       }
 
-        // regbuffer is full (probably with zero-length files) -> send it
-        // off to manager. - cds 8/2015
-        if (reg_buffer_count >= COPYBUFFER) {
-            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg "
-                            "buffers to manager.\n", rank, reg_buffer_count);
-            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-        }
+       // regbuffer is full (probably with zero-length files) -> send it
+       // off to manager. - cds 8/2015
+       if (reg_buffer_count >= COPYBUFFER) {
+          PRINT_MPI_DEBUG("rank %d: process_stat_buffer() sending %d reg "
+                          "buffers to manager.\n", rank, reg_buffer_count);
+          send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+       }
     } //end of stat processing loop
 
     //incase we tried to copy a file into itself
@@ -2773,10 +2795,10 @@ void worker_comparelist(int             rank,
             buffer_count++;
         }
         num_compared_files +=1; // always count files, we can use nonfatal errcount for the "files we would copy" message
-	if (!o.meta_data_only) // always count bytes if doing a data compare
-	    num_compared_bytes += length;
+        if (!o.meta_data_only) // always count bytes if doing a data compare
+           num_compared_bytes += length;
         else if (rc) // count bytes we could move in a copy job, otherwise don't increment
-	    num_compared_bytes += length;
+           num_compared_bytes += length;
     }
     if (output) {
         write_buffer_output(writebuf, writesize, read_count);
