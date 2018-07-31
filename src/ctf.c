@@ -318,7 +318,8 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
           	  return(syserr);
 	}
 	else {	
-	  printf("ctf.c popuatelate CTF opening %s\n", ctmptr->chnkfname);							// file exists -> read it to populate CTF structure
+	  // file exists -> read it to populate CTF structure
+	  // printf("ctf.c populate CTF opening %s\n", ctmptr->chnkfname);
 	  if((ctffd = open(ctmptr->chnkfname,O_RDONLY)) < 0) 		// if error on open ...
 	    return(syserr = -errno);					//	return a negative errno
 	  if((syserr=(int)_readCTF_v2(ctffd,&ctmptr)) < 0) { 		// if error on read ...

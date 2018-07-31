@@ -772,10 +772,15 @@ public:
    virtual int check_packable(size_t length) {return 0;}
    virtual int get_packable() {return _item->packable;}
    virtual int rename_to_original() {return 0;}
-   virtual void create_temporary_path(const char* timestamp)
+   virtual bool create_temporary_path(const char* timestamp)
    {
-      char* tp_ptr = (_item->path) + strlen(_item->path);
+      const size_t len = strlen(_item->path);
+      if ((len + DATE_STRING_MAX + 1) > sizeof(_item->path))
+         return false;
+
+      char* tp_ptr = (_item->path) + len;
       snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
+      return true;
    }
    virtual void restore_original_path()
    {

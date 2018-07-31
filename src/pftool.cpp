@@ -2039,11 +2039,10 @@ void worker_readdir(int         rank,
 //     written.  We only want that for COPYWORK.
 //
 
-int maybe_pre_process(int&         pre_process,
+int maybe_pre_process(int&                  pre_process,
                       const struct options& o,
-                      PathPtr&     p_out,
-                      PathPtr&     p_work) {
-
+                      PathPtr&              p_out,
+                      PathPtr&              p_work) {
    int ret;
    if (pre_process == 1 &&
        (o.work_type == COPYWORK))
@@ -2058,9 +2057,10 @@ int maybe_pre_process(int&         pre_process,
             (o.work_type == COPYWORK))
    {
       //we are working with a chunkable file
-      p_out->create_temporary_path(p_work->get_timestamp());
-      if (!p_out->pre_process(p_work))
-      {
+      if (! p_out->create_temporary_path(p_work->get_timestamp()))
+         return -1;
+      else if (! p_out->pre_process(p_work)) {
+         p_out->restore_original_path();
          return -1;
       }
       else
@@ -2193,9 +2193,12 @@ void process_stat_buffer(path_item*      path_buffer,
     for (i = 0; i < *stat_count; i++) {
        process = 0;
        pre_process = 0;
+
        path_item&  work_node = path_buffer[i]; // avoid a copy
-       memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX); //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
+       //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
+       memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
        work_node.start = 0;
+
        PathPtr p_work(PathFactory::create_shallow(&path_buffer[i]));
        PathPtr p_dest(PathFactory::create_shallow(dest_node));
        PathPtr p_out;
@@ -2321,11 +2324,19 @@ void process_stat_buffer(path_item*      path_buffer,
                 else if (dest_exists == 3 || o.different == 0)
                 {
                    int i;
-                   //either we have a mismatch in src hash or restart is not on, delete temporary file, and purge CTM
-                   printf("DETECTED OLD TEMPORARY FILE WITH MISMATCHING SRC HASH, REMOVING TEMP FILE\n");
+
+                   //either we have a mismatch in src hash or restart is
+                   //not on, delete temporary file, and purge CTM
                    p_out->create_temporary_path(timestamp);
-                   if (!p_out->unlink() && (errno != ENOENT))
-                   {
+                   if (o.verbose > 1) {
+                      char message[MESSAGESIZE];
+                      snprintf(message, MESSAGESIZE,
+                               "INFO  STAT -- Removing old temporary file with mismatching src hash: %s\n",
+                               p_out->path());
+                      message[MESSAGESIZE-1] = 0;
+                      write_output(message, 1);
+                   }
+                   if (!p_out->unlink() && (errno != ENOENT)) {
                       errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
                    }
                    //now we have to wait for first writer to quit completely and unlinks again
@@ -2338,7 +2349,8 @@ void process_stat_buffer(path_item*      path_buffer,
                          break;
                       }
                    }
-                   printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
+                   // printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
+
                    //now we undo the temorary path
                    p_out->restore_original_path();
                    purgeCTM(out_node.path);
@@ -2431,7 +2443,8 @@ void process_stat_buffer(path_item*      path_buffer,
          
                    if (!work_node.packable)
                    {
-                      work_node.packable = 2; // we identify non chunkable non packable file with packable set to 2
+                      // we identify non chunkable non packable file with packable set to 2
+                      work_node.packable = 2;
                    }
                    pre_process = 1;
                 }
@@ -2654,7 +2667,8 @@ void worker_copylist(int             rank,
         // Need Path objects for the copy_file at this point ...
         PathPtr p_work( PathFactory::create_shallow(&work_node));
         PathPtr p_out(PathFactory::create_shallow(&out_node));
-            rc = copy_file(p_work, p_out, o.blocksize, rank, o);
+
+        rc = copy_file(p_work, p_out, o.blocksize, rank, o);
         if (rc >= 0) {
             if (o.verbose >= 1) {
                 if (S_ISLNK(work_node.st.st_mode)) {
