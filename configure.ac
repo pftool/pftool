@@ -41,6 +41,10 @@ AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 AC_ARG_ENABLE(CTM,
    AS_HELP_STRING([  --enable-ctm], [choose CTM mode = {xattrs | files | no}, default=files]))
 
+AC_ARG_ENABLE(debug,
+   AS_HELP_STRING([  --enable-debug], [build with -O0, instead of -O3]))
+AM_CONDITIONAL([DEBUG], [test "x$enable_debug" = xyes])
+
 AC_CONFIG_HEADER([config.h])
 
 

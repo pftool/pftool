@@ -1,44 +1,53 @@
 generic_cflags  =
 generic_ldflags =
 
+if DEBUG
+  generic_cflags  += -O0
+  generic_ldflags += -O0
+else
+  generic_cflags  += -O3
+  generic_ldflags += -O3
+endif
+
+
 if GPROF
-generic_cflags  += -pg
-generic_ldflags += -pg
+  generic_cflags  += -pg
+  generic_ldflags += -pg
 endif
 
 
 bin_PROGRAMS = $(top_builddir)/bin/pftool
 
 __top_builddir__bin_pftool_SOURCES = \
-debug.h \
-cta.c ctf.c ctm.c ctm.h \
-hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
-str.c str.h \
-sig.c sig.h \
-pfutils.cpp pfutils.h \
-pftool.cpp pftool.h \
-Path.cpp Path.h 
+  debug.h \
+  cta.c ctf.c ctm.c ctm.h \
+  hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
+  str.c str.h \
+  sig.c sig.h \
+  pfutils.cpp pfutils.h \
+  pftool.cpp pftool.h \
+  Path.cpp Path.h 
 
 if SYNDATA
-__top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h
-syndata_cflags=-DGEN_SYNDATA
+  __top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h
+  syndata_cflags=-DGEN_SYNDATA
 endif
 
 if S3
-s3_cflags=$(_s3_cflags) -DS3
-s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
+  s3_cflags=$(_s3_cflags) -DS3
+  s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 
 if MARFS
-marfs_cflags=-DMARFS
-marfs_ldflags=-lisal
+  marfs_cflags=-DMARFS
+  marfs_ldflags=-lisal
 install-exec-local:
 	chmod u+s $(bindir)/pftool
 	chmod g-s $(bindir)/pftool
 endif
 
 if ALLSTATIC
-allstatic_ldflags=-all-static
+  allstatic_ldflags=-all-static
 endif
 
 supportlib_ldflags=-lssl
