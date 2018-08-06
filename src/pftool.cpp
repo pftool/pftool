@@ -2148,6 +2148,7 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      num_examined_bytes = 0;
     size_t      num_finished_bytes = 0;
     int         num_examined_dirs = 0;
+    char        message[MESSAGESIZE];
     char        errmsg[MESSAGESIZE];
     char        statrecord[MESSAGESIZE];
     path_item   out_node;
@@ -2328,10 +2329,9 @@ void process_stat_buffer(path_item*      path_buffer,
                    //either we have a mismatch in src hash or restart is
                    //not on, delete temporary file, and purge CTM
                    p_out->create_temporary_path(timestamp);
-                   if (o.verbose > 1) {
-                      char message[MESSAGESIZE];
+                   if (o.verbose >= 1) {
                       snprintf(message, MESSAGESIZE,
-                               "INFO  STAT -- Removing old temporary file with mismatching src hash: %s\n",
+                               "INFO  DATASTAT -- Removing old temporary file with mismatching src hash: %s\n",
                                p_out->path());
                       message[MESSAGESIZE-1] = 0;
                       write_output(message, 1);
@@ -2500,10 +2500,15 @@ void process_stat_buffer(path_item*      path_buffer,
                             num_bytes_seen = 0;
                          }
                       } // end send test
-                      else 
-                      {
-                         printf("file %s chunk %d has been transferred\n", work_node.path, work_node.chkidx);
-                         num_finished_bytes += work_node.chksz;
+                      else {
+                          if (o.verbose >= 1) {
+                              snprintf(message, MESSAGESIZE,
+                                       "INFO  DATACOPY file %s chunk %d already transferred\n",
+                                       work_node.path, work_node.chkidx);
+                              message[MESSAGESIZE-1] = 0;
+                              write_output(message, 1);
+                          }
+                          num_finished_bytes += work_node.chksz;
                       }
                    } // end file/chunking loop
                 }
