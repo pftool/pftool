@@ -620,7 +620,9 @@ void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, i
       //printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
       for(j = 0; j < total_blk; j++)
       {
-         written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128, " %s %s pod %d blk %d: ", repo.c_str(), stats_name[stat_type], pod_id, j);
+         written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128,
+                            " %s %s pod %d blk %d: ",
+                            repo.c_str(), stats_name[stat_type], pod_id, j);
          msg_cursor += written;
          //printf("%s", msg);
          //now write histogram
@@ -1971,7 +1973,8 @@ void worker_readdir(int         rank,
                     if( 0 == fnmatch(o.exclude, path, 0) ) {
                         if (o.verbose >= 1) {
                             char message[MESSAGESIZE];
-                            sprintf(message, "Excluding: %s\n", path);
+                            snprintf(message, MESSAGESIZE, "Excluding: %s\n", path);
+                            message[MESSAGESIZE-1] = 0;
                             write_output(message, 1);
                         }
                     } 
@@ -2668,7 +2671,7 @@ void worker_copylist(int             rank,
         length = (((offset + work_node.chksz) > work_node.st.st_size)
                   ? (work_node.st.st_size - offset)
                   : work_node.chksz);
-        PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk index %d unpacked. "
+        PRINT_MPI_DEBUG("rank %d: worker_copylist() chunk %d unpacked. "
                         "offset = %ld   length = %ld\n",
                         rank, work_node.chkidx, offset, length);
 
@@ -2683,14 +2686,17 @@ void worker_copylist(int             rank,
         if (rc >= 0) {
             if (o.verbose >= 1) {
                 if (S_ISLNK(work_node.st.st_mode)) {
-                    sprintf(copymsg, "INFO  DATACOPY Created symlink %s from %s\n",
-                            out_node.path, work_node.path);
+                    snprintf(copymsg, MESSAGESIZE,
+                             "INFO  DATACOPY Created symlink %s from %s\n",
+                             out_node.path, work_node.path);
                 }
                 else {
-                    sprintf(copymsg, "INFO  DATACOPY %sCopied %s offs %lld len %lld to %s\n",
-                            ((rc == 1) ? "*" : ""),
-                            work_node.path, (long long)offset, (long long)length, out_node.path);
+                    snprintf(copymsg, MESSAGESIZE,
+                             "INFO  DATACOPY %sCopied %s chunk %d offs %lld len %lld to %s\n",
+                             ((rc == 1) ? "*" : ""),
+                             work_node.path, work_node.chkidx, (long long)offset, (long long)length, out_node.path);
                 }
+                copymsg[MESSAGESIZE-1] = 0;
                 write_output(copymsg, 0);
                 out_position = 0;
             }
@@ -2789,24 +2795,29 @@ void worker_comparelist(int             rank,
         length = work_node.chksz;
         rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only, o);
         if (o.meta_data_only || S_ISLNK(work_node.st.st_mode)) {
-            sprintf(copymsg, "INFO  DATACOMPARE compared %s to %s", work_node.path, out_node.path);
+            snprintf(copymsg, MESSAGESIZE,
+                     "INFO  DATACOMPARE compared %s to %s",
+                     work_node.path, out_node.path);
         }
         else {
-            sprintf(copymsg, "INFO  DATACOMPARE compared %s offs %lld len %lld to %s",
-                    work_node.path, (long long)offset, (long long)length, out_node.path);
+            snprintf(copymsg, MESSAGESIZE,
+                     "INFO  DATACOMPARE compared %s offs %lld len %lld to %s",
+                     work_node.path, (long long)offset, (long long)length, out_node.path);
         }
 
+        size_t msg_remain = MESSAGESIZE - strlen(copymsg);
         if (rc == 0) {
-            strncat(copymsg, " -- SUCCESS\n", MESSAGESIZE);
+            strncat(copymsg, " -- SUCCESS\n", msg_remain);
         }
         else if (rc == 2 ) {
-            strncat(copymsg, " -- MISSING DESTINATION\n", MESSAGESIZE);
+            strncat(copymsg, " -- MISSING DESTINATION\n", msg_remain);
             send_manager_nonfatal_inc();
         }
         else {
-            strncat(copymsg, " -- MISMATCH\n", MESSAGESIZE);
+            strncat(copymsg, " -- MISMATCH\n", msg_remain);
             send_manager_nonfatal_inc();
         }
+        copymsg[MESSAGESIZE-1] = 0;
 
         if ((rc != 0)
             || (o.verbose >= 1)) {
