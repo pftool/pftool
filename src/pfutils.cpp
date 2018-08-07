@@ -1778,16 +1778,30 @@ int epoch_to_string(char* str, size_t size, const time_t* time) {
    return 0;
 }
 
+// <p_src>    is the (unaltered) source
+// <out_node> is the (unaltered) destination
+//
+// see comments at check_ctm_match()
+
 int check_temporary(PathPtr p_src, path_item* out_node)
 {
-	int ret;
-	char src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX];
-	char src_mtime_str[DATE_STRING_MAX];
+   int    ret;
+   char   src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX]; // p_src->path() + mtime string
+   char   src_mtime_str[DATE_STRING_MAX];
 
-	time_t src_mtime = p_src->mtime();
-	epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
-	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
+   time_t src_mtime = p_src->mtime();
+   epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
+   snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
+   src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX -1] = 0;
 
-	ret = check_ctm_match(out_node->path, src_to_hash);
-	return ret;
+   ret = check_ctm_match(out_node->path, src_to_hash);
+
+   // if the CTM matches, but the temp-file has been deleted, return no-match
+   if (ret == 2) {
+      struct stat st;
+      if (stat(src_to_hash, &st) && (errno == ENOENT))
+         ret = 3;
+   }
+
+   return ret;
 }

@@ -903,6 +903,7 @@ int manager(int             rank,
         PathPtr p_src(PathFactory::create(beginning_node.path));
         sprintf(message, "INFO  HEADER   Source-type: %s\n", p_src->class_name().get());
         write_output(message, 1);
+
         PathPtr p_dest(PathFactory::create(dest_path));
         sprintf(message, "INFO  HEADER   Dest-type:   %s\n", p_dest->class_name().get());
         write_output(message, 1);
@@ -2226,25 +2227,27 @@ void process_stat_buffer(path_item*      path_buffer,
 
        //it's not a directory
        else {
+
           //do this for all regular files AND fuse+symylinks
           int temp_exists;
           parallel_dest = o.parallel_dest;
           get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
           p_out = PathFactory::create_shallow(&out_node);
           p_out->stat();
-          dest_exists = p_out->exists();
-         
-          //if (!dest_exists) //now we check for temporary files
-          //{
+
+          // 0 = nope
+          // 1 = exists
+          dest_exists = p_out->exists(); // boolean
+
+          // < 0 = negative errno
+          //   0 = no CTM file
+          //   2 = CTM match
+          //   3 = no match  (or match, but temp-file is gone)
           temp_exists = check_temporary(p_work, &out_node);
-          if (dest_exists < 0) {
-             errsend_fmt(FATAL, "Failed to check for temporary files\n");
-          }
           if (temp_exists) {
              dest_exists = temp_exists; //restart with a temporary file
           }
        
-          //}
           // if selected options require reading the source-file, and the
           // source-file is not readable, we have a problem
           if (((o.work_type == COPYWORK)
@@ -2271,6 +2274,7 @@ void process_stat_buffer(path_item*      path_buffer,
              p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
              if (p_out->supports_n_to_1())
                 parallel_dest = 1;
+
              //if the out path exists
              if (dest_exists == 1) {
                 // Maybe user only wants to operate on source-files
@@ -2379,7 +2383,8 @@ void process_stat_buffer(path_item*      path_buffer,
           if (process == 1) {
              //parallel filesystem can do n-to-1
              if (parallel_dest) {
-                CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
+                 CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
+
                 // MarFS will adjust a given chunksize to match (some
                 // multiple of) the chunksize of the underlying repo
                 // (the repo matching the file-size), adjusting for the
@@ -2389,6 +2394,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 // for recovery-info)
                 chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
                 chunk_at   = p_out->chunk_at(o.chunk_at);
+
                 // handle zero-length source file - because it will not
                 // be processed through chunk/file loop below.
                 if (work_node.st.st_size == 0) {

@@ -118,24 +118,24 @@ ssize_t _writeCTF_v2(int fd, CTM *ctmptr) {
         size_t n;                                       // number of bytes written
         ssize_t tot = 0;                                // total number of bytes written
 
-	//CTM file must have been created in maybe_pre_process
+        //CTM file must have been created in maybe_pre_process
         if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
                 return -errno;
 
-                // Write out the chunk count
+        // Write out the chunk count
         if((n = write_field(fd,&ctmptr->chnknum,sizeof(ctmptr->chnknum))) < 0)
           return(n);
         tot += n;
-                // Write out the chunk size
+        // Write out the chunk size
         if((n = write_field(fd,&ctmptr->chnksz,sizeof(ctmptr->chnksz))) < 0)
           return(n);
         tot += n;
 
-                // Write out the flags
+        // Write out the flags
         if((n = write_field(fd,(void *)ctmptr->chnkflags,SizeofBitArray(ctmptr))) < 0)
           return(n);
         tot += n;
-	fsync(fd);
+        fsync(fd);
         return(tot);
 }
 
@@ -199,10 +199,13 @@ ssize_t _readCTF_v2(int fd, CTM **pctmptr) {
         size_t bufsz = (size_t)0;                               // size of the flag buffer
         ssize_t n;                                              // current bytes read
         ssize_t tot = (ssize_t)0;                               // total bytes read
+
         //we skip the src hash and timestamp
-	if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
-		return -errno;
-	printf("");
+        // [they are read independently, in check_ctm_match(), etc]
+        if(lseek(fd, (off_t)(SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX), SEEK_CUR) < 0)
+           return -errno;
+        //printf("");
+
         if((n=read(fd,&cknum,sizeof(long))) <= 0)               // if error on read ...
           return((ssize_t)(-errno));
         tot += n;

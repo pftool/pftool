@@ -331,7 +331,8 @@ int transferredCTM(CTM *ctmptr) {
 	int i = 0;					// index into 
 
 	if(ctmptr) {
-	  while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i)) i++;
+	  while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i))
+	     i++;
 	  rc = (int)(i >= ctmptr->chnknum);
 	}
 	return(rc);
@@ -378,6 +379,29 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 	return(*rbuf);
 }
 
+/**
+ * Read the CTM file corresponding to an (unaltered) destination filename,
+ * and extract the hash.  Construct a hash for a source-file (with
+ * time-stamp appended) that we are considering copying to that
+ * destination.  Return a code the has information about a comparison
+ * between the two.  The result may overwrite the value of a boolean, so
+ * avoid values 0/1.
+ *
+ * When the CTM file is originally written, it now includes a hash of the
+ * source-file with its mtime appended.  The idea is that different
+ * source-filenames, or different versions of the same source-filename,
+ * will have different hashes from the one that was used when the CTM file
+ * was written.  We can detect this, during a restart, and avoid
+ * transferring part of one file on top of part of another.
+ *
+ * @param filename     the (original) dest-filename, e.g. for a copy
+ *
+ * @param src_to_hash  the source-filename (with its mtime appended)
+ *
+ * @return -errno, if there's a problem accessing the CTM file. 0, if
+ * there's no CTM file.  2, if the hash from the CTM matches the hashed
+ * source-filename, 3, if there's no match.
+ */
 int check_ctm_match(const char* filename, const char* src_to_hash)
 {
 	int ret = 0;
@@ -389,6 +413,7 @@ int check_ctm_match(const char* filename, const char* src_to_hash)
 
 	ctm_name = genCTFFilename(filename);
 	src_hash = str2sig(src_to_hash);
+
 	if (stat(ctm_name, &sbuf))
 	{
 		ret = 0; //there is no ctm, not match
@@ -484,6 +509,7 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	ctm_name = genCTFFilename(p_out->path());
 	if((fd = open(ctm_name, O_WRONLY | O_CREAT)) < 0)
 		return -errno;
+
 	//first write out the src_hash
 	if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
 		return -1;
@@ -491,10 +517,13 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	//write out temporary file's timestamp stored in p_src
 	if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
 		return -1;
+
+	free(ctm_name);
+	free(src_hash);
+
 	fsync(fd);
 	if (close(fd) < 0)
 		return -errno;
-	free(ctm_name);
-	free(src_hash);
+
 	return 0;
 }
