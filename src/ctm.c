@@ -507,7 +507,7 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	src_hash = str2sig(src_to_hash);
 
 	ctm_name = genCTFFilename(p_out->path());
-	if((fd = open(ctm_name, O_WRONLY | O_CREAT)) < 0)
+	if((fd = open(ctm_name, (O_WRONLY | O_CREAT), 0660)) < 0)
 		return -errno;
 
 	//first write out the src_hash
