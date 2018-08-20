@@ -527,8 +527,14 @@ int copy_file(PathPtr       p_src,
     // give destination the same mode as src, (access-bits only)
     mode_t dest_mode = p_src->mode() & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO);
     if (! p_dest->open(flags, dest_mode, offset, length)) {
-       errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
+       if (p_dest->get_errno() == EDQUOT) {
+           errsend_fmt(FATAL, "Failed to open file %s for write (%s)\n",
                    p_dest->path(), p_dest->strerror());
+       }
+       else {
+           errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
+                   p_dest->path(), p_dest->strerror());
+       }
        p_src->close();
        if (buf)
           free(buf);
