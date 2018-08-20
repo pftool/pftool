@@ -1595,6 +1595,7 @@ void worker_readdir(int         rank,
             if (! p_work->opendir()) {
                 errsend_fmt(NONFATAL, "Failed to open (%s) dir %s [%s]\n", 
                             p_work->class_name().get(), p_work->path(),p_work->strerror());
+		break; // if we fail to open here, we'll segfault when we try to readdir.  Likely more to do here.
             }
 
             if (makedir == 1) {
@@ -1644,6 +1645,7 @@ void worker_readdir(int         rank,
                         if (! p_new->exists()) {
                             errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
                                     "Failed to stat path (2) %s\n", p_new->path());
+			    break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
                         }
@@ -1995,9 +1997,14 @@ void process_stat_buffer(path_item*      path_buffer,
                         }
                     }
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                        errsend_fmt(NONFATAL,
-                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
+			if (errno == EDQUOT) {
+			    errsend_fmt(FATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
                                     rank, p_out->path(), ::strerror(errno));
+			}
+			else {
+			    errsend_fmt(NONFATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                    rank, p_out->path(), ::strerror(errno));
+			}
                     }
                     else {
                         // --- CHUNKING-LOOP
@@ -2055,9 +2062,14 @@ void process_stat_buffer(path_item*      path_buffer,
                 } // end Parallel destination
                 else {  // non-parallel destination
                     if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                        errsend_fmt(NONFATAL,
-                                    "Rank %d: couldn't prepare destination-file '%s': %s\n",
+                        if (errno == EDQUOT) {
+                            errsend_fmt(FATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
                                     rank, p_out->path(), ::strerror(errno));
+                        }
+                        else {
+                            errsend_fmt(NONFATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                    rank, p_out->path(), ::strerror(errno));
+                        }
                     }
                     else {
                         work_node.chkidx = 0;           // for non-chunked files, index is always 0
