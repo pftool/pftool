@@ -640,6 +640,7 @@ public:
    // (e.g. descending into PLFS directory).  Let PathFactory sort it out,
    // using stat_item(), etc.
    virtual PathPtr append(char* suffix) const;
+   virtual PathPtr shorten(ssize_t size) const;
 
 
 
@@ -771,9 +772,13 @@ public:
    //all additional functions needed for renaming, creating temp files, etc
    virtual int check_packable(size_t length) {return 0;}
    virtual int get_packable() {return _item->packable;}
-   virtual int rename_to_original() {return 0;}
-   virtual bool create_temporary_path(const char* timestamp)
-   {
+
+   // managing time-stamps (for temporary dest-pathname)
+   virtual char* get_timestamp() {return _item->timestamp;}
+   virtual int   rename_to_original() {return 0;}
+
+#if 0  // these should be unused, now ...
+   virtual bool  create_temporary_path(const char* timestamp) {
       const size_t len = strlen(_item->path);
       if ((len + DATE_STRING_MAX + 1) > sizeof(_item->path))
          return false;
@@ -782,8 +787,7 @@ public:
       snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
       return true;
    }
-   virtual void restore_original_path()
-   {
+   virtual void  restore_original_path() {
       int i;
       int pathlen = strlen(_item->path);
 
@@ -796,7 +800,7 @@ public:
          }
       }
    }
-   virtual char* get_timestamp() {return _item->timestamp;}
+#endif
 
    //additional functions needed for timing collection fron libne
    virtual int build_repo_info(repo_stats timing_stats) {return 0;}
@@ -817,7 +821,8 @@ public:
 #endif
 
 
-   PathPtr         get_output_path(path_item src_node, path_item dest_node, struct options o);
+   // // unused (and undefined?).  pftool uses the function-version in pfutils.cpp
+   // PathPtr         get_output_path(path_item src_node, path_item dest_node, struct options o);
 
    // fstype is apparently only used to distinguish panfs from everything else.
    static FSType   parse_fstype(const char* token) { return (strcmp(token, "panfs") ? UNKNOWN_FS : PAN_FS); }
@@ -974,7 +979,7 @@ public:
 
    virtual int rename_to_original()
    {
-        char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
+        char original_path[PATHSIZE_PLUS];
         int i;
         int pathlen;
 
@@ -2007,6 +2012,7 @@ public:
    //     calling truncate or batch_pre_process on an existing N:1 file
    //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
+
       const char* marPath   = marfs_sub_path(_item->path);
       size_t      file_size = src->st().st_size;
 
@@ -2368,7 +2374,7 @@ public:
 
    virtual int rename_to_original()
    {
-      char original_path[PATHSIZE_PLUS + DATE_STRING_MAX];
+      char original_path[PATHSIZE_PLUS];
       int i;
       int pathlen;
 

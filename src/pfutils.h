@@ -52,15 +52,17 @@
 
 #include "debug.h"
 
-#define DATE_STRING_MAX 64
-#define PATHSIZE_PLUS  (FILENAME_MAX+30)
-#define ERRORSIZE      PATHSIZE_PLUS
-#define MESSAGESIZE    PATHSIZE_PLUS
-#define MESSAGEBUFFER  400
-#define MAX_TEMP_UNLINK_ITER 3
+#define DATE_STRING_MAX 64  /* includes room for leading '+', when used in filenames */
+#define PATHSIZE_PLUS   (FILENAME_MAX + DATE_STRING_MAX + 30)
+#define ERRORSIZE       PATHSIZE_PLUS
+#define MESSAGESIZE     PATHSIZE_PLUS
+#define MESSAGEBUFFER   400
+
+#define MAX_TEMP_UNLINK_ITER  3
 #define TEMP_UNLINK_WAIT_TIME 1
+
 // if you are trying to increase max pack size, STATBUFFER must be >= to
-// COPYBUFFER because it only collets one stat buffer worth of things before
+// COPYBUFFER because it only collects one stat buffer worth of things before
 // shipping off.
 #define DIRBUFFER      5
 #define STATBUFFER     4096
@@ -246,10 +248,12 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
-    char          path[PATHSIZE_PLUS+DATE_STRING_MAX]; // keep this last, for efficient init
-    char          timestamp[DATE_STRING_MAX];
     int           packable;
     int           temp_flag;
+
+   // keep this last, for efficient init
+    char          path[PATHSIZE_PLUS];
+    char          timestamp[DATE_STRING_MAX];
 } path_item;
 
 // A queue to store all of our input nodes

@@ -350,6 +350,7 @@ void get_dest_path(path_item*        dest_node, // fill this in
 // src_node, use the part of src_node that extends beyond <base_path>.
 //
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
+
 void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
@@ -360,8 +361,8 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     const char*  path_slice;
     int          path_slice_duped = 0;
 
-    // clear out possibly-uninitialized stat-field
-    memset(out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
+    // start clean
+    memset(out_node, 0, sizeof(path_item));
 
     // marfs may want to know chunksize
     out_node->chksz  = dest_node->chksz;
@@ -370,43 +371,57 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     //remove trailing slash(es)
     strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
     trim_trailing('/', out_node->path);
-    size_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
+    ssize_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
 
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
         const char* last_slash = strrchr(src_node->path, '/');
-        if (last_slash) {
+        if (last_slash)
             path_slice = last_slash +1;
-        }
-        else {
+        else
             path_slice = (char *) src_node->path;
-        }
     }
     else {
-        if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0) {
+        if (strcmp(base_path, ".") == 0)
             path_slice = (char *) src_node->path;
-        }
         else {
             path_slice = strdup(src_node->path + strlen(base_path) + 1);
             path_slice_duped = 1;
         }
     }
 
-    if (S_ISDIR(dest_node->st.st_mode)) {
-        strncat(out_node->path, "/", remain);
-        remain -= 1;
-        strncat(out_node->path, path_slice, remain);
-    }
-    if (path_slice_duped) {
-       free((void*)path_slice);
-    }
 
-    if (rename_flag == 1 and src_node->packable == 0)
-    {
-       //NEED TO CREATE TEMPORARY FILE NAME!
+    // assure there is enough room to append path_slice
+    size_t slice_len = strlen(path_slice);
+    if (slice_len > remain) {
+       out_node->path[0] = 0;
+       return;
+    }
+    remain -= slice_len;
+
+    if (S_ISDIR(dest_node->st.st_mode)) {
+        strcat(out_node->path, "/");
+        strcat(out_node->path, path_slice);
+    }
+    if (path_slice_duped)
+       free((void*)path_slice);
+
+
+    if ((rename_flag == 1) && (src_node->packable == 0)) {
+       //need to create temporary file name
+
+       // assure there is room
+       if (remain < DATE_STRING_MAX +1) {
+          out_node->path[0] = 0;
+          return;
+       }
+       remain -= DATE_STRING_MAX +1;;
+
        strcat(out_node->path, "+");
        strcat(out_node->path, src_node->timestamp);
     }
+
+    out_node->path[PATHSIZE_PLUS -1] = 0;
 }
 
 int one_byte_read(const char *path) {
@@ -1778,6 +1793,8 @@ int epoch_to_string(char* str, size_t size, const time_t* time) {
    return 0;
 }
 
+
+
 // <p_src>    is the (unaltered) source
 // <out_node> is the (unaltered) destination
 //
@@ -1785,23 +1802,14 @@ int epoch_to_string(char* str, size_t size, const time_t* time) {
 
 int check_temporary(PathPtr p_src, path_item* out_node)
 {
-   int    ret;
-   char   src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX]; // p_src->path() + mtime string
-   char   src_mtime_str[DATE_STRING_MAX];
-
    time_t src_mtime = p_src->mtime();
+   char   src_mtime_str[DATE_STRING_MAX];
+   char   src_to_hash[PATHSIZE_PLUS]; // p_src->path() + mtime string
+
    epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
-   snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime_str);
-   src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX -1] = 0;
 
-   ret = check_ctm_match(out_node->path, src_to_hash);
+   snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
+   src_to_hash[PATHSIZE_PLUS -1] = 0;
 
-   // if the CTM matches, but the temp-file has been deleted, return no-match
-   if (ret == 2) {
-      struct stat st;
-      if (stat(src_to_hash, &st) && (errno == ENOENT))
-         ret = 3;
-   }
-
-   return ret;
+   return check_ctm_match(out_node->path, src_to_hash);
 }

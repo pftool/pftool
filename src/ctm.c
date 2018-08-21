@@ -394,7 +394,7 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  * was written.  We can detect this, during a restart, and avoid
  * transferring part of one file on top of part of another.
  *
- * @param filename     the (original) dest-filename, e.g. for a copy
+ * @param dest         the (original) dest-filename, e.g. for a copy
  *
  * @param src_to_hash  the source-filename (with its mtime appended)
  *
@@ -402,60 +402,96 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  * there's no CTM file.  2, if the hash from the CTM matches the hashed
  * source-filename, 3, if there's no match.
  */
-int check_ctm_match(const char* filename, const char* src_to_hash)
+int check_ctm_match(const char* dest, const char* src_to_hash)
 {
-	int ret = 0;
-	int fd;
-	char* ctm_name;
-	char* src_hash; //must be freed
-	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
-	struct stat sbuf;
+   int ret = 0;
+   int fd;
+   char* ctm_name;
+   char* src_hash; //must be freed
+   char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
 
-	ctm_name = genCTFFilename(filename);
-	src_hash = str2sig(src_to_hash);
+   ctm_name = genCTFFilename(dest);
+   src_hash = str2sig(src_to_hash);
 
-	if (stat(ctm_name, &sbuf))
-	{
-		ret = 0; //there is no ctm, not match
-	}
-	else
-	{
-		if((fd = open(ctm_name, O_RDONLY)) < 0)
-		{
-			free(ctm_name);
-			free(src_hash);
-			return -errno;
-		}
-		//read src hash
-		if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
-		{
-			free(ctm_name);
-			free(src_hash);
-			return -errno;
-		}
-		
-		if(!strcmp(ctm_src_hash, src_hash))
-		{
-			//we have a match!
-			ret = 2;
-		}
-		else
-		{
-			//we dont have a match
-			ret = 3;
-		}
-		if(close(fd) < 0)
-		{
-			return -errno;
-		}
-	}
 
-	free(ctm_name);
-	free(src_hash);
-	return ret;
+   if((fd = open(ctm_name, O_RDONLY)) < 0) {
+      if (errno == ENOENT)
+         ret = 0; //there is no ctm, no match
+      else
+         ret = -errno;
+   }
+
+   //read src hash
+   else if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0) {
+      ret = -errno;
+   }
+
+   else if(!strcmp(ctm_src_hash, src_hash)) {
+      // we have a match!
+
+      // check whether destination temp-file also exists.
+      // For that, we need to also read the dest temp-file timestamp.
+      // Do that now, while we still have the CTM-file open.
+      struct stat st;
+
+      // assure there's room for timestamp at the end of <dest>
+      size_t dest_len = strlen(dest);
+      if ((PATHSIZE_PLUS - dest_len) < DATE_STRING_MAX) {
+         ret = -EIO;
+      }
+      else {
+
+         // prepare to read timestamp onto the end of <dest>
+#if 1
+         char dest_temp[PATHSIZE_PLUS];
+         strcpy(dest_temp, dest);
+#else
+         char* dest_temp = dest; // alter existing <dest> string
+#endif
+         dest_temp[dest_len] = '+';
+         char* timestamp = dest_temp + dest_len +1;
+
+
+         // read timestamp onto the end of <dest> to make dest temp-fname.
+         // if it doesn't exist, then user must've deleted it (CTM does
+         // exist so it's not that the temp-file was renamed over the
+         // detination).  in that case, we signal to caller by indicating a
+         // mis-match, which triggers wiping the CTM and starting over.
+         errno = 0;
+         if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX) {
+            ret = -errno;  // something wrong with timestamp
+         }
+         else if (stat(dest_temp, &st) && (errno != ENOENT)) {
+            ret = -errno;    // stat failed for some reason other than ENOENT
+         }
+         else if (errno == ENOENT) {
+            ret = 3;         // no destination temp-file.  treat as mismatch
+         }
+         else
+            ret = 2;         // passed all the tests.  It's a match
+#if 1
+#else
+         dest_temp[dest_len] = 0; // undo damage to original <dest>
+#endif
+      }
+   }
+   else {
+      //we dont have a match
+      ret = 3;
+   }
+
+
+   if((fd > 0) && (close(fd) < 0)) {
+      ret = -errno;
+   }
+
+
+   free(ctm_name);
+   free(src_hash);
+   return ret;
 }
 
-int get_ctm_timestamp(const char* filename, char* timestamp)
+int get_ctm_timestamp(char* timestamp, const char* filename)
 {
 	char* ctm_name;//need free
 	struct stat sbuf;
@@ -483,7 +519,7 @@ int get_ctm_timestamp(const char* filename, char* timestamp)
 		}
 		if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
 		{
-			//something wrong with timestamp, repor error
+			//something wrong with timestamp, report error
 			ret = -2;
 		}
 	}
@@ -498,12 +534,12 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	time_t mtime = p_src->mtime();
 	char* ctm_name;//need free
 	char* src_hash;//need free
-	char src_to_hash[PATHSIZE_PLUS + DATE_STRING_MAX];
+	char src_to_hash[PATHSIZE_PLUS];
 	char src_mtime[DATE_STRING_MAX];
 
 	//construct src hash
 	epoch_to_string(src_mtime, DATE_STRING_MAX, &mtime);
-	snprintf(src_to_hash, PATHSIZE_PLUS+DATE_STRING_MAX, "%s+%s", p_src->path(), src_mtime);
+	snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime);
 	src_hash = str2sig(src_to_hash);
 
 	ctm_name = genCTFFilename(p_out->path());

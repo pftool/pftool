@@ -30,13 +30,37 @@ PathPtr
 Path::append(char* suffix) const {
 
    char  new_path[PATHSIZE_PLUS];
-   
    size_t len = strlen(_item->path);
+
    strncpy(new_path,      _item->path, PATHSIZE_PLUS);
    strncpy(new_path +len, suffix,      PATHSIZE_PLUS -len);
 
+   if (new_path[PATHSIZE_PLUS -1])
+      return PathPtr();         // return NULL, for overflow
+
    return PathFactory::create(new_path);
 }
+
+
+// remove a suffix.  If <size> is negative, it is size of suffix to remove.
+// Otherwise, it is the size of the prefix to keep.
+PathPtr
+Path::shorten(ssize_t size) const {
+
+   char  new_path[PATHSIZE_PLUS];
+   
+   size_t new_len = size;
+   if (size < 0)
+      new_len = strlen(_item->path) - size;
+
+   if (new_len >= PATHSIZE_PLUS)
+      return PathPtr();         // return NULL, for overflow/underflow
+
+   strncpy(new_path, _item->path, new_len);
+
+   return PathFactory::create(new_path);
+}
+
 
 
 

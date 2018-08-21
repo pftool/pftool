@@ -1,4 +1,4 @@
-// -*- mode: c++; c-basic-offset: 4 -*-
+// -*- mode: c++; c-basic-offset: 3 -*-
 /*
  *This material was prepared by the Los Alamos National Security, LLC (LANS) under
  *Contract DE-AC52-06NA25396 with the U.S. Department of Energy (DOE). All rights
@@ -1700,9 +1700,12 @@ void worker_update_chunk(int            rank,
 
         PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
-        // CTM is based off of destination file. Populate out_node
-        get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);//original destination path is used to generate CTM, no need for temp file name
+        // CTM is based off of destination file.
+        //original destination path is used to generate CTM, no need for temp file name
+
+        get_output_path(&out_node,      base_path, &work_node, dest_node, o, 0);
         get_output_path(&out_node_temp, base_path, &work_node, dest_node, o, 1);
+
         // let sub-classes do any per-chunk work they want to do
         //        PathPtr p_out(PathFactory::create_shallow(out_node));
         //        p_out->chunk_complete();
@@ -2057,23 +2060,26 @@ int maybe_pre_process(int&                  pre_process,
       if (!p_out->pre_process(p_work))
          return -1;
    }
+
+   //we are working with a chunkable file?
    else if (pre_process == 2 &&
-            (o.work_type == COPYWORK))
-   {
-      //we are working with a chunkable file
-      if (! p_out->create_temporary_path(p_work->get_timestamp()))
+            (o.work_type == COPYWORK)) {
+
+      char  timestamp_plus[DATE_STRING_MAX];
+      char* timestamp = &timestamp_plus[1];
+      timestamp_plus[0] = '+';
+      strcpy(timestamp, p_work->get_timestamp());
+
+      PathPtr p_temp(p_out->append(timestamp_plus));
+      if (! p_temp)
          return -1;
-      else if (! p_out->pre_process(p_work)) {
-         p_out->restore_original_path();
+
+      else if (! p_temp->pre_process(p_work))
          return -1;
-      }
-      else
-      {
+
+      else {
          //create CTM NOW
-         //first restore to original output path
-         p_out->restore_original_path();
-         if(create_CTM(p_out, p_work) < 0)
-         {
+         if(create_CTM(p_out, p_work) < 0) {
             printf("Failed CTM??\n");
             return -1;
          }
@@ -2166,6 +2172,7 @@ void process_stat_buffer(path_item*      path_buffer,
     char        timebuf[30];
     int         rc;
     int         i;
+
     char        timestamp[DATE_STRING_MAX];
     time_t      tp = time(NULL);
     epoch_to_str(timestamp, DATE_STRING_MAX, &tp);
@@ -2183,6 +2190,7 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      ship_off = SHIPOFF;
     off_t       chunk_curr_offset = 0;
     int         idx = 0;
+
     //classification
     path_item   dirbuffer[DIRBUFFER];
     int         dir_buffer_count = 0;
@@ -2194,12 +2202,14 @@ void process_stat_buffer(path_item*      path_buffer,
     if (! writebuf) {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
     }
+
     out_position = 0;
     for (i = 0; i < *stat_count; i++) {
        process = 0;
        pre_process = 0;
 
        path_item&  work_node = path_buffer[i]; // avoid a copy
+
        //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
        memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
        work_node.start = 0;
@@ -2250,18 +2260,29 @@ void process_stat_buffer(path_item*      path_buffer,
           if (temp_exists) {
              dest_exists = temp_exists; //restart with a temporary file
           }
+
        
+
+          // Punt, if we can't get at the tempfile.  (The case I saw was where
+          // the CTM chunkfile was written with mode 000.)
+          // TBD: maybe just set temp_exists=3, and let downstream take care of attempting to delete.
+          if (temp_exists < 0) {
+             errsend_fmt(NONFATAL, "problem accessing temp-file: %s\n",
+                         strerror(errno));
+             process = 0;
+          }
+
           // if selected options require reading the source-file, and the
           // source-file is not readable, we have a problem
-          if (((o.work_type == COPYWORK)
-               || ((o.work_type == COMPAREWORK)
-                   && ! o.meta_data_only))
-              && (! p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
+          else if ( ((o.work_type == COPYWORK)
+                     || ((o.work_type == COMPAREWORK) && ! o.meta_data_only))
+                    && (! p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW)) ) {
 
              errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
                          p_work->path(), p_work->strerror());
              process = 0;
           }
+
           // if selected options require reading the destination-file,
           // and destination-file is not readable, we have a problem
           else if ((((o.work_type == COMPAREWORK)
@@ -2272,6 +2293,7 @@ void process_stat_buffer(path_item*      path_buffer,
                          p_out->path(), p_out->strerror());
              process = 0;
           }
+
           else if (o.work_type == COPYWORK) {
              process = 1;
              p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
@@ -2313,53 +2335,51 @@ void process_stat_buffer(path_item*      path_buffer,
                    }
                 }
              }
-             else if (dest_exists > 1)
-             {
+             else if (dest_exists > 1) {
+
                 //a temporary file exists
                 //we extract timestamp out and put it in work_node
-                char timestamp[DATE_STRING_MAX];
-                if (get_ctm_timestamp(out_node.path, timestamp) < 0)
-                {
+                char timestamp_plus[DATE_STRING_MAX];
+                char* timestamp = &timestamp_plus[1];
+                timestamp_plus[0] = '+';
+                
+                if (get_ctm_timestamp(timestamp, out_node.path) < 0)
                    errsend_fmt(FATAL, "Failed to read timestamp for temporary file\n");
-                }
+
                 //now we have the time stamp, deal with each accordingly
-                if (dest_exists == 2 && o.different == 1)
-                {
+                else if (dest_exists == 2 && o.different == 1) {
+
                    //in this case we have a match AND restart is enabled
                    //mark work_node with temp flag and copy timestamp
                    memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
                 }
-                else if (dest_exists == 3 || o.different == 0)
-                {
-                   int i;
+                else if (dest_exists == 3 || o.different == 0) {
 
                    //either we have a mismatch in src hash or restart is
                    //not on, delete temporary file, and purge CTM
-                   p_out->create_temporary_path(timestamp);
+
+                   PathPtr p_temp(p_out->append(timestamp_plus));
                    if (o.verbose >= 1) {
                       snprintf(message, MESSAGESIZE,
                                "INFO  DATASTAT -- Removing old temporary file with mismatching src hash: %s\n",
-                               p_out->path());
+                               p_temp->path());
                       message[MESSAGESIZE-1] = 0;
                       write_output(message, 1);
                    }
-                   if (!p_out->unlink() && (errno != ENOENT)) {
-                      errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_out->path());
-                   }
+                   if (!p_temp->unlink() && (errno != ENOENT))
+                      errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_temp->path());
+
                    //now we have to wait for first writer to quit completely and unlinks again
-                   for(i = 0; i < MAX_TEMP_UNLINK_ITER; i++)
-                   {
+                   int i;
+                   for(i=0; (errno != ENOENT) && (i < MAX_TEMP_UNLINK_ITER); i++) {
                       sleep(TEMP_UNLINK_WAIT_TIME);
-                      if (p_out->unlink())
-                      {
+                      if (p_temp->unlink()) {
                          //writer 1 has completely quit
                          break;
                       }
                    }
                    // printf("DONE UNLINKING OLD TEMOPRARY FILE\n");
 
-                   //now we undo the temorary path
-                   p_out->restore_original_path();
                    purgeCTM(out_node.path);
                    out_unlinked = 1;
                    pre_process = 1;
@@ -2367,7 +2387,6 @@ void process_stat_buffer(path_item*      path_buffer,
              }
              else {
                 // destination doesn't already exist
-
                 out_unlinked = 1; // don't unset the ftype to communicate
                 pre_process = 1;
 
@@ -2376,6 +2395,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 purgeCTM(out_node.path);
              }
           } // end COPYWORK
+
             // preping for COMPAREWORK, which means we simply assign the
             // destination type to the source file info
           else if (o.work_type == COMPAREWORK) {
@@ -2383,7 +2403,11 @@ void process_stat_buffer(path_item*      path_buffer,
              work_node.dest_ftype = out_node.ftype;
           }
 
+
+
+
           if (process == 1) {
+
              //parallel filesystem can do n-to-1
              if (parallel_dest) {
                  CTM *ctm = (CTM *)NULL;             // CTM structure used with chunked files   
@@ -2417,6 +2441,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 }
                 else if (work_node.st.st_size > chunk_at) {     // working with a chunkable file
                    int ctmExists = ((dest_exists) ? hasCTM(out_node.path) : 0);
+
                    // we are doing a conditional transfer & CTM exists
                    // -> populate CTM structure
                    if (o.different && ctmExists) {
@@ -2433,11 +2458,9 @@ void process_stat_buffer(path_item*      path_buffer,
                       }
                    }
                    else if (!ctmExists && o.different)
-                   {
                       pre_process = 2;
-                   }
-                   else
-                   {
+
+                   else {
                       // get rid of the CTM on the file if we are NOT
                       // doing a conditional transfer/compare.
                       purgeCTM(out_node.path);
@@ -2450,13 +2473,15 @@ void process_stat_buffer(path_item*      path_buffer,
                 {
                    work_node.packable = p_out->check_packable(work_node.st.st_size);
          
-                   if (!work_node.packable)
-                   {
+                   if (!work_node.packable) {
                       // we identify non chunkable non packable file with packable set to 2
                       work_node.packable = 2;
                    }
                    pre_process = 1;
                 }
+
+
+
 
                 if (maybe_pre_process(pre_process, o, p_out, p_work)) {
                    errsend_fmt(NONFATAL,
@@ -2469,11 +2494,13 @@ void process_stat_buffer(path_item*      path_buffer,
                    idx = 0;               // keeps track of the chunk index
                    while (chunk_curr_offset < work_node.st.st_size) {
                       work_node.chkidx = idx;         // assign the chunk index
+
                       // non-chunked file or file is a link or metadata
                       // compare work - just send the whole file
                       if ((work_node.st.st_size <= chunk_at)
                           || (S_ISLNK(work_node.st.st_mode))
                           || (o.work_type == COMPAREWORK && o.meta_data_only)) {
+
                          work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
                          chunk_curr_offset = work_node.st.st_size; // set chunk offset to end of file
                          PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
@@ -2524,8 +2551,10 @@ void process_stat_buffer(path_item*      path_buffer,
                 // if CTM structure allocated it -> free the memory now
                 if (ctm)
                    freeCTM(&ctm);
-             } // end Parallel destination
-             else {  // non-parallel destination
+             }
+
+             // non-parallel destination
+             else {
                 if (maybe_pre_process(pre_process, o, p_out, p_work)) {
                    errsend_fmt(FATAL,
                                "Rank %d: couldn't prepare destination-file '%s': %s\n",
@@ -2676,7 +2705,9 @@ void worker_copylist(int             rank,
                         rank, work_node.chkidx, offset, length);
 
         get_output_path(&out_node, base_path, &work_node, dest_node, o, 1);
-        out_node.fstype = o.dest_fstype; // make sure destination filesystem type is assigned for copy - cds 6/2014
+
+        // make sure destination filesystem type is assigned for copy - cds 6/2014
+        out_node.fstype = o.dest_fstype;
 
         // Need Path objects for the copy_file at this point ...
         PathPtr p_work( PathFactory::create_shallow(&work_node));
