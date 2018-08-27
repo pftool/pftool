@@ -974,8 +974,21 @@ int update_stats(PathPtr      p_src,
     }
    
     if(!p_src->get_packable()) {
-       if(p_dest->rename_to_original()) {
-          errsend_fmt(FATAL, "update_stats -- Failed to rename to original file path\n");
+       const char* plus = strrchr((const char*)p_dest->path(), '+');
+       if (plus) {
+          size_t  p_dest_orig_len = plus - p_dest->path();
+          PathPtr p_dest_orig(p_dest->path_truncate(p_dest_orig_len));
+
+          if(! p_dest->rename(p_dest_orig->path())) {
+             errsend_fmt(FATAL, "update_stats -- Failed to rename %s "
+                         "to original file path %s\n",
+                         p_dest->path(), p_dest_orig->path());
+          }
+          else if (o.verbose >= 1) {
+             write_output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
+                              p_dest->path(), p_dest_orig->path());
+             p_dest = p_dest_orig;
+          }
        }
     }
 

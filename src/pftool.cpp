@@ -2076,7 +2076,7 @@ int maybe_pre_process(int&                  pre_process,
       timestamp_plus[0] = '+';
       strcpy(timestamp, p_work->get_timestamp());
 
-      PathPtr p_temp(p_out->append(timestamp_plus));
+      PathPtr p_temp(p_out->path_append(timestamp_plus));
       if (! p_temp)
          return -1;
 
@@ -2373,7 +2373,7 @@ void process_stat_buffer(path_item*      path_buffer,
                    //either we have a mismatch in src hash or restart is
                    //not on, delete temporary file, and purge CTM
 
-                   PathPtr p_temp(p_out->append(timestamp_plus));
+                   PathPtr p_temp(p_out->path_append(timestamp_plus));
                    if (o.verbose >= 1) {
                       snprintf(message, MESSAGESIZE,
                                "INFO  DATASTAT -- Removing old temporary file with mismatching src hash: %s\n",

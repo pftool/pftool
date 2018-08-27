@@ -465,6 +465,16 @@ protected:
       path_change_post();       // subclasses may want to be informed
    }
 
+   // underlying path was renamed
+   // stat-info is no longer valid
+   void reset_path_item() {
+      memset(&_item->st, 0, sizeof(struct stat));
+      FlagType keeper_flags = (_flags & FOLLOW);
+
+      install_path_item(_item);
+      _flags |= keeper_flags;
+   }
+
 
    // see factory_install_list()
    void factory_install(int count, ...) {
@@ -639,8 +649,8 @@ public:
    // unchanged.  Result (via the factory) might be a different subclass
    // (e.g. descending into PLFS directory).  Let PathFactory sort it out,
    // using stat_item(), etc.
-   virtual PathPtr append(char* suffix) const;
-   virtual PathPtr shorten(ssize_t size) const;
+   virtual PathPtr path_append(char* suffix) const;
+   virtual PathPtr path_truncate(ssize_t size) const;
 
 
 
@@ -694,7 +704,7 @@ public:
    }
 
    // try to adapt these POSIX calls
-   virtual bool    lchown(uid_t owner, gid_t group)       = 0;
+   virtual bool    lchown(uid_t owner, gid_t group)      = 0;
    virtual bool    chmod(mode_t mode)                    = 0;
    virtual bool    utime(const struct utimbuf* ut)       = 0;
    virtual bool    utimensat(const struct timespec times[2], int flags) =0;
@@ -775,9 +785,26 @@ public:
 
    // managing time-stamps (for temporary dest-pathname)
    virtual char* get_timestamp() {return _item->timestamp;}
-   virtual int   rename_to_original() {return 0;}
+
+   // In the case of Path::op=(), and Path::install_path_item(), the path
+   // being installed is compatible with the specific Path sub-class,
+   // because everything is being done by the PathFactory, which has
+   // already created the proper Path sub-class.  But in the case of a
+   // rename, we can't assume that <new_path> is consistent with what we
+   // were.
+   //
+   // Two possible approaches: (a) we remain as the old path; we do the
+   // rename, but we still represent the old path.  Thus, our path_item
+   // doesn't change.  However, in the event of success, we should probably
+   // invalidate our stat-info, etc.  (b) caller thinks we are now the new
+   // path.  That can't work without some fanciness that is probably not
+   // worth implmenting.  So, well go with (a).
+   virtual bool  rename(const char* new_path)      = 0;
+
 
 #if 0  // these should be unused, now ...
+   virtual int   rename_to_original() {return 0;}
+
    virtual bool  create_temporary_path(const char* timestamp) {
       const size_t len = strlen(_item->path);
       if ((len + DATE_STRING_MAX + 1) > sizeof(_item->path))
@@ -977,25 +1004,15 @@ public:
       return (_rc == 0);
    }
 
-   virtual int rename_to_original()
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path)
    {
-        char original_path[PATHSIZE_PLUS];
-        int i;
-        int pathlen;
+      if (_rc = ::rename(_item->path, new_path))
+         _errno = errno;
+      else
+         reset_path_item();
 
-        strcpy(original_path, _item->path);
-        pathlen = strlen(original_path);
-
-        for(i = pathlen - 1; i >= 0; i--)
-        {
-                if (original_path[i] == '+')
-                {
-                        original_path[i] = 0;
-                        break;
-                }
-        }
-
-        return rename(_item->path, original_path);
+      return (_rc == 0);
    }
 
    // see comments at Path::open()
@@ -1296,6 +1313,10 @@ public:
    }
    
    virtual bool    symlink(const char* link_name) {
+      return false;
+   }
+
+   virtual bool    rename(const char* new_path) {
       return false;
    }
 };
@@ -1780,6 +1801,11 @@ public:
       // DELETE returns '204 No Content'  (?)
       // return (b->code == 200);
       return true;
+   }
+
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path) {
+      NO_IMPL(rename);
    }
 };
 
@@ -2372,24 +2398,16 @@ public:
         return marfs_check_packable(marPath, length);
    }
 
-   virtual int rename_to_original()
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path)
    {
-      char original_path[PATHSIZE_PLUS];
-      int i;
-      int pathlen;
+      if (_rc = marfs_rename(marfs_sub_path(_item->path),
+                             marfs_sub_path(new_path)))
+         _errno = errno;
+      else
+         reset_path_item();
 
-      strcpy(original_path, _item->path);
-      pathlen = strlen(original_path);
-
-      for(i = pathlen - 1; i >= 0; i--)
-      {
-         if (original_path[i] == '+')
-         {
-            original_path[i] = 0;
-            break;
-         }
-      }
-      return marfs_rename(marfs_sub_path(_item->path), marfs_sub_path(original_path));
+      return (_rc == 0);
    }
 
    // closes the underlying fh stream for packed files
@@ -2741,7 +2759,7 @@ public:
    static PathPtr create(const char* path_name) {
       PathItemPtr  item(Pool<path_item>::get());
       memset(item.get(), 0, sizeof(path_item));
-      strncpy(item->path, path_name, PATHSIZE_PLUS);
+      strncpy(item->path, path_name, PATHSIZE_PLUS -1);
       item->ftype = TBD;        // invoke stat_item() to determine type
 
       return create_shallow(item);

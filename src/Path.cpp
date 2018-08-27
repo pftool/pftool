@@ -18,16 +18,22 @@ int              PathFactory::_rank    = 1;
 int              PathFactory::_n_ranks = 1;
 
 
-// NOTE: New path might not be same subclass as us.  For example, we could
-// be descending into a PLFS volume.
+// NOTE: New path might not be of the same subclass as us.  For example, we
+//    could be descending into a PLFS volume.
+//
+// NOTE: We return a new Path object to the changed path, leaving the
+//    original intact.  (a) it's possible the new Path is of a different
+//    sub-class, and (b) we avoid the potential to leave various fields
+//    inconsistent.  (We could figure out which ones need to be reset and
+//    do that, but we're taking the simpler approach, for now.)
 //
 // TBD: If we give our subclass to the factory, it could run tests relevant
-//      to our type, first, in order to reduce the number of checks, which
-//      might have a better chance of succeeding.  This would reduce the
-//      overhead for constructing from a raw pathname.
-//
+//    to our type, first, in order to reduce the number of checks, which
+//    might have a better chance of succeeding.  This would reduce the
+//    overhead for constructing from a raw pathname.
+
 PathPtr
-Path::append(char* suffix) const {
+Path::path_append(char* suffix) const {
 
    char  new_path[PATHSIZE_PLUS];
    size_t len = strlen(_item->path);
@@ -44,8 +50,15 @@ Path::append(char* suffix) const {
 
 // remove a suffix.  If <size> is negative, it is size of suffix to remove.
 // Otherwise, it is the size of the prefix to keep.
+//
+// NOTE: We return a new Path object to the changed path, leaving the
+//    original intact.  (a) it's possible the new Path is of a different
+//    sub-class, and (b) we avoid the potential to leave various fields
+//    inconsistent.  (We could figure out which ones need to be reset and
+//    do that, but we're taking the simpler approach, for now.)
+
 PathPtr
-Path::shorten(ssize_t size) const {
+Path::path_truncate(ssize_t size) const {
 
    char  new_path[PATHSIZE_PLUS];
    
