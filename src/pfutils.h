@@ -166,7 +166,7 @@ typedef enum cmd_opcode OpCode;
 #define NONFATAL 0
 
 enum WorkType {
-    COPYWORK,
+    COPYWORK = 0,
     LSWORK,
     COMPAREWORK
 };

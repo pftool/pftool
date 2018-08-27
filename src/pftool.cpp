@@ -398,8 +398,8 @@ int main(int argc, char *argv[]) {
             printf("No souce was provided\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        if((COMPAREWORK == o.work_type || COPYWORK == o.work_type) &&
-                0 == strnlen(dest_path, PATHSIZE_PLUS)) {
+        if((COMPAREWORK == o.work_type || COPYWORK == o.work_type)
+           && 0 == strnlen(dest_path, PATHSIZE_PLUS)) {
             printf("No destination was provided\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
@@ -432,21 +432,25 @@ int main(int argc, char *argv[]) {
         } else
             enqueue_path(&input_queue_head, &input_queue_tail, src_path, &input_queue_count);
         
-        // run realpath on output dir
-        char buf[PATHSIZE_PLUS];
-        strcpy(buf, dest_path);
-        do {
-            strcpy(dest_path, buf);
-            PathPtr p_dest(PathFactory::create(dest_path));
-            if(NULL == p_dest->realpath(buf) && ENOENT != errno) {
-                fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
-                MPI_Abort(MPI_COMM_WORLD, -1);
-            }
-            // let p_dest setup marfs repo timing stats allocation
-        } while(0 != strcmp(dest_path, buf));
+        // run realpath on output dir (for types of work that have an output-dir)
+        if (o.work_type != LSWORK) {
+           char buf[PATHSIZE_PLUS];
+           strcpy(buf, dest_path);
+           do {
+              strcpy(dest_path, buf);
+              PathPtr p_dest(PathFactory::create(dest_path));
+              if(NULL == p_dest->realpath(buf) && ENOENT != errno) {
+                 fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
+                 MPI_Abort(MPI_COMM_WORLD, -1);
+              }
+              // let p_dest setup marfs repo timing stats allocation
+           } while(0 != strcmp(dest_path, buf));
+        }
 
-        if (input_queue_head != input_queue_tail && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
-                        PathPtr p_dest(PathFactory::create(dest_path));
+        if ((input_queue_head != input_queue_tail)
+            && (o.work_type == COPYWORK || o.work_type == COMPAREWORK)) {
+
+            PathPtr p_dest(PathFactory::create(dest_path));
             if (!p_dest->exists() || !p_dest->is_dir()) {
                 printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
@@ -690,12 +694,12 @@ void show_data(struct options& o)
 }
 
 int manager(int             rank,
-             struct options& o,
-             int             nproc,
-             path_list*      input_queue_head,
-             path_list*      input_queue_tail,
-             int             input_queue_count,
-             const char*     dest_path) {
+            struct options& o,
+            int             nproc,
+            path_list*      input_queue_head,
+            path_list*      input_queue_tail,
+            int             input_queue_count,
+            const char*     dest_path) {
 
     MPI_Status  status;
     int         message_ready = 0;
@@ -1505,16 +1509,17 @@ void manager_add_timing_stats(int sending_rank)
 //worker
 void worker(int rank, struct options& o) {
     MPI_Status status;
-    int sending_rank;
-    int all_done = 0;
-    int makedir = 0;
-    int message_ready = 0, probecount = 0;
-    int prc;
-    char*     output_buffer = (char*)NULL;
-    int       type_cmd;
-    int       mpi_ret_code;
-    char      base_path[PATHSIZE_PLUS];
-    path_item dest_node;
+    int        sending_rank;
+    int        all_done      = 0;
+    int        makedir       = 0;
+    int        message_ready = 0;
+    int        probecount    = 0;
+    int        prc;
+    char*      output_buffer = (char*)NULL;
+    int        type_cmd;
+    int        mpi_ret_code;
+    char       base_path[PATHSIZE_PLUS];
+    path_item  dest_node;
 
     //variables stored by the 'accumulator' proc
     HASHTBL*  chunk_hash;
@@ -1970,8 +1975,9 @@ void worker_readdir(int         rank,
                 if (! *append_path) {
                     break;      // end of directory entries
                 }
-                if (strncmp(append_path, ".", PATHSIZE_PLUS) != 0 &&
-                        strncmp(append_path, "..", PATHSIZE_PLUS) != 0) {
+                if (strncmp(append_path, ".", PATHSIZE_PLUS) != 0
+                    && strncmp(append_path, "..", PATHSIZE_PLUS) != 0) {
+
                     // check to see if we should skip it
                     if( 0 == fnmatch(o.exclude, path, 0) ) {
                         if (o.verbose >= 1) {
@@ -2210,7 +2216,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
        path_item&  work_node = path_buffer[i]; // avoid a copy
 
-       //first copy timestamp in work_node, if we have a temoprary file, it will be recopied from CTM
+       //first copy timestamp into work_node. if we have a temp file, it will be recopied from CTM
        memcpy(work_node.timestamp, timestamp, DATE_STRING_MAX);
        work_node.start = 0;
 
@@ -2239,34 +2245,43 @@ void process_stat_buffer(path_item*      path_buffer,
        }
 
        //it's not a directory
-       else {
+       else {            //do this for all regular files AND fuse+symylinks
 
-          //do this for all regular files AND fuse+symylinks
-          int temp_exists;
           parallel_dest = o.parallel_dest;
+
           get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
           p_out = PathFactory::create_shallow(&out_node);
           p_out->stat();
 
-          // 0 = nope
-          // 1 = exists
+          //   0 = nope
+          //   1 = exists
+          //   *  (in the case of COPYWORK, see <temp_exists>)
+          //
           dest_exists = p_out->exists(); // boolean
 
-          // < 0 = negative errno
-          //   0 = no CTM file
-          //   2 = CTM match
-          //   3 = no match  (or match, but temp-file is gone)
-          temp_exists = check_temporary(p_work, &out_node);
-          if (temp_exists) {
-             dest_exists = temp_exists; //restart with a temporary file
+
+          // if selected options require writing to a temp-file, instead of
+          // dest, then determine whether it exists. (We also check whether
+          // source and temp-file "match" the timestamps recorded in CTM.)
+          if (o.work_type == COPYWORK) {
+
+             // < 0 = negative errno
+             //   0 = no CTM file
+             //   2 = CTM match
+             //   3 = no match  (or match, but temp-file is gone)
+             //
+             int temp_exists = check_temporary(p_work, &out_node);
+             if (temp_exists) {
+                dest_exists = temp_exists; //restart with a temporary file
+             }
           }
 
-       
+
 
           // Punt, if we can't get at the tempfile.  (The case I saw was where
           // the CTM chunkfile was written with mode 000.)
           // TBD: maybe just set temp_exists=3, and let downstream take care of attempting to delete.
-          if (temp_exists < 0) {
+          if (dest_exists < 0) {
              errsend_fmt(NONFATAL, "problem accessing temp-file: %s\n",
                          strerror(errno));
              process = 0;
@@ -2285,8 +2300,8 @@ void process_stat_buffer(path_item*      path_buffer,
 
           // if selected options require reading the destination-file,
           // and destination-file is not readable, we have a problem
-          else if ((((o.work_type == COMPAREWORK)
-                     && ! o.meta_data_only))
+          else if ((o.work_type == COMPAREWORK)
+                   && (! o.meta_data_only)
                    && (! p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW))) {
 
              errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
@@ -2426,9 +2441,11 @@ void process_stat_buffer(path_item*      path_buffer,
                 // be processed through chunk/file loop below.
                 if (work_node.st.st_size == 0) {
                    pre_process = 1;
+
                    if ((o.work_type == COPYWORK)
                        && !p_out->unlink()
                        && (errno != ENOENT)) {
+
                       errsend_fmt(FATAL, "Failed to unlink (3) %s: %s\n",
                                   p_out->path(), p_out->strerror());
                    }

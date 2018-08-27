@@ -76,7 +76,7 @@ void usage () {
 * Returns the PFTOOL internal command in string format.
 * See pfutils.h for the list of commands.
 *
-* @param cmdidx		the command (or command type)
+* @param cmdidx   the command (or command type)
 *
 * @return a string representation of the command
 */
@@ -297,9 +297,11 @@ void get_dest_path(path_item*        dest_node, // fill this in
     char*       result = dest_node->path;
     char*       path_slice;
 
-    memset(dest_node, 0, sizeof(path_item) - PATHSIZE_PLUS + 1); // zero-out header-fields
-    strncpy(result, dest_path, PATHSIZE_PLUS);                // install dest_path
-    dest_node->ftype = TBD;                     // we will figure out the file type later
+    memset(dest_node, 0, sizeof(path_item));   // zero-out header-fields
+    strncpy(result, dest_path, PATHSIZE_PLUS); // install dest_path
+    result[PATHSIZE_PLUS -1] = 0;
+
+    dest_node->ftype = TBD;                    // we will figure out the file type later
 
     strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
     trim_trailing('/', temp_path);
@@ -316,9 +318,8 @@ void get_dest_path(path_item*        dest_node, // fill this in
         if (d_dest->exists()
             && S_ISDIR(dest_st.st_mode)
             && S_ISDIR(beg_st.st_mode)
-            && (num_paths == 1))
+            && (num_paths == 1)) {
 
-        {
             // append '/' to result
             if (result[strlen(result)-1] != '/') {
                 strncat(result, "/", PATHSIZE_PLUS);
@@ -332,6 +333,7 @@ void get_dest_path(path_item*        dest_node, // fill this in
                 path_slice = strrchr(temp_path, '/') + 1;
             }
             strncat(result, path_slice, PATHSIZE_PLUS - strlen(result) -1);
+            result[PATHSIZE_PLUS -1] = 0;
         }
     }
 
@@ -415,7 +417,7 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
           out_node->path[0] = 0;
           return;
        }
-       remain -= DATE_STRING_MAX +1;;
+       remain -= DATE_STRING_MAX +1;
 
        strcat(out_node->path, "+");
        strcat(out_node->path, src_node->timestamp);
@@ -1303,8 +1305,8 @@ int stat_item(path_item *work_node, struct options& o) {
     char        errmsg[MESSAGESIZE];
     struct stat st;
     int         rc;
-    int  numchars;
-    char linkname[PATHSIZE_PLUS];
+    int         numchars;
+    char        linkname[PATHSIZE_PLUS];
 
     // defaults
     work_node->ftype      = REGULARFILE;
@@ -1331,7 +1333,6 @@ int stat_item(path_item *work_node, struct options& o) {
 #ifdef MARFS
     // --- is it a MARFS path?
     if(! got_type) {
-       fflush(stdout);
        if ( under_mdfs_top(work_node->path) ) {
            return -1;
        }
@@ -1343,11 +1344,11 @@ int stat_item(path_item *work_node, struct options& o) {
            work_node->ftype = MARFSFILE;
            got_type = true;
 
-        bool okay = MARFS_Path::mar_stat(work_node->path, &st);
-        if (!okay){
-           return -1;
-        }
-      }
+           bool okay = MARFS_Path::mar_stat(work_node->path, &st);
+           if (!okay){
+              return -1;
+           }
+       }
     }
 #endif
 
