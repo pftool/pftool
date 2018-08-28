@@ -513,7 +513,7 @@ void human_readable(char* buf, size_t buf_size, size_t value) {
     }
 
     if (unit)
-        sprintf(buf, "%3.1f %s", remain, unit_name[unit]);
+        sprintf(buf, "%7.3f %s", remain, unit_name[unit]);
     else
         sprintf(buf, "%ld ", value);
 }
