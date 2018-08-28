@@ -70,6 +70,7 @@ Path::path_truncate(ssize_t size) const {
       return PathPtr();         // return NULL, for overflow/underflow
 
    strncpy(new_path, _item->path, new_len);
+   new_path[new_len] = 0;
 
    return PathFactory::create(new_path);
 }
