@@ -935,8 +935,8 @@ int manager(int             rank,
                 human_readable(bw_avg,    BUF_SIZE, bw_tot);
 
                 sprintf(message,
-                        "INFO ACCUM  files/chunks: %4s    "
-                        "data: %7sB / %7sB    "
+                        "INFO ACCUM  files/chunks: %7s    "
+                        "data: %10sB / %10sB    "
                         "avg BW: %7sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
@@ -969,7 +969,14 @@ int manager(int             rank,
     sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
     write_output(message, 1);
     if (o.work_type == LSWORK) {
-        sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
+	if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Terabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Gigabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Megabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L)));
+        else
+            sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
         write_output(message, 1);
     }
     sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
@@ -978,12 +985,15 @@ int manager(int             rank,
     if (o.work_type == COPYWORK) {
         sprintf(message, "INFO  FOOTER   Total Buffers Written: %d\n", num_copied_files);
         write_output(message, 1);
-        sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
+        if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Terabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Gigabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L)));
+        else
+            sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
         write_output(message, 1);
-        if ((num_copied_bytes/(1024*1024)) > 0 ) {
-            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024*1024)));
-            write_output(message, 1);
-        }
         if((num_copied_bytes/(1024*1024)) > 0 ) {
             sprintf(message, "INFO  FOOTER   Data Rate: %zd MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
             write_output(message, 1);
@@ -993,7 +1003,14 @@ int manager(int             rank,
         sprintf(message, "INFO  FOOTER   Total Files Compared: %d\n", num_copied_files);
         write_output(message, 1);
         if (o.meta_data_only == 0) {
-            sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
+	    if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Terabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+            else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Gigabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
+            else if ((num_copied_bytes/(1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Megabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L)));
+            else
+                sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
             write_output(message, 1);
         }
 	else {	// we're going to print the "things we think are different" message if doing meta compare only
