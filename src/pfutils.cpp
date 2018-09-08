@@ -984,11 +984,13 @@ int update_stats(PathPtr      p_src,
                          "to original file path %s\n",
                          p_dest->path(), p_dest_orig->path());
           }
+          // remove this?  potential deadlock on final chunk, if OUTPUT_PROC is already gone.
           else if (o.verbose >= 1) {
              write_output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
                               p_dest->path(), p_dest_orig->path());
-             p_dest = p_dest_orig;
           }
+
+          p_dest = p_dest_orig;
        }
     }
 

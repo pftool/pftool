@@ -471,7 +471,7 @@ protected:
       memset(&_item->st, 0, sizeof(struct stat));
       FlagType keeper_flags = (_flags & FOLLOW);
 
-      install_path_item(_item);
+      install_path_item(_item); // orderly reset
       _flags |= keeper_flags;
    }
 
