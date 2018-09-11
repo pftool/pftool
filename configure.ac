@@ -41,12 +41,16 @@ AM_CONDITIONAL([ALLSTATIC], [test x$enable_allstatic = xyes])
 AC_ARG_ENABLE(CTM,
    AS_HELP_STRING([  --enable-ctm], [choose CTM mode = {xattrs | files | no}, default=files]))
 
+AC_ARG_ENABLE(debug,
+   AS_HELP_STRING([  --enable-debug], [build with -O0, instead of -O3]))
+AM_CONDITIONAL([DEBUG], [test "x$enable_debug" = xyes])
+
 AC_CONFIG_HEADER([config.h])
 
 
 
 # change defaults, instead of "-g -O2"
-: ${CFLAGS="-g -O3"} ${CXXFLAGS="-g -O3"}
+: ${CFLAGS="-g "} ${CXXFLAGS="-g"}
 
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC

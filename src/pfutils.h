@@ -52,14 +52,17 @@
 
 #include "debug.h"
 
+#define DATE_STRING_MAX 64  /* includes room for leading '+', when used in filenames */
+#define PATHSIZE_PLUS   (FILENAME_MAX + DATE_STRING_MAX + 30)
+#define ERRORSIZE       PATHSIZE_PLUS
+#define MESSAGESIZE     PATHSIZE_PLUS
+#define MESSAGEBUFFER   400
 
-#define PATHSIZE_PLUS  (FILENAME_MAX+30)
-#define ERRORSIZE      PATHSIZE_PLUS
-#define MESSAGESIZE    PATHSIZE_PLUS
-#define MESSAGEBUFFER  400
+#define MAX_TEMP_UNLINK_ITER  3
+#define TEMP_UNLINK_WAIT_TIME 1
 
 // if you are trying to increase max pack size, STATBUFFER must be >= to
-// COPYBUFFER because it only collets one stat buffer worth of things before
+// COPYBUFFER because it only collects one stat buffer worth of things before
 // shipping off.
 #define DIRBUFFER      5
 #define STATBUFFER     4096
@@ -147,7 +150,8 @@ enum cmd_opcode {
     NONFATALINCCMD,
     CHUNKBUSYCMD,
     COPYSTATSCMD,
-    EXAMINEDSTATSCMD
+    EXAMINEDSTATSCMD,
+    STATS
 };
 typedef enum cmd_opcode OpCode;
 
@@ -162,7 +166,7 @@ typedef enum cmd_opcode OpCode;
 #define NONFATAL 0
 
 enum WorkType {
-    COPYWORK,
+    COPYWORK = 0,
     LSWORK,
     COMPAREWORK
 };
@@ -244,7 +248,12 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
-    char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    int           packable;
+    int           temp_flag;
+
+   // keep this last, for efficient init
+    char          path[PATHSIZE_PLUS];
+    char          timestamp[DATE_STRING_MAX];
 } path_item;
 
 // A queue to store all of our input nodes
@@ -259,6 +268,22 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
+typedef struct pod_stat
+{
+	size_t buff_size;
+	char* buffer;
+} pod_data;
+
+typedef struct repo_timing_stats
+{
+	int tot_stats;
+	int total_blk;
+	int has_data;
+	int total_pods;
+	std::map<int, pod_data*> pod_to_stat;
+} repo_stats;
+
+
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);
@@ -272,7 +297,7 @@ void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item
                     int makedir, int num_paths, struct options& o);
 //char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
-void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
+void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o, int rename_flag);
 
 //int one_byte_read(const char *path);
 int   one_byte_read(const char *path);
@@ -306,6 +331,7 @@ void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_work_done(int ignored);
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 //function definitions for workers
 void update_chunk(path_item *buffer, int *buffer_count);
@@ -338,7 +364,10 @@ void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, 
 int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
 int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
+int  check_temporary(PathPtr p_src, path_item* out_node);
+int epoch_to_string(char* str, size_t size, const time_t* time);
 
+//void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 #endif
 

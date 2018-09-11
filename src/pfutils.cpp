@@ -17,6 +17,7 @@
 
 #include "pfutils.h"
 #include "ctm.h"                // hasCTM()
+#include "sig.h"
 #include "debug.h"
 
 #include <syslog.h>
@@ -75,33 +76,33 @@ void usage () {
 * Returns the PFTOOL internal command in string format.
 * See pfutils.h for the list of commands.
 *
-* @param cmdidx		the command (or command type)
+* @param cmdidx   the command (or command type)
 *
 * @return a string representation of the command
 */
 const char *cmd2str(OpCode cmdidx) {
-	static const char *CMDSTR[] = {
-			 "EXITCMD"
-			,"UPDCHUNKCMD"
-			,"BUFFEROUTCMD"
-			,"OUTCMD"
-			,"LOGCMD"
-			,"LOGONLYCMD"
-			,"QUEUESIZECMD"
-			,"STATCMD"
-			,"COMPARECMD"
-			,"COPYCMD"
-			,"PROCESSCMD"
-			,"INPUTCMD"
-			,"DIRCMD"
-			,"WORKDONECMD"
-			,"NONFATALINCCMD"
-			,"CHUNKBUSYCMD"
-			,"COPYSTATSCMD"
-			,"EXAMINEDSTATSCMD"
-				};
+   static const char *CMDSTR[] = {
+      "EXITCMD"
+      ,"UPDCHUNKCMD"
+      ,"BUFFEROUTCMD"
+      ,"OUTCMD"
+      ,"LOGCMD"
+      ,"LOGONLYCMD"
+      ,"QUEUESIZECMD"
+      ,"STATCMD"
+      ,"COMPARECMD"
+      ,"COPYCMD"
+      ,"PROCESSCMD"
+      ,"INPUTCMD"
+      ,"DIRCMD"
+      ,"WORKDONECMD"
+      ,"NONFATALINCCMD"
+      ,"CHUNKBUSYCMD"
+      ,"COPYSTATSCMD"
+      ,"EXAMINEDSTATSCMD"
+   };
 
-	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+   return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -144,47 +145,47 @@ char *printmode (mode_t aflag, char *buf) {
 * the path as a directory - if they do not exist. It
 * basically does a "mkdir -p" programatically.
 *
-* @param thePath	the path to test and create
-* @param perms		the permission mode to use when
-* 			creating directories in this path
+* @param thePath  the path to test and create
+* @param perms    the permission mode to use when
+*        creating directories in this path
 *
 * @return 0 if all directories are succesfully created.
-* 	errno (i.e. non-zero) if there is an error. 
-* 	See "man -s 2 mkdir" for error description.
+*  errno (i.e. non-zero) if there is an error. 
+*  See "man -s 2 mkdir" for error description.
 */
 int mkpath(char *thePath, mode_t perms) {
-	char *slash = thePath;				// point at the current "/" in the path
-	struct stat sbuf;				// a buffer to hold stat information
-	int save_errno;					// errno from mkdir()
+   char *slash = thePath;       // point at the current "/" in the path
+   struct stat sbuf;            // a buffer to hold stat information
+   int save_errno;              // errno from mkdir()
 
-	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
-							// then thePath will be created relative to CWD of process.
-	while(slash = strchr(slash,'/')) {		// start parsing thePath
-	  *slash = '\0';
-	  
-	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
-	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
-	      save_errno = errno;			// save off errno - in case of error...
-	      *slash = '/';
-	      return(save_errno);
-	    }
-	  }
-	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
-	    *slash = '/';
-	    return(ENOTDIR);
-	  }
-	  *slash = '/';slash++;				// increment slash ...
-	  while( *slash == '/') slash++;		// burn through any blank path elements
-	} // end mkdir loop
+   while( *slash == '/') slash++; // burn through any leading "/". Note that if no leading "/",
+   // then thePath will be created relative to CWD of process.
+   while(slash = strchr(slash,'/')) { // start parsing thePath
+      *slash = '\0';
+     
+      if(stat(thePath,&sbuf)) {  // current path element cannot be stat'd - assume does not exist
+         if(mkdir(thePath,perms)) { // problems creating the directory - clean up and return!
+            save_errno = errno;     // save off errno - in case of error...
+            *slash = '/';
+            return(save_errno);
+         }
+      }
+      else if (!S_ISDIR(sbuf.st_mode)) { // element exists but is NOT a directory
+         *slash = '/';
+         return(ENOTDIR);
+      }
+      *slash = '/';slash++;          // increment slash ...
+      while( *slash == '/') slash++; // burn through any blank path elements
+   } // end mkdir loop
 
-	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
-	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
-	    return(save_errno = errno);			// save off errno - just to be sure ...
-	}
-	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
-	  return(ENOTDIR);
+   if(stat(thePath,&sbuf)) {   // last path element cannot be stat'd - assume does not exist
+      if(mkdir(thePath,perms)) // problems creating the directory - clean up and return!
+         return(save_errno = errno); // save off errno - just to be sure ...
+   }
+   else if (!S_ISDIR(sbuf.st_mode))  // element exists but is NOT a directory
+      return(ENOTDIR);
 
-	return(0);
+   return(0);
 }
 
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
@@ -207,30 +208,30 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
 * Low Level utility function to write a field of a data
 * structure - any data structure.
 *
-* @param fd		the open file descriptor
-* @param start		the starting memory address
-* 			(pointer) of the field
-* @param len		the length of the filed in bytes
+* @param fd    the open file descriptor
+* @param start    the starting memory address
+*        (pointer) of the field
+* @param len      the length of the filed in bytes
 *
 * @return number of bytes written, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
+*  is < 0, then there were problems writing,
+*  and the number can be taken as the errno.
 */
 ssize_t write_field(int fd, void *start, size_t len) {
-	size_t  n;					// number of bytes written for a given call to write()
-	ssize_t tot = 0;				// total number of bytes written
-	char*   wstart = (char*)start;				// the starting point in the buffer
-	size_t  wcnt = len;				// the running count of bytes to write
+   size_t  n;              // number of bytes written for a given call to write()
+   ssize_t tot = 0;           // total number of bytes written
+   char*   wstart = (char*)start;            // the starting point in the buffer
+   size_t  wcnt = len;           // the running count of bytes to write
 
-	while(wcnt > 0) {
-	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
-	    return((ssize_t)-errno);
-	  tot += n;
-	  wstart += n;					// increment the start address by n
-	  wcnt -= n;					// decreamnt byte count by n
-	}
+   while(wcnt > 0) {
+     if(!(n=write(fd,wstart,wcnt)))    // if nothing written -> assume error
+       return((ssize_t)-errno);
+     tot += n;
+     wstart += n;             // increment the start address by n
+     wcnt -= n;               // decreamnt byte count by n
+   }
 
-	return(tot);
+   return(tot);
 }
 
 // remove trailing chars w/out repeated calls to strlen();
@@ -296,9 +297,11 @@ void get_dest_path(path_item*        dest_node, // fill this in
     char*       result = dest_node->path;
     char*       path_slice;
 
-    memset(dest_node, 0, sizeof(path_item) - PATHSIZE_PLUS + 1); // zero-out header-fields
-    strncpy(result, dest_path, PATHSIZE_PLUS);                // install dest_path
-    dest_node->ftype = TBD;                     // we will figure out the file type later
+    memset(dest_node, 0, sizeof(path_item));   // zero-out header-fields
+    strncpy(result, dest_path, PATHSIZE_PLUS); // install dest_path
+    result[PATHSIZE_PLUS -1] = 0;
+
+    dest_node->ftype = TBD;                    // we will figure out the file type later
 
     strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
     trim_trailing('/', temp_path);
@@ -315,9 +318,8 @@ void get_dest_path(path_item*        dest_node, // fill this in
         if (d_dest->exists()
             && S_ISDIR(dest_st.st_mode)
             && S_ISDIR(beg_st.st_mode)
-            && (num_paths == 1))
+            && (num_paths == 1)) {
 
-        {
             // append '/' to result
             if (result[strlen(result)-1] != '/') {
                 strncat(result, "/", PATHSIZE_PLUS);
@@ -331,6 +333,7 @@ void get_dest_path(path_item*        dest_node, // fill this in
                 path_slice = strrchr(temp_path, '/') + 1;
             }
             strncat(result, path_slice, PATHSIZE_PLUS - strlen(result) -1);
+            result[PATHSIZE_PLUS -1] = 0;
         }
     }
 
@@ -349,17 +352,19 @@ void get_dest_path(path_item*        dest_node, // fill this in
 // src_node, use the part of src_node that extends beyond <base_path>.
 //
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
+
 void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
                      const path_item*  dest_node,
-                     struct options&   o) {
+                     struct options&   o,
+                     int               rename_flag) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
 
-    // clear out possibly-uninitialized stat-field
-    memset(out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
+    // start clean
+    memset(out_node, 0, sizeof(path_item));
 
     // marfs may want to know chunksize
     out_node->chksz  = dest_node->chksz;
@@ -368,36 +373,57 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     //remove trailing slash(es)
     strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
     trim_trailing('/', out_node->path);
-    size_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
+    ssize_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
 
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
         const char* last_slash = strrchr(src_node->path, '/');
-        if (last_slash) {
+        if (last_slash)
             path_slice = last_slash +1;
-        }
-        else {
+        else
             path_slice = (char *) src_node->path;
-        }
     }
     else {
-        if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0) {
+        if (strcmp(base_path, ".") == 0)
             path_slice = (char *) src_node->path;
-        }
         else {
             path_slice = strdup(src_node->path + strlen(base_path) + 1);
             path_slice_duped = 1;
         }
     }
 
+
+    // assure there is enough room to append path_slice
+    size_t slice_len = strlen(path_slice);
+    if (slice_len > remain) {
+       out_node->path[0] = 0;
+       return;
+    }
+    remain -= slice_len;
+
     if (S_ISDIR(dest_node->st.st_mode)) {
-        strncat(out_node->path, "/", remain);
-        remain -= 1;
-        strncat(out_node->path, path_slice, remain);
+        strcat(out_node->path, "/");
+        strcat(out_node->path, path_slice);
     }
-    if (path_slice_duped) {
+    if (path_slice_duped)
        free((void*)path_slice);
+
+
+    if ((rename_flag == 1) && (src_node->packable == 0)) {
+       //need to create temporary file name
+
+       // assure there is room
+       if (remain < DATE_STRING_MAX +1) {
+          out_node->path[0] = 0;
+          return;
+       }
+       remain -= DATE_STRING_MAX +1;
+
+       strcat(out_node->path, "+");
+       strcat(out_node->path, src_node->timestamp);
     }
+
+    out_node->path[PATHSIZE_PLUS -1] = 0;
 }
 
 int one_byte_read(const char *path) {
@@ -854,6 +880,7 @@ int compare_file(path_item*      src_file,
          crc = memcmp(ibuf,obuf,blocksize);
          if (crc != 0) {
             completed=length;
+            break; // this code never worked prior to this addition, would read till EOF and fail.
          }
 
          completed += blocksize;
@@ -897,6 +924,7 @@ int update_stats(PathPtr      p_src,
     char           errormsg[MESSAGESIZE];
     int            mode;
 
+
     // don't touch the destination, unless this is a COPY
     if (o.work_type != COPYWORK)
        return 0;
@@ -920,15 +948,16 @@ int update_stats(PathPtr      p_src,
     if (p_src->is_link())
         return 0;
 
+
+    // perform any final adjustments on destination, before we set atime/mtime
+    p_dest->post_process(p_src);
+
     // update <dest_file> access-permissions
     mode = p_src->mode() & 07777;
     if (! p_dest->chmod(mode)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
                    p_dest->path(), p_dest->strerror());
     }
-
-    // perform any final adjustments on destination, before we set atime/mtime
-    p_dest->post_process(p_src);
 
     // update <dest_file> atime and mtime
     struct timespec times[2];
@@ -942,6 +971,27 @@ int update_stats(PathPtr      p_src,
     if (! p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                    p_dest->path(), p_dest->strerror());
+    }
+   
+    if(!p_src->get_packable()) {
+       const char* plus = strrchr((const char*)p_dest->path(), '+');
+       if (plus) {
+          size_t  p_dest_orig_len = plus - p_dest->path();
+          PathPtr p_dest_orig(p_dest->path_truncate(p_dest_orig_len));
+
+          if(! p_dest->rename(p_dest_orig->path())) {
+             errsend_fmt(FATAL, "update_stats -- Failed to rename %s "
+                         "to original file path %s\n",
+                         p_dest->path(), p_dest_orig->path());
+          }
+          // remove this?  potential deadlock on final chunk, if OUTPUT_PROC is already gone.
+          else if (o.verbose >= 1) {
+             write_output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
+                              p_dest->path(), p_dest_orig->path());
+          }
+
+          p_dest = p_dest_orig;
+       }
     }
 
     return 0;
@@ -1085,6 +1135,44 @@ void send_manager_new_buffer(path_item *buffer, int *buffer_count) {
 void send_manager_work_done(int ignored) {
     //the worker is finished processing, notify the manager
     send_command(MANAGER_PROC, WORKDONECMD);
+}
+
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats)
+{
+   send_command(MANAGER_PROC, STATS);
+   char* cursor;
+   char* buffer = (char*)malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+
+   cursor = buffer;
+
+   memcpy(cursor, &tot_stats, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &pod_id, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &total_blk, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
+   cursor += sizeof(size_t);
+
+   memcpy(cursor, repo, MARFS_MAX_REPO_SIZE);
+   
+   //send metadata of timing stats
+   if(MPI_Send(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+      {
+         fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+         MPI_Abort(MPI_COMM_WORLD, -1);
+      }
+
+   //send timing_stats buffer
+   if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+      {
+         fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+      }
+
+   free(buffer);
 }
 
 //worker
@@ -1232,8 +1320,8 @@ int stat_item(path_item *work_node, struct options& o) {
     char        errmsg[MESSAGESIZE];
     struct stat st;
     int         rc;
-    int  numchars;
-    char linkname[PATHSIZE_PLUS];
+    int         numchars;
+    char        linkname[PATHSIZE_PLUS];
 
     // defaults
     work_node->ftype      = REGULARFILE;
@@ -1260,7 +1348,6 @@ int stat_item(path_item *work_node, struct options& o) {
 #ifdef MARFS
     // --- is it a MARFS path?
     if(! got_type) {
-       fflush(stdout);
        if ( under_mdfs_top(work_node->path) ) {
            return -1;
        }
@@ -1272,11 +1359,11 @@ int stat_item(path_item *work_node, struct options& o) {
            work_node->ftype = MARFSFILE;
            got_type = true;
 
-        bool okay = MARFS_Path::mar_stat(work_node->path, &st);
-        if (!okay){
-           return -1;
-        }
-      }
+           bool okay = MARFS_Path::mar_stat(work_node->path, &st);
+           if (!okay){
+              return -1;
+           }
+       }
     }
 #endif
 
@@ -1284,10 +1371,10 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a Synthetic Data path?
     if (! got_type) {
         if (o.syn_size && isSyndataPath(work_node->path)) { 
-	   int dlvl;					// directory level, if a directory. Currently ignored.
-	   if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
-	       return -1;				// syndataSetAttr() returns non-zero on failure
-	   work_node->ftype = SYNDATA;
+           int dlvl;        // directory level, if a directory. Currently ignored.
+           if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
+              return -1;    // syndataSetAttr() returns non-zero on failure
+           work_node->ftype = SYNDATA;
            got_type = true;
         }
     }
@@ -1463,6 +1550,7 @@ int processing_complete(struct worker_proc_status *proc_status, int free_worker_
 // push path onto the tail of the queue
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
+    memset(new_node, 0, sizeof(path_list));
     if (! new_node) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1505,6 +1593,7 @@ void delete_queue_path(path_list **head, int *count) {
 // us to pass nodes instead of paths)
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+    memset(temp_node, 0, sizeof(path_list));
     if (! temp_node) {
        fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1534,10 +1623,10 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
 }
 
 
-
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
 
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
+    memset(new_buf_item, 0, sizeof(work_buf_list));
     if (! new_buf_item) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1655,13 +1744,23 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
+
     if (src.st.st_size == dst.st.st_size
-        && (src.st.st_mtime == dst.st.st_mtime
-            || S_ISLNK(src.st.st_mode))
+        && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
+#if 0
+        // by removing this we no longer care about file permissions for transfers.
+        // Probably the right choice, but revisit if needed
         && (src.st.st_mode == dst.st.st_mode)
-        && (((src.st.st_uid == dst.st.st_uid)
-             && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'           
+
+        // non-root doesn't chown unless '-o'
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || (geteuid() && !o.preserve))
+#else
+        // only chown if preserve set
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || !o.preserve)
+#endif
+        ) {
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
@@ -1679,4 +1778,54 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     }
 
     return 0;
+}
+
+int epoch_to_string(char* str, size_t size, const time_t* time) {
+   struct tm tm;
+
+   LOG(LOG_INFO, " epoch_to_str epoch:            %016lx\n", *time);
+
+   // time_t -> struct tm
+   if (! localtime_r(time, &tm)) {
+      LOG(LOG_ERR, "localtime_r failed: %s\n", strerror(errno));
+      return -1;
+   }
+
+   size_t strf_size = strftime(str, size, MARFS_DATE_FORMAT, &tm);
+   if (! strf_size) {
+      LOG(LOG_ERR, "strftime failed even more than usual: %s\n", strerror(errno));
+      return -1;
+   }
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (1)      %s\n", str);
+
+   // add DST indicator
+   snprintf(str+strf_size, size-strf_size, MARFS_DST_FORMAT, tm.tm_isdst);
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (2)      %s\n", str);
+
+   return 0;
+}
+
+
+
+// <p_src>    is the (unaltered) source
+// <out_node> is the (unaltered) destination
+//
+// see comments at check_ctm_match()
+
+int check_temporary(PathPtr p_src, path_item* out_node)
+{
+   time_t src_mtime = p_src->mtime();
+   char   src_mtime_str[DATE_STRING_MAX];
+   char   src_to_hash[PATHSIZE_PLUS]; // p_src->path() + mtime string
+
+   epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
+
+   snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
+   src_to_hash[PATHSIZE_PLUS -1] = 0;
+
+   return check_ctm_match(out_node->path, src_to_hash);
 }
