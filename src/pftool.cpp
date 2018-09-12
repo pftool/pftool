@@ -542,7 +542,7 @@ void human_readable(char* buf, size_t buf_size, size_t value) {
     }
 
     if (unit)
-        sprintf(buf, "%3.1f %s", remain, unit_name[unit]);
+        sprintf(buf, "%7.3f %s", remain, unit_name[unit]);
     else
         sprintf(buf, "%ld ", value);
 }
@@ -1134,8 +1134,8 @@ int manager(int             rank,
                 if (o.logging) {
                     // syslog includes the interval BW
                     sprintf(message,
-                            "INFO ACCUM  files/chunks: %4s    "
-                            "data: %8sB / %8sB    "
+                            "INFO ACCUM  files/chunks: %7s    "
+                            "data: %10sB / %10sB    "
                             "BW: (interval: %8sB/s    overall: %8sB/s)    "
                             "errs: %d\n",
                             files, // files_ex,
@@ -1145,8 +1145,8 @@ int manager(int             rank,
                     write_output(message, 2); // syslog-only
                 }
                 sprintf(message,
-                        "INFO ACCUM  files/chunks: %4s    "
-                        "data: %8sB / %8sB    "
+                        "INFO ACCUM  files/chunks: %7s    "
+                        "data: %10sB / %10sB    "
                         "avg BW: %8sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
@@ -1181,7 +1181,14 @@ int manager(int             rank,
     sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
     write_output(message, 1);
     if (o.work_type == LSWORK) {
-        sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
+       if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Terabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Gigabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Megabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L)));
+        else
+            sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
         write_output(message, 1);
     }
     sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
@@ -1190,12 +1197,15 @@ int manager(int             rank,
     if (o.work_type == COPYWORK) {
         sprintf(message, "INFO  FOOTER   Total Buffers Written: %d\n", num_copied_files);
         write_output(message, 1);
-        sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
+        if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Terabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Gigabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
+        else if ((num_copied_bytes/(1024L*1024L)) > 0)
+            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L)));
+        else
+            sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
         write_output(message, 1);
-        if ((num_copied_bytes/(1024*1024)) > 0 ) {
-            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024*1024)));
-            write_output(message, 1);
-        }
         if((num_copied_bytes/(1024*1024)) > 0 ) {
             sprintf(message, "INFO  FOOTER   Data Rate: %zd MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
             write_output(message, 1);
@@ -1205,7 +1215,14 @@ int manager(int             rank,
         sprintf(message, "INFO  FOOTER   Total Files Compared: %d\n", num_copied_files);
         write_output(message, 1);
         if (o.meta_data_only == 0) {
-            sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
+           if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Terabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
+            else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Gigabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
+            else if ((num_copied_bytes/(1024L*1024L)) > 0)
+                sprintf(message, "INFO  FOOTER   Total Megabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L)));
+            else
+                sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
             write_output(message, 1);
         }
         else {   // we're going to print the "things we think are different" message if doing meta compare only
@@ -1942,6 +1959,7 @@ void worker_readdir(int         rank,
             if (! p_work->opendir()) {
                 errsend_fmt(NONFATAL, "Failed to open (%s) dir %s [%s]\n", 
                             p_work->class_name().get(), p_work->path(),p_work->strerror());
+                break; // if we fail to open here, we'll segfault when we try to readdir.  Likely more to do here.
             }
 
             if (makedir == 1) {
@@ -1993,6 +2011,7 @@ void worker_readdir(int         rank,
                         if (! p_new->exists()) {
                             errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
                                     "Failed to stat path (2) %s\n", p_new->path());
+                            break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
                         }
@@ -2247,6 +2266,9 @@ void process_stat_buffer(path_item*      path_buffer,
        //it's not a directory
        else {            //do this for all regular files AND fuse+symylinks
 
+
+          // --- (1) <dest_exists> gets a coded value, interpreted in (2)
+
           parallel_dest = o.parallel_dest;
 
           get_output_path(&out_node, base_path, &work_node, dest_node, o, 0);
@@ -2277,6 +2299,8 @@ void process_stat_buffer(path_item*      path_buffer,
           }
 
 
+          // --- (2) decide whether we will process (and pre-process) this file.
+          //         perform some preliminary actions on CTM
 
           // Punt, if we can't get at the tempfile.  (The case I saw was where
           // the CTM chunkfile was written with mode 000.)
@@ -2311,12 +2335,14 @@ void process_stat_buffer(path_item*      path_buffer,
 
           else if (o.work_type == COPYWORK) {
              process = 1;
+
              p_work->dest_ftype(p_out->node().ftype); // (matches the intent of old code, above?)
              if (p_out->supports_n_to_1())
                 parallel_dest = 1;
 
              //if the out path exists
              if (dest_exists == 1) {
+
                 // Maybe user only wants to operate on source-files
                 // that are "different" from the corresponding
                 // dest-files.
@@ -2326,6 +2352,7 @@ void process_stat_buffer(path_item*      path_buffer,
                    process = 0; // source/dest are the same, so skip
                    num_finished_bytes += work_node.st.st_size;
                 }
+
                 // if someone truncated the destination to zero
                 // (i.e. the only way a zero-size file could have CTM),
                 // then any CTM that may exist is definitely obsolete
@@ -2334,6 +2361,7 @@ void process_stat_buffer(path_item*      path_buffer,
                 }
 
                 if (process == 1) {
+
                    // it's not fuse, unlink
                    // remove the destination-file if the transfer
                    // is unconditional or the source-file size <=
@@ -2411,8 +2439,8 @@ void process_stat_buffer(path_item*      path_buffer,
              }
           } // end COPYWORK
 
-            // preping for COMPAREWORK, which means we simply assign the
-            // destination type to the source file info
+          // preping for COMPAREWORK, which means we simply assign the
+          // destination type to the source file info
           else if (o.work_type == COMPAREWORK) {
              process = 1;
              work_node.dest_ftype = out_node.ftype;
@@ -2420,6 +2448,7 @@ void process_stat_buffer(path_item*      path_buffer,
 
 
 
+          // --- (3) if file meets tested criteria, process it
 
           if (process == 1) {
 
@@ -2474,7 +2503,7 @@ void process_stat_buffer(path_item*      path_buffer,
                                         rank, tostringCTM(ctm,&ctmstr,&ctmlen));
                       }
                    }
-                   else if (!ctmExists && o.different)
+                   else if (o.different)
                       pre_process = 2;
 
                    else {
@@ -2486,12 +2515,12 @@ void process_stat_buffer(path_item*      path_buffer,
                    work_node.packable = 0;//mark work_node not pacakble
                    work_node.temp_flag = 1; //mark work_node needs temporary file due to chunking
                 }
-                else //working with a non-chunkable file, either small enough to be packed, or not packed
-                {
+                else {
+                   // non-chunkable file, either small enough to be packed, or not packed
                    work_node.packable = p_out->check_packable(work_node.st.st_size);
          
                    if (!work_node.packable) {
-                      // we identify non chunkable non packable file with packable set to 2
+                      // we identify non-chunkable non-packable file with packable set to 2
                       work_node.packable = 2;
                    }
                    pre_process = 1;
@@ -2501,11 +2530,17 @@ void process_stat_buffer(path_item*      path_buffer,
 
 
                 if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                   errsend_fmt(NONFATAL,
-                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
-                               rank, p_out->path(), ::strerror(errno));
+                   if (errno == EDQUOT) {
+                      errsend_fmt(FATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                  rank, p_out->path(), ::strerror(errno));
+                   }
+                   else {
+                      errsend_fmt(NONFATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                  rank, p_out->path(), ::strerror(errno));
+                   }
                 }
                 else {
+
                    // --- CHUNKING-LOOP
                    chunk_curr_offset = 0; // keeps track of current offset in file for chunk.
                    idx = 0;               // keeps track of the chunk index
@@ -2535,8 +2570,7 @@ void process_stat_buffer(path_item*      path_buffer,
                       // if a non-conditional transfer or if the
                       // chunk did not make on the first one ...
                       if (!o.different
-                          || !chunktransferredCTM(ctm, work_node.chkidx)) 
-                      {
+                          || !chunktransferredCTM(ctm, work_node.chkidx)) {
 
                          num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
                          regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
@@ -2564,8 +2598,10 @@ void process_stat_buffer(path_item*      path_buffer,
                           num_finished_bytes += work_node.chksz;
                       }
                    } // end file/chunking loop
+
                 }
-                // if CTM structure allocated it -> free the memory now
+
+                // if CTM structure allocated, free the memory now
                 if (ctm)
                    freeCTM(&ctm);
              }
@@ -2573,9 +2609,14 @@ void process_stat_buffer(path_item*      path_buffer,
              // non-parallel destination
              else {
                 if (maybe_pre_process(pre_process, o, p_out, p_work)) {
-                   errsend_fmt(FATAL,
-                               "Rank %d: couldn't prepare destination-file '%s': %s\n",
-                               rank, p_out->path(), ::strerror(errno));
+                   if (errno == EDQUOT) {
+                      errsend_fmt(FATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                  rank, p_out->path(), ::strerror(errno));
+                   }
+                   else {
+                      errsend_fmt(NONFATAL,"Rank %d: couldn't prepare destination-file '%s': %s\n",
+                                  rank, p_out->path(), ::strerror(errno));
+                   }
                 }
                 else {
                    work_node.chkidx = 0;           // for non-chunked files, index is always 0
