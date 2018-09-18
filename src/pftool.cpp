@@ -533,18 +533,19 @@ int main(int argc, char *argv[]) {
 
 // reduce a large number to e.g. "3.54 G"
 void human_readable(char* buf, size_t buf_size, size_t value) {
-    const char*    unit_name[] = { "", "k", "M", "G", "T", "P", NULL };
-    unsigned unit = 0;
-    float    remain = float(value);
+    const char*  unit_name[] = { "", "k", "M", "G", "T", "P", "E", NULL };
+
+    unsigned     unit = 0;
+    float        remain = float(value);
     while ((remain > 1024) && (unit_name[unit +1])) {
         remain /= 1024;
         ++unit;
     }
 
     if (unit)
-        sprintf(buf, "%7.3f %s", remain, unit_name[unit]);
+        sprintf(buf, "%8.3f %s", remain, unit_name[unit]);
     else
-        sprintf(buf, "%ld ", value);
+        sprintf(buf, "%zd  ", value);
 }
 
 // taking care to avoid losing significant precision ...
@@ -652,6 +653,8 @@ void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, i
         needs_open = 0;
     }
 }*/
+
+
 //print data and send it to syslog
 void show_data(struct options& o)
 {
@@ -1109,6 +1112,7 @@ int manager(int             rank,
                 gettimeofday(&now, NULL);
                 float interval_elapsed = diff_time(&now, &prev);
                 float total_elapsed    = diff_time(&now, &in);
+
                 // put numbers into a human-readable format
                 static const size_t BUF_SIZE = 1024;
                 char files    [BUF_SIZE];
@@ -1136,7 +1140,7 @@ int manager(int             rank,
                     sprintf(message,
                             "INFO ACCUM  files/chunks: %7s    "
                             "data: %10sB / %10sB    "
-                            "BW: (interval: %8sB/s    overall: %8sB/s)    "
+                            "BW: (interval: %10sB/s    overall: %10sB/s)    "
                             "errs: %d\n",
                             files, // files_ex,
                             bytes, bytes_tbd,
@@ -1147,19 +1151,22 @@ int manager(int             rank,
                 sprintf(message,
                         "INFO ACCUM  files/chunks: %7s    "
                         "data: %10sB / %10sB    "
-                        "avg BW: %8sB/s    "
+                        "avg BW: %10sB/s    "
                         "errs: %d\n",
                         files, // files_ex,
                         bytes, bytes_tbd,
                         bw_avg, // no incremental
                         non_fatal);
                 write_output(message, 0); // stdout-only
+
                 show_data(o);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
+
                 // save current TOD, for accurate interval BW
                 prev = now;
+
                 // set timer for next interval
                 if (timer_settime(timer, 0, &itspec_new, &itspec_cur)) {
                     errsend_fmt(FATAL, "failed to set timer '%s'\n", strerror(errno));
@@ -1178,83 +1185,75 @@ int manager(int             rank,
     write_output(message, 1);
     sprintf(message, "INFO  FOOTER   =================================================================================\n");
     write_output(message, 1);
-    sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %d\n", examined_file_count);
-    write_output(message, 1);
-    if (o.work_type == LSWORK) {
-       if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Terabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L*1024L)));
-        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Gigabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L*1024L)));
-        else if ((num_copied_bytes/(1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Megabytes Examined: %zd\n", (examined_byte_count/(1024L*1024L)));
-        else
-            sprintf(message, "INFO  FOOTER   Total Bytes Examined: %zd\n", examined_byte_count);
-        write_output(message, 1);
-    }
-    sprintf(message, "INFO  FOOTER   Total Dirs Examined: %d\n", examined_dir_count);
+
+
+    sprintf(message, "INFO  FOOTER   Total Dirs Examined:        %4d\n", examined_dir_count);
     write_output(message, 1);
 
+    sprintf(message, "INFO  FOOTER   Total Files/Links Examined: %4d\n", examined_file_count);
+    write_output(message, 1);
+
+    static const size_t BUF_SIZE = 1024;
+    char                human_val[BUF_SIZE];
+
+    if (o.work_type == LSWORK) {
+        human_readable(human_val, BUF_SIZE, examined_byte_count);
+        sprintf(message, "INFO  FOOTER   Total Data Examined:        %10sB\n", human_val);
+        write_output(message, 1);
+    }
+
+
     if (o.work_type == COPYWORK) {
-        sprintf(message, "INFO  FOOTER   Total Buffers Written: %d\n", num_copied_files);
+        sprintf(message, "INFO  FOOTER   Total Buffers Written:      %4d\n", num_copied_files);
         write_output(message, 1);
-        if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Terabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
-        else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Gigabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
-        else if ((num_copied_bytes/(1024L*1024L)) > 0)
-            sprintf(message, "INFO  FOOTER   Total Megabytes Copied: %zd\n", (num_copied_bytes/(1024L*1024L)));
-        else
-            sprintf(message, "INFO  FOOTER   Total Bytes Copied: %zd\n", num_copied_bytes);
-        write_output(message, 1);
+
+        human_readable(human_val, BUF_SIZE, num_copied_bytes);
+        sprintf(message, "INFO  FOOTER   Total Data Copied:          %10sB\n", human_val);
+
         if((num_copied_bytes/(1024*1024)) > 0 ) {
-            sprintf(message, "INFO  FOOTER   Data Rate: %zd MB/second\n", (num_copied_bytes/(1024*1024))/(elapsed_time+1));
+            sprintf(message, "INFO  FOOTER   Data Rate:                  %4zd MB/second\n",
+                    (num_copied_bytes/(1024*1024))/(elapsed_time+1));
             write_output(message, 1);
         }
     }
     else if (o.work_type == COMPAREWORK) {
-        sprintf(message, "INFO  FOOTER   Total Files Compared: %d\n", num_copied_files);
+        sprintf(message, "INFO  FOOTER   Total Files Compared:       %4d\n", num_copied_files);
         write_output(message, 1);
+
         if (o.meta_data_only == 0) {
-           if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
-                sprintf(message, "INFO  FOOTER   Total Terabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
-            else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0)
-                sprintf(message, "INFO  FOOTER   Total Gigabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
-            else if ((num_copied_bytes/(1024L*1024L)) > 0)
-                sprintf(message, "INFO  FOOTER   Total Megabytes Compared: %zd\n", (num_copied_bytes/(1024L*1024L)));
-            else
-                sprintf(message, "INFO  FOOTER   Total Bytes Compared: %zd\n", num_copied_bytes);
+            human_readable(human_val, BUF_SIZE, num_copied_bytes);
+            sprintf(message, "INFO  FOOTER   Total Data Compared:        %10sB\n", human_val);
             write_output(message, 1);
         }
         else {   // we're going to print the "things we think are different" message if doing meta compare only
-            sprintf(message, "INFO  FOOTER   Total Files Different: %d\n", non_fatal);
+            sprintf(message, "INFO  FOOTER   Total Files Different:      %4d\n", non_fatal);
             write_output(message, 1);
-            if ((num_copied_bytes/(1024L*1024L*1024L*1024L)) > 0)
-                sprintf(message, "INFO  FOOTER   Total Terabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L*1024L)));
-            else if ((num_copied_bytes/(1024L*1024L*1024L)) > 0) 
-                sprintf(message, "INFO  FOOTER   Total Gigabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L*1024L)));
-            else if ((num_copied_bytes/(1024L*1024L)) > 0) 
-                sprintf(message, "INFO  FOOTER   Total Megabytes Different: %zd\n", (num_copied_bytes/(1024L*1024L)));
-            else
-                sprintf(message, "INFO  FOOTER   Total Bytes Different: %zd\n", num_copied_bytes);
+
+            human_readable(human_val, BUF_SIZE, num_copied_bytes);
+            sprintf(message, "INFO  FOOTER   Total Data Different:       %10sB\n", human_val);
             write_output(message, 1);
         }
     }
 
-    if (elapsed_time == 1) {
-        sprintf(message, "INFO  FOOTER   Elapsed Time: %d second\n", elapsed_time);
-    }
-    else {
-        sprintf(message, "INFO  FOOTER   Elapsed Time: %d seconds\n", elapsed_time);
-    }
 
+    sprintf(message, "INFO  FOOTER   Elapsed Time:               %4d second%s\n",
+            elapsed_time,
+            ((elapsed_time == 1) ? "" : "s"));
     write_output(message, 1);
+
+
+
+    // shutdown all workers
     for(i = 1; i < nproc; i++) {
         send_worker_exit(i);
     }
 
+
     free(proc_status);
+
     //show data here
     show_data(o);
+
     // return nonzero for any errors
     if (0 != non_fatal) {
         return 1;
