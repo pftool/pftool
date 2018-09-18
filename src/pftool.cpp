@@ -34,28 +34,43 @@
 #include <vector>
 using namespace std;
 
+
 map<string, repo_stats*> timing_stats_table;//ONLY MANAGER WOULD USE THIS
 const char* stats_name[] = {"Open", "Read", "Write", "Close"};
 static int need_open = 1;
+
+// avoid deadlock where ACCUM_PROC tries to print errors/diagnostics
+// after OUTPUT_PROC is already in MPI_Finalize().
+MPI_Comm  worker_comm;
+MPI_Comm  accum_comm;
+
+
 int main(int argc, char *argv[]) {
+
     //general variables
     int i;
+
     //mpi
     int rank = 0;
     int nproc = 0;
+
     //getopt
     int c;
     struct options o;
+
     //queues
     path_list *input_queue_head = NULL;
     path_list *input_queue_tail = NULL;
     int        input_queue_count = 0;
+
     //paths
     char        src_path[PATHSIZE_PLUS];
     char        dest_path[PATHSIZE_PLUS];
+
     // should we run (this allows for a clean exit on -h)
     int ret_val = 0;
     int run = 1;
+
     //char* temp_file = NULL;
 #ifdef S3
     // aws_init() -- actually, curl_global_init() -- is supposed to be
@@ -148,6 +163,24 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error in MPI_Comm_rank\n");
         return -1;
     }
+
+
+
+    // These communicators allow all the "common" workers (rank >=
+    // START_PROC), plus ACCUM_PROC and MANAGER_PROC, to gather at a
+    // barrier before manager shuts down OUTPUT_PROC.
+
+    // (we only use the partition matching the test)
+    if (MPI_Comm_split(MPI_COMM_WORLD, ((rank == 0) || (rank >= START_PROC)), rank, &worker_comm)) {
+        fprintf(stderr, "Error creating worker_comm\n");
+        return -1;
+    }
+    // (we only use the partition matching the test)
+    if (MPI_Comm_split(MPI_COMM_WORLD, ((rank == 0) || (rank == ACCUM_PROC)), rank, &accum_comm)) {
+        fprintf(stderr, "Error creating accum_comm\n");
+        return -1;
+    }
+
 
     //Process using getopt
     //initialize options
@@ -894,13 +927,14 @@ int manager(int             rank,
     delete_queue_path(&input_queue_head, &input_queue_count);
 
     //allocate a vector to hold proc status for every proc
-    proc_status = (struct worker_proc_status*)malloc(nproc * sizeof(struct worker_proc_status));
-
-    //initialize proc_status
-    for (i = 0; i < nproc; i++) {
-        proc_status[i].inuse = 0;
-        proc_status[i].readdir = 0;
+    const size_t proc_status_size = (nproc * sizeof(struct worker_proc_status));
+    proc_status = (struct worker_proc_status*)malloc(proc_status_size);
+    if (! proc_status) {
+       fprintf(stderr, "manager; couldn't allocate %ld bytes for proc_status\n", proc_status_size);
+       return -1;
     }
+    memset(proc_status, 0, proc_status_size);
+
     free_worker_count = nproc - START_PROC;
 
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
@@ -1179,8 +1213,48 @@ int manager(int             rank,
     gettimeofday(&out, NULL);
     int elapsed_time = out.tv_sec - in.tv_sec;
 
-    //Manager is done, cleaning have the other ranks exit
-    //make sure there's no pending output
+
+    // Manager and regular workers are done.
+    // Coordinate shutdown of OUTPUT_PROC.
+    //
+    //    NOTE: worker_copylist() and worker_comparelist() call
+    //    update_chunk() on their way out, which results in a UPDCHUNK
+    //    message sent directly (and asynchronously) to the ACCUM_PROC.
+    //    Then the sending worker immediately reports WORKDONE.  We
+    //    (manager) might see that WORKDONE, determin that all work is
+    //    completed, then come here and send EXIT to everyone.
+    //
+    //    Suppose the OUTPUT_PROC gets our EXIT command, and moves to
+    //    MPI_Finalize().  If the ACCUM_PROC is still working on the
+    //    UPDCHUNK, and produces any output (e.g. error-messages or
+    //    diagnostics in worker_update_chunk) then (a) pftool deadlocks
+    //    with successful-looking footer printed, and (b) the
+    //    error-messages or diagnostic will never be seen.
+    //
+    //    [Putting this here, instead of after the footer, so any
+    //    err/diagnostic output from ACCUM_PROC will have a chance to
+    //    print, before the footer.]
+    // 
+    //    We could fix this by making UPDCHUNK synchronous, but that misses
+    //    most of the point of shunting this work to ACCUM_PROC.  There are
+    //    some patches (in the handle_ctl_C branch that address this in a
+    //    better way than we're doing here, but this will be a start.
+
+    // shutdown "regular" workers
+    for(i = START_PROC; i < nproc; i++) {
+        send_worker_exit(i);
+    }
+    MPI_Barrier(worker_comm);
+
+    // Crude attempt to assure that ACCUM gets any pending UPDCHUNK
+    // messages (sent from now-closed workers), before it gets EXIT from us.
+    sleep(2);
+
+    send_worker_exit(ACCUM_PROC);
+    MPI_Barrier(accum_comm);
+
+
+    // OUTPUT_PROC is still running ...
     sprintf(message, "INFO  FOOTER   ========================   NONFATAL ERRORS = %d   ================================\n", non_fatal);
     write_output(message, 1);
     sprintf(message, "INFO  FOOTER   =================================================================================\n");
@@ -1243,11 +1317,8 @@ int manager(int             rank,
 
 
 
-    // shutdown all workers
-    for(i = 1; i < nproc; i++) {
-        send_worker_exit(i);
-    }
-
+    // *now* we're done with OUTPUT_PROC.  All other workers have exited.
+    send_worker_exit(OUTPUT_PROC); // no need for barrier here ...
 
     free(proc_status);
 
@@ -1650,12 +1721,17 @@ void worker(int rank, struct options& o) {
     }
 
     // cleanup
-    if (rank == ACCUM_PROC) {
-        hashtbl_destroy(chunk_hash);
-    }
     if (rank == OUTPUT_PROC) {
         worker_flush_output(output_buffer, &output_count);
         free(output_buffer);
+        // no need for barrier ...
+    }
+    else if (rank == ACCUM_PROC) {
+       hashtbl_destroy(chunk_hash);
+       MPI_Barrier(accum_comm);
+    }
+    else {
+       MPI_Barrier(worker_comm);
     }
 }
 
