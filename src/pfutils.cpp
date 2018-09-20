@@ -188,18 +188,26 @@ int mkpath(char *thePath, mode_t perms) {
    return(0);
 }
 
+// unused?
+// convert up to 28 bytes of <b> to ASCII-hex.
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
-    short str_index;
     char smsg[64];
     char tmsg[3];
     unsigned char *ptr;
     int start = 0;
+
     ptr = (unsigned char *) (b + start);  /* point to buffer location to start  */
     /* if last frame and more lines are required get number of lines */
     memset (smsg, '\0', 64);
-    for (str_index = 0; str_index < 28; str_index++) {
+
+    short str_index;
+    short str_max = 28;       // 64 - (2 *28) = room for terminal-NULL
+    if (len < 28)
+       str_max = len;
+
+    for (str_index = 0; str_index < str_max; str_index++) {
         sprintf (tmsg, "%02X", ptr[str_index]);
-        strncat (smsg, tmsg, 2);
+        strncat (smsg, tmsg, 2); // controlled, no overflow
     }
     sprintf (outhexbuf, "%s", smsg);
 }
@@ -251,10 +259,10 @@ void get_base_path(char*            base_path,
                    const path_item* item,
                    int              wildcard) { // (<wildcard> is boolean)
 
-    char dir_name[PATHSIZE_PLUS];
+    char        dir_name[PATHSIZE_PLUS];
     struct stat st;
-    int rc;
-    char* path = (char*)item->path;
+    int         rc;
+    char*       path = (char*)item->path;
 
     PathPtr p(PathFactory::create(item));
     if (! p->stat()) {
@@ -263,8 +271,7 @@ void get_base_path(char*            base_path,
     }
     st = p->st();
 
-    // dirname() may alter its argument
-    char* path_copy = strdup(path);
+    char* path_copy = strdup(path); // dirname() may alter arg
     strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
     free(path_copy);
 
@@ -299,11 +306,18 @@ void get_dest_path(path_item*        dest_node, // fill this in
 
     memset(dest_node, 0, sizeof(path_item));   // zero-out header-fields
     strncpy(result, dest_path, PATHSIZE_PLUS); // install dest_path
-    result[PATHSIZE_PLUS -1] = 0;
+    if (result[PATHSIZE_PLUS -1])              // strncpy() is unsafe
+       errsend_fmt(FATAL, "Oversize path '%s'\n", dest_path);
 
     dest_node->ftype = TBD;                    // we will figure out the file type later
 
     strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
+    if (temp_path[PATHSIZE_PLUS -1]) {         // strncpy() is unsafe
+       errsend_fmt(FATAL, "Not enough room to append '%s' + '%s'\n",
+                   temp_path, beginning_node->path);
+    }
+
+
     trim_trailing('/', temp_path);
 
     //recursion special cases
@@ -321,19 +335,27 @@ void get_dest_path(path_item*        dest_node, // fill this in
             && (num_paths == 1)) {
 
             // append '/' to result
-            if (result[strlen(result)-1] != '/') {
-                strncat(result, "/", PATHSIZE_PLUS);
+            size_t result_len = strlen(result);
+            if (result[result_len -1] != '/') {
+                strncat(result, "/", PATHSIZE_PLUS - result_len);
+                if (result[PATHSIZE_PLUS -1]) { // strncat() is unsafe
+                   errsend_fmt(FATAL, "Not enough room to append '%s' + '/'\n",
+                               result);
+                }
             }
 
             // append tail-end of beginning_node's path
-            if (strstr(temp_path, "/") == NULL) {
+            char* last_slash = strrchr(temp_path, '/');
+            if (last_slash)
+                path_slice = last_slash + 1;
+            else
                 path_slice = (char *)temp_path;
-            }
-            else {
-                path_slice = strrchr(temp_path, '/') + 1;
-            }
+
             strncat(result, path_slice, PATHSIZE_PLUS - strlen(result) -1);
-            result[PATHSIZE_PLUS -1] = 0;
+            if (result[PATHSIZE_PLUS -1]) {     // strncat() is unsafe
+               errsend_fmt(FATAL, "Not enough room to append '%s' + '%s'\n",
+                           result, path_slice);
+            }
         }
     }
 
@@ -371,7 +393,10 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
     out_node->chkidx = dest_node->chkidx;
 
     //remove trailing slash(es)
+    // NOTE: both are the same size, and dest_node has already been assured to have
+    //       a terminal-NULL in get_dest_path(), so strncpy() okay.
     strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
+
     trim_trailing('/', out_node->path);
     ssize_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
 
@@ -647,8 +672,8 @@ int copy_file(PathPtr       p_src,
            err = 1; break;  // return -1
         }
         else if (retry_count) {
-           write_output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
+           output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                      p_dest->path(), offset, completed, retry_count);
         }
 
 
@@ -734,8 +759,8 @@ int copy_file(PathPtr       p_src,
            err = 1; break;  // return -1;
         }
         else if (retry_count) {
-           write_output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
+           output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                      p_dest->path(), offset, completed, retry_count);
         }
 
         completed += blocksize;
@@ -992,8 +1017,8 @@ int update_stats(PathPtr      p_src,
           }
           // remove this?  potential deadlock on final chunk, if OUTPUT_PROC is already gone.
           else if (o.verbose >= 1) {
-             write_output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
-                              p_dest->path(), p_dest_orig->path());
+             output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
+                        p_dest->path(), p_dest_orig->path());
           }
 
           p_dest = p_dest_orig;
@@ -1210,9 +1235,9 @@ void write_output(const char *message, int log) {
 // This allows caller to use inline formatting, without first snprintf() to
 // a local errmsg-buffer.  Like so:
 //
-//    write_output_fmt(1, "rank %d hello!", rank);
+//    output_fmt(1, "rank %d hello!", rank);
 //
-void write_output_fmt(int log, const char* format, ...) {
+void output_fmt(int log, const char* format, ...) {
    char     msg[MESSAGESIZE];
    va_list  args;
 
@@ -1220,14 +1245,17 @@ void write_output_fmt(int log, const char* format, ...) {
    vsnprintf(msg, MESSAGESIZE, format, args);
    va_end(args);
 
+   // msg[MESSAGESIZE -1] = 0;  /* no need for this */
    write_output(msg, log);
 }
 
 
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count) {
+
     //write a buffer to the output proc
     //set the command type
     send_command(OUTPUT_PROC, BUFFEROUTCMD);
+
     //send the size of the buffer
     if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
@@ -1266,7 +1294,7 @@ void send_worker_exit(int target_rank) {
     send_command(target_rank, EXITCMD);
 }
 
-static void errsend_internal(int fatal, const char* errormsg) {
+static void errsend_internal(Lethality fatal, const char* errormsg) {
     write_output(errormsg, 1);
 
     if (fatal) {
@@ -1278,7 +1306,7 @@ static void errsend_internal(int fatal, const char* errormsg) {
 }
 
 //functions that workers use
-void errsend(int fatal, const char *error_text) {
+void errsend(Lethality fatal, const char *error_text) {
     //send an error message to the outputproc. Die if fatal.
     char errormsg[MESSAGESIZE];
 
@@ -1287,15 +1315,16 @@ void errsend(int fatal, const char *error_text) {
     else
        snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
 
+    // errormsg[MESSAGESIZE -1] = 0; /* no need for this */
     errsend_internal(fatal, errormsg);
 }
 
 // This allows caller to use inline formatting, without first snprintf() to
 // a local errmsg-buffer.  Like so:
 //
-//    errsend_fmt(nonfatal, "rank %d hello!", rank);
+//    errsend_fmt(NONFATAL, "rank %d hello!", rank);
 //
-void errsend_fmt(int fatal, const char* format, ...) {
+void errsend_fmt(Lethality fatal, const char* format, ...) {
    char     errormsg[MESSAGESIZE];
    va_list  args;
 
@@ -1306,6 +1335,7 @@ void errsend_fmt(int fatal, const char* format, ...) {
    vsnprintf(errormsg+offset, MESSAGESIZE-offset, format, args);
    va_end(args);
 
+   // errormsg[MESSAGESIZE -1] = 0;  /* no need for this */
    errsend_internal(fatal, errormsg);
 }
 
@@ -1431,6 +1461,11 @@ int stat_item(path_item *work_node, struct options& o) {
 
 // <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, then initialize
 // <fs> to match the type of <path>.  Otherwise, call it ANYFS.
+//
+// QUESTION: Are we using fprintf() + MPI_Abort(), instead of errsend_fmt()
+//    because of OUTPUT_PROC might not be available, or is this just
+//    from before errsend_fmt() was available?
+
 void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 
 #ifdef HAVE_SYS_VFS_H
@@ -1439,7 +1474,12 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
     char errortext[MESSAGESIZE];
     int rc;
     char use_path[PATHSIZE_PLUS];
+
     strncpy(use_path, path, PATHSIZE_PLUS);
+    if (use_path[PATHSIZE_PLUS -1]) {  // strncpy() is unsafe
+       fprintf(stderr, "Oversize path '%s'\n", path);
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
 
     // look at <path>, or, if that fails, look at dirname(<path>)
     PathPtr p(PathFactory::create(use_path));
@@ -1448,7 +1488,10 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
        MPI_Abort(MPI_COMM_WORLD, -1);
     }
     else if (! p->stat()) {
-       strcpy(use_path, dirname(use_path));
+       char* use_path_copy = strdup(use_path); // dirname() may alter arg
+       strncpy(use_path, dirname(use_path_copy), PATHSIZE_PLUS);
+       free(use_path_copy);
+
        p = PathFactory::create(use_path);
        if (! p) {
           fprintf(stderr, "PathFactory couldn't interpret parent-path %s\n", use_path);
@@ -1558,10 +1601,14 @@ void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
     memset(new_node, 0, sizeof(path_list));
     if (! new_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+       errsend_fmt(FATAL, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
     }
+
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
+    if (new_node->data.path[PATHSIZE_PLUS -1]) { // strncpy() is unsafe
+       errsend_fmt(FATAL, "enqueue_path: Oversize path '%s'\n", path);
+    }
+
     new_node->data.start = 1;
     new_node->data.ftype = TBD;
     new_node->next = NULL;
@@ -1601,8 +1648,7 @@ void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *
     path_list *temp_node = (path_list*)malloc(sizeof(path_list));
     memset(temp_node, 0, sizeof(path_list));
     if (! temp_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+       errsend_fmt(FATAL, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
     }
     temp_node->data = new_node->data;
     temp_node->next = NULL;
@@ -1831,7 +1877,7 @@ int check_temporary(PathPtr p_src, path_item* out_node)
    epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
 
    snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
-   src_to_hash[PATHSIZE_PLUS -1] = 0;
+   // src_to_hash[PATHSIZE_PLUS -1] = 0; /* no need for this */
 
    return check_ctm_match(out_node->path, src_to_hash);
 }

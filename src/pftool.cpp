@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
         o.blocksize = (1024 * 1024);
         o.chunk_at  = (10ULL * 1024 * 1024 * 1024); // 10737418240
         o.chunksize = (10ULL * 1024 * 1024 * 1024);
-        strncpy(o.exclude, "", PATHSIZE_PLUS);
+        o.exclude[0] = '\0';
         o.max_readdir_ranks = MAXREADDIRRANKS;
         src_path[0] = '\0';
         dest_path[0] = '\0';
@@ -221,11 +221,19 @@ int main(int argc, char *argv[]) {
             case 'p':
                 //Get the source/beginning path
                 strncpy(src_path, optarg, PATHSIZE_PLUS);
+                if (src_path[PATHSIZE_PLUS -1]) {
+                   fprintf(stderr, "Oversize path for src_path %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
                 break;
 
             case 'c':
                 //Get the destination path
                 strncpy(dest_path, optarg, PATHSIZE_PLUS);
+                if (dest_path[PATHSIZE_PLUS -1]) {
+                   fprintf(stderr, "Oversize path for dest_path %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
                 break;
 
             case 'j':
@@ -244,6 +252,10 @@ int main(int argc, char *argv[]) {
 
             case 'i':
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
+                if (o.file_list[PATHSIZE_PLUS -1]) {
+                   fprintf(stderr, "Oversize path for file_list %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
                 o.use_file_list = 1;
                 break;
 
@@ -266,8 +278,16 @@ int main(int argc, char *argv[]) {
             case 'X':
 #ifdef GEN_SYNDATA
                 strncpy(o.syn_pattern, optarg, 128);
+                if (o.syn_pattern[127]) {
+                   fprintf(stderr, "Oversize path for syn_pattern %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
 #else
-                errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
+                // // can't errsend() until we cross barrier, below
+                // errsend(NONFATAL,"configure with --enable-syndata, to use option '-X'");
+
+                fprintf(stderr, "configure with --enable-syndata, to use option '-X'");
+                MPI_Abort(MPI_COMM_WORLD, -1);
 #endif
                 break;
 
@@ -276,6 +296,10 @@ int main(int argc, char *argv[]) {
                 int slen;
                 o.syn_size = str2Size(optarg);
                 strncpy(o.syn_suffix,optarg,SYN_SUFFIX_MAX-2); // two less, so that we can add a 'b' if needed
+                if (o.syn_suffix[SYN_SUFFIX_MAX -3]) {
+                   fprintf(stderr, "Oversize path for syn_suffix %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
 
                 // if last character is a digit -> add a 'b' for bytes
                 if (isdigit(o.syn_suffix[(slen=strlen(o.syn_suffix))-1])) {
@@ -327,6 +351,10 @@ int main(int argc, char *argv[]) {
 
             case 'e':
                 strncpy(o.exclude, optarg, PATHSIZE_PLUS);
+                if (o.exclude[PATHSIZE_PLUS -1]) {
+                   fprintf(stderr, "Oversize path for exclude %s\n", optarg);
+                   MPI_Abort(MPI_COMM_WORLD, -1);
+                }
                 o.exclude[PATHSIZE_PLUS-1] = '\0';
                 break;
 
@@ -378,6 +406,8 @@ int main(int argc, char *argv[]) {
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
+
+
 
     // assure the minimal number of ranks exist
     if (nproc <= START_PROC) {
@@ -485,7 +515,7 @@ int main(int argc, char *argv[]) {
 
             PathPtr p_dest(PathFactory::create(dest_path));
             if (!p_dest->exists() || !p_dest->is_dir()) {
-                printf("Multiple inputs and target '%s' is not a directory\n", dest_path);
+                fprintf(stderr, "Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
             }
         }
@@ -546,7 +576,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // tell the wokers weather or not we are going to run
+    // tell the wokers whether we are going to run
     MPI_Bcast(&run, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
 
     // take on the role appropriate to our rank.
@@ -904,7 +934,8 @@ int manager(int             rank,
 
     if(o.work_type != LSWORK) {
         //quick check that source is not nested
-        char* copy = strdup(dest_path);
+
+        char* copy = strdup(dest_path); // dirname() modifies arg
         strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
         free(copy);
 
@@ -913,8 +944,7 @@ int manager(int             rank,
             fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
             char err_cause[MESSAGESIZE];
             strerror_r(errno, err_cause, MESSAGESIZE);
-            snprintf(errmsg, MESSAGESIZE, "parent doesn't exist: %s: %s", dest_path, err_cause);
-            errsend(FATAL, errmsg);
+            errsend_fmt(FATAL, "parent doesn't exist: %s: %s", dest_path, err_cause);
         }
 
         // check to make sure that if the source is a directory, then -R was specified. If not, error out.
@@ -2074,10 +2104,7 @@ void worker_readdir(int         rank,
                     // check to see if we should skip it
                     if( 0 == fnmatch(o.exclude, path, 0) ) {
                         if (o.verbose >= 1) {
-                            char message[MESSAGESIZE];
-                            snprintf(message, MESSAGESIZE, "Excluding: %s\n", path);
-                            message[MESSAGESIZE-1] = 0;
-                            write_output(message, 1);
+                            output_fmt(1, "Excluding: %s\n", path);
                         }
                     } 
                     else {
@@ -2478,11 +2505,9 @@ void process_stat_buffer(path_item*      path_buffer,
 
                    PathPtr p_temp(p_out->path_append(timestamp_plus));
                    if (o.verbose >= 1) {
-                      snprintf(message, MESSAGESIZE,
-                               "INFO  DATASTAT -- Removing old temporary file with mismatching src hash: %s\n",
-                               p_temp->path());
-                      message[MESSAGESIZE-1] = 0;
-                      write_output(message, 1);
+                      output_fmt(1,
+                                 "INFO  DATASTAT -- Removing old temporary file with mismatching src hash: %s\n",
+                                 p_temp->path());
                    }
                    if (!p_temp->unlink() && (errno != ENOENT))
                       errsend_fmt(FATAL, "Failed to unlink temporary file %s\n", p_temp->path());
@@ -2664,11 +2689,8 @@ void process_stat_buffer(path_item*      path_buffer,
                       } // end send test
                       else {
                           if (o.verbose >= 1) {
-                              snprintf(message, MESSAGESIZE,
-                                       "INFO  DATACOPY file %s chunk %d already transferred\n",
-                                       work_node.path, work_node.chkidx);
-                              message[MESSAGESIZE-1] = 0;
-                              write_output(message, 1);
+                             output_fmt(1, "INFO  DATACOPY file %s chunk %d already transferred\n",
+                                        work_node.path, work_node.chkidx);
                           }
                           num_finished_bytes += work_node.chksz;
                       }
@@ -2751,7 +2773,9 @@ void process_stat_buffer(path_item*      path_buffer,
         writesize = MESSAGESIZE * write_count;
         writebuf = (char *) realloc(writebuf, writesize * sizeof(char));
         if (! writebuf) {
-            errsend_fmt(FATAL, "Failed to re-allocate %lu bytes for writebuf, write_count: %d\n", writesize, write_count);
+            errsend_fmt(FATAL,
+                        "Failed to re-allocate %lu bytes for writebuf, write_count: %d\n",
+                        writesize, write_count);
         }
         write_buffer_output(writebuf, writesize, write_count);
     }
@@ -2788,7 +2812,6 @@ void worker_copylist(int             rank,
     int            read_count;
     path_item      work_node;
     path_item      out_node;
-    char           copymsg[MESSAGESIZE];
     off_t          offset;
     size_t         length;
     int            num_copied_files = 0;
@@ -2850,18 +2873,14 @@ void worker_copylist(int             rank,
         if (rc >= 0) {
             if (o.verbose >= 1) {
                 if (S_ISLNK(work_node.st.st_mode)) {
-                    snprintf(copymsg, MESSAGESIZE,
-                             "INFO  DATACOPY Created symlink %s from %s\n",
-                             out_node.path, work_node.path);
+                   output_fmt(0, "INFO  DATACOPY Created symlink %s from %s\n",
+                              out_node.path, work_node.path);
                 }
                 else {
-                    snprintf(copymsg, MESSAGESIZE,
-                             "INFO  DATACOPY %sCopied %s chunk %d offs %lld len %lld to %s\n",
-                             ((rc == 1) ? "*" : ""),
-                             work_node.path, work_node.chkidx, (long long)offset, (long long)length, out_node.path);
+                   output_fmt(0, "INFO  DATACOPY %sCopied %s chunk %d offs %lld len %lld to %s\n",
+                              ((rc == 1) ? "*" : ""),
+                              work_node.path, work_node.chkidx, (long long)offset, (long long)length, out_node.path);
                 }
-                copymsg[MESSAGESIZE-1] = 0;
-                write_output(copymsg, 0);
                 out_position = 0;
             }
             num_copied_files +=1;
@@ -2957,6 +2976,7 @@ void worker_comparelist(int             rank,
         stat_item(&out_node, o);
         offset = work_node.chkidx*work_node.chksz;
         length = work_node.chksz;
+
         rc = compare_file(&work_node, &out_node, o.blocksize, o.meta_data_only, o);
         if (o.meta_data_only || S_ISLNK(work_node.st.st_mode)) {
             snprintf(copymsg, MESSAGESIZE,
@@ -2968,6 +2988,7 @@ void worker_comparelist(int             rank,
                      "INFO  DATACOMPARE compared %s offs %lld len %lld to %s",
                      work_node.path, (long long)offset, (long long)length, out_node.path);
         }
+
 
         size_t msg_remain = MESSAGESIZE - strlen(copymsg);
         if (rc == 0) {

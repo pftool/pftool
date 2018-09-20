@@ -161,9 +161,20 @@ typedef enum cmd_opcode OpCode;
 #define ACCUM_PROC    2
 #define START_PROC    3
 
-//errsend
-#define FATAL 1
-#define NONFATAL 0
+// for errsend
+enum Lethality {
+   NONFATAL = 0,
+   FATAL = 1
+};
+
+// for write_output (unused)
+// TBD: would be nicer to have OUT=1, SYS=2, BOTH=3
+enum OutputMode {
+   LOG_OUT  = 0,
+   LOG_BOTH = 1,
+   LOG_SYS  = 2
+};
+
 
 enum WorkType {
     COPYWORK = 0,
@@ -212,7 +223,7 @@ struct options {
     size_t  chunksize;
     int     preserve;           				// attempt to preserve ownership during copies.
 
-    char exclude[PATHSIZE_PLUS]; 				// pattern/list to exclude
+    char    exclude[PATHSIZE_PLUS];       // pattern/list to exclude
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
@@ -270,17 +281,17 @@ typedef struct work_buf_list {
 
 typedef struct pod_stat
 {
-	size_t buff_size;
-	char* buffer;
+   size_t buff_size;
+   char* buffer;
 } pod_data;
 
 typedef struct repo_timing_stats
 {
-	int tot_stats;
-	int total_blk;
-	int has_data;
-	int total_pods;
-	std::map<int, pod_data*> pod_to_stat;
+   int tot_stats;
+   int total_blk;
+   int has_data;
+   int total_pods;
+   std::map<int, pod_data*> pod_to_stat;
 } repo_stats;
 
 
@@ -313,8 +324,8 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
 void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 //worker utility functions
-void errsend(int fatal, const char *error_text);
-void errsend_fmt(int fatal, const char *format, ...);
+void errsend(Lethality fatal, const char *error_text);
+void errsend_fmt(Lethality fatal, const char *format, ...);
 
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int  stat_item(path_item* work_node, struct options& o);
@@ -334,11 +345,11 @@ void send_manager_work_done(int ignored);
 void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 //function definitions for workers
-void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(const char *message, int log);
-void write_output_fmt(int log, const char *fmt, ...);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
+void output_fmt(int log, const char *fmt, ...);
 
+void update_chunk(path_item *buffer, int *buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
