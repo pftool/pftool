@@ -275,7 +275,7 @@ void get_base_path(char*            base_path,
     strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
     free(path_copy);
 
-    if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)) {
+    if ((strncmp(".", dir_name, PATHSIZE_PLUS) == 0) && S_ISDIR(st.st_mode)) {
         strncpy(base_path, path, PATHSIZE_PLUS);
     }
     else if (S_ISDIR(st.st_mode) && wildcard == 0) {
