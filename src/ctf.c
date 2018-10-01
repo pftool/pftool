@@ -64,6 +64,9 @@ char *_getCTFDir() {
 	  struct stat sbuf;				// buffer to hold stat information
 
 	  CTFDir = (char *)malloc(PATH_MAX +1);
+	  if (! CTFDir)
+	     return (char*)NULL;
+
 	  sprintf(CTFDir,"%s/%s", getenv("HOME"),CTF_DEFAULT_DIRECTORY);
 	  if( stat(CTFDir,&sbuf) < 0) {			// directory probably does not exist
 	    if(errno == ENOENT) {
@@ -79,6 +82,7 @@ char *_getCTFDir() {
 	    free(CTFDir); CTFDir = (char *)NULL;
 	  }
 	}
+
 	return(CTFDir);
 }
 
@@ -275,11 +279,16 @@ int foundCTF(const char *transfilename) {
 	struct stat sbuf;				// the returned stat buffer
 	char *ctffname;					// the CTF file path
 
-	if(!(ctffname=genCTFFilename(transfilename)))	// Build CTF file name. If no name generated -> no file
+	// Build CTF file name. If no name generated -> no file
+	if(!(ctffname=genCTFFilename(transfilename)))
 	  return(FALSE);
 
-	if(stat(ctffname,&sbuf)) 			// file does NOT exist.
-	  return(FALSE);
+	int stat_rc = stat(ctffname,&sbuf);
+	free(ctffname);
+
+	if(stat_rc)
+	   return(FALSE);			// file does NOT exist.
+
 	return(TRUE);
 }
 
