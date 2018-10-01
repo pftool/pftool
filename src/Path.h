@@ -2404,8 +2404,14 @@ public:
    // see comments at Path::rename()
    virtual bool rename(const char* new_path)
    {
-      if (_rc = marfs_rename(marfs_sub_path(_item->path),
-                             marfs_sub_path(new_path)))
+      // until we fix MarFS issue #207, do an unlink before rename,
+      // in order to keep MD for the trashed storage
+      // https://github.com/mar-file-system/marfs/issues/207
+      if(_rc = marfs_unlink(new_path) && (errno != ENOENT))
+         _errno = errno;
+
+      else if (_rc = marfs_rename(marfs_sub_path(_item->path),
+                                  marfs_sub_path(new_path)))
          _errno = errno;
       else
          reset_path_item();
