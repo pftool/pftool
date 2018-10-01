@@ -716,9 +716,9 @@ public:
    virtual bool    supports_n_to_1() const   = 0; // can support N:1, via chunks?
 
    // This allows MARFS_Path to select the proper repo, based on total
-   // file-size, so individual chunk-mover tasks can get info form teh
-   // xattrs.  It is called single-threaded from pftool, when before
-   // copying a file.
+   // file-size, so individual chunk-mover tasks can get info from the
+   // xattrs.  It is called single-threaded from pftool, before copying
+   // to a file.
    virtual bool    pre_process(PathPtr src) { return true; } // default is no-op
 
    // Allow subclasses to maintain per-chunk state.  (e.g. MarFS can update
