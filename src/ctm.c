@@ -98,17 +98,24 @@ CTM *_createCTM(const char *transfilename) {
 	  return(newCTM);
 
 	newCTM = (CTM *)malloc(sizeof(CTM));		// now we allocate the structure
+	if (! newCTM)
+	   return NULL;
 	memset(newCTM,0,sizeof(CTM));			// clear the memory of the newCTM CTM structure
+
 	newCTM->chnkimpl = itype;				// assign implmentation
 	switch ((int)newCTM->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
-	  case CTM_XATTR : newCTM->chnkfname = strdup(transfilename);
+	  case CTM_XATTR :
+			   newCTM->chnkfname = strdup(transfilename);
 			   registerCTA(&newCTM->impl);	// assign implementation
 			   break;
 	  case CTM_FILE  :
-          default        : if(newCTM->chnkfname = genCTFFilename(transfilename))
+	  default        :
+			   if(newCTM->chnkfname = genCTFFilename(transfilename))
 			     registerCTF(&newCTM->impl);	// assign implementation
-			   else
-			     freeCTM(&newCTM);		// problems generating filename for CTM -> abort creation and clean up memory
+			   else {
+			     // problems generating filename for CTM -> abort creation and clean up memory
+			     freeCTM(&newCTM); // side-effect: newCTM == NULL
+			   }
 	}
 
 	return(newCTM);
@@ -133,6 +140,8 @@ size_t allocateCTMFlags(CTM *ctmptr) {
 								// compute the buffer size
 	bufsz = (size_t)(sizeof(unsigned long)*ComputeBitArraySize(ctmptr->chnknum));
 	ctmptr->chnkflags = (unsigned long *)malloc(bufsz);
+	if (! ctmptr->chnkflags)
+	  return((size_t)(-1));
 	memset(ctmptr->chnkflags,0,bufsz);
 
 	return(bufsz);
@@ -491,37 +500,42 @@ int check_ctm_match(const char* dest, const char* src_to_hash)
    return ret;
 }
 
+// We assume <timestamp> has size DATE_STRING_MAX, at least
 int get_ctm_timestamp(char* timestamp, const char* filename)
 {
 	char* ctm_name;//need free
 	struct stat sbuf;
 	int fd;
 	int ret = 0;
-	
+
 	ctm_name = genCTFFilename(filename);
-	if (stat(ctm_name, &sbuf))
+	if (! ctm_name)
+		return -1;
+
+	else if (stat(ctm_name, &sbuf))
 	{
 		//CTM file should be there unelss another process started
 		//copying. REPORT ERROR
 		ret = -1;
 	}
-	else
+	else if((fd = open(ctm_name, O_RDONLY)) < 0)
 	{
-		if((fd = open(ctm_name, O_RDONLY)) < 0)
-		{
-			free(ctm_name);
-			return -errno;
-		}
+		ret = -errno;
+	}
+	else {
+
 		if (lseek(fd, SIG_DIGEST_LENGTH * 2 + 1, SEEK_CUR) < 0)
 		{
-			//fail to seek
-			return -errno;
+		   //fail to seek
+		   ret = -errno;
 		}
-		if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
+		else if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
 		{
-			//something wrong with timestamp, report error
-			ret = -2;
+		   //something wrong with timestamp, report error
+		   ret = -2;
 		}
+
+		close(fd);
 	}
 
 	free(ctm_name);
@@ -530,12 +544,13 @@ int get_ctm_timestamp(char* timestamp, const char* filename)
 
 int create_CTM(PathPtr& p_out, PathPtr& p_src)
 {
-	int fd;
+	int    fd;
 	time_t mtime = p_src->mtime();
-	char* ctm_name;//need free
-	char* src_hash;//need free
-	char src_to_hash[PATHSIZE_PLUS];
-	char src_mtime[DATE_STRING_MAX];
+	char*  ctm_name;             //need free
+	char*  src_hash;             //need free
+	char   src_to_hash[PATHSIZE_PLUS];
+	char   src_mtime[DATE_STRING_MAX];
+	int    ret = 0;
 
 	//construct src hash
 	epoch_to_string(src_mtime, DATE_STRING_MAX, &mtime);
@@ -543,23 +558,31 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	src_hash = str2sig(src_to_hash);
 
 	ctm_name = genCTFFilename(p_out->path());
-	if((fd = open(ctm_name, (O_WRONLY | O_CREAT), 0660)) < 0)
-		return -errno;
+	if (! ctm_name)
+	   return -1;
 
-	//first write out the src_hash
-	if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
-		return -1;
+	else if((fd = open(ctm_name, (O_WRONLY | O_CREAT), 0660)) < 0)
+		ret = -errno;
 
-	//write out temporary file's timestamp stored in p_src
-	if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
-		return -1;
+	else {
+
+		//first write out the src_hash
+		if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
+			ret = -1;                // errno is set
+
+		//write out temporary file's timestamp stored in p_src
+		else if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
+			ret = -1;                // errno is set
+
+		if (fsync(fd) < 0)
+			ret = -errno;
+
+		if (close(fd) < 0)
+			ret = -errno;
+	}
 
 	free(ctm_name);
 	free(src_hash);
 
-	fsync(fd);
-	if (close(fd) < 0)
-		return -errno;
-
-	return 0;
+	return ret;
 }
