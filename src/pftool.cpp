@@ -3025,12 +3025,6 @@ void worker_comparelist(int             rank,
         write_buffer_output(writebuf, writesize, read_count);
     }
 
-    // update the chunk information
-    if (buffer_count > 0) {
-        send_manager_chunk_busy();
-        update_chunk(chunks_copied, &buffer_count);
-    }
-
     // report stats for all files (i.e. chunked or non-chunked)
     if (num_compared_files > 0 || num_compared_bytes > 0) {
         send_manager_copy_stats(num_compared_files, num_compared_bytes);
