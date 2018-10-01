@@ -672,11 +672,14 @@ public:
    // This value has no influence on the which Path subclass should own a
    // given path_item (unlike ftype), so we allow it to be set and changed
    // as needed.
-   FileType     dest_ftype() const { return _item->dest_ftype; }
-   void         dest_ftype(FileType t) { _item->dest_ftype = t; }
+   FileType     dest_ftype()           const { return _item->dest_ftype; }
+   void         dest_ftype(FileType t)       { _item->dest_ftype = t; }
 
    // ON SECOND THOUGHT:
    // virtual FileType ftype_for_destination() { REGULARFILE; } // subclasses do what they want
+
+   FileType     ftype() const { return _item->ftype; }
+
 
    // if you just want to know whether stat succeeded call this
    virtual bool    stat()     { return do_stat(false); }
