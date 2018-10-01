@@ -1,3 +1,4 @@
+/* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 3; tab-width: 3 -*- */
 /**
 * Implements routines for a CTM (Chunk Transfer Metadata) structure
 * In order to add new implemenations, both this file and the ctm_impl.h
@@ -28,11 +29,11 @@
 */
 const char *_impl2str(CTM_ITYPE implidx) {
 	static const char *IMPLSTR[] = {
-      "No CTM"
-      ,"File CTM"
-      ,"xattr CTM"
-      ,"Unsupported CTM"
-   };
+		"No CTM"
+		,"File CTM"
+		,"xattr CTM"
+		,"Unsupported CTM"
+	};
 	return((implidx > CTM_UNKNOWN)?"Unknown CTM":IMPLSTR[implidx]);
 }
 
@@ -52,30 +53,33 @@ const char *_impl2str(CTM_ITYPE implidx) {
 CTM_ITYPE _whichCTM(const char *transfilename) {
 
 #if CTM_MODE == CTM_PREFER_FILES
-   return CTM_FILE;
+	return CTM_FILE;
 
 #elif CTM_MODE == CTM_PREFER_XATTRS
-   CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
-   if(!strIsBlank(transfilename)) {    // non-blank filename -> test if tranferred file supports xattrs
-     if(!setxattr(transfilename,CTM_TEST_XATTR,"novalue",strlen("novalue")+1,0)) {
-       removexattr(transfilename,CTM_TEST_XATTR);  // done with test -> remove it.
-       itype = CTM_XATTR;           // yes, it does!
-     }
-     else {
-       int errcpy = errno;          // make a copy of errno ...
+	CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
+	if(!strIsBlank(transfilename)) {    // non-blank filename -> test if tranferred file supports xattrs
+		if(!setxattr(transfilename,CTM_TEST_XATTR,"novalue",strlen("novalue")+1,0)) {
+			removexattr(transfilename,CTM_TEST_XATTR);  // done with test -> remove it.
+			itype = CTM_XATTR;           // yes, it does!
+		}
+		else {
+			int errcpy = errno;          // make a copy of errno ...
 
-       switch (errcpy) {
-         case ENOENT : itype = CTM_XATTR;    // if file does not exist -> assume xattrs are supported
-             break;
-         case ENOTSUP:           // xattrs are not supported
-         default     : itype = CTM_FILE;     // another error? -> use files
-       } // end error switch
-     } // end setxattr() else
-   }
-   return(itype);
+			switch (errcpy) {
+			case ENOENT :
+				itype = CTM_XATTR;    // if file does not exist -> assume xattrs are supported
+				break;
+
+			case ENOTSUP:           // xattrs are not supported
+			default     :
+				itype = CTM_FILE;     // another error? -> use files
+			} // end error switch
+		} // end setxattr() else
+	}
+	return(itype);
 
 #else
-   return CTM_NONE;
+	return CTM_NONE;
 
 #endif
 }
@@ -158,11 +162,16 @@ void freeCTM(CTM **pctmptr) {
 	CTM *ctmptr = (*pctmptr);
 
 	if(ctmptr) {
-	  if(ctmptr->chnkflags) free(ctmptr->chnkflags);
-	  if(!strIsBlank(ctmptr->chnkfname)) free(ctmptr->chnkfname);
+	  if(ctmptr->chnkflags)
+		  free(ctmptr->chnkflags);
+	  if(!strIsBlank(ctmptr->chnkfname))
+		  free(ctmptr->chnkfname);
+
+	  // make sure that the pointer to the structure is zeroed out. Note in order to change value, need to
+	  // assign pctmptr to point to NULL, rather thsn ctmptr.
 	  free(ctmptr);
-	  *pctmptr = (CTM*)NULL;				// make sure that the pointer to the structure is zeroed out. Note in order to change value, need to
-	}							// assign pctmptr to point to NULL, rather thsn ctmptr.
+	  *pctmptr = (CTM*)NULL;
+	}
 	return;
 }
 
@@ -185,8 +194,8 @@ CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
 	CTM *newCTM = _createCTM(transfilename);			// allocate the newCTM structure
 
 	if(newCTM) {						// we have an allocated CTM structure. Read from persistent store
-	  if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
-	    freeCTM(&newCTM);					// problems reading metadata -> abort get and clean up memory
+		if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
+			freeCTM(&newCTM);			// problems reading metadata -> abort get and clean up memory
 	}
 	return(newCTM);
 }
@@ -259,9 +268,11 @@ int hasCTM(const char *transfilename) {
 	switch ((int)itype) {					// test, based on how CTM store is implemented
 	  case CTM_NONE    :					// no or unsupported type? -> return FALSE
 	  case CTM_UNKNOWN : return(FALSE);
+
 	  case CTM_XATTR   : return(foundCTA(transfilename));
+
 	  case CTM_FILE    :
-          default          : return(foundCTF(transfilename));
+	  default          : return(foundCTF(transfilename));
 	}
 }
 
@@ -276,17 +287,18 @@ void purgeCTM(const char *transfilename) {
 	char *chnkfname;					// holds the md5 name if CTM is implemented with CTF files
 
 	switch ((int)itype) {					// test, based on how CTM store is implemented
-	  case CTM_XATTR   : deleteCTA(transfilename);		// don't care about the return code
+	  case CTM_XATTR   :
+			     deleteCTA(transfilename);		// don't care about the return code
 			     break;
 								// have to generate the md5 name for CTF files
-	  case CTM_FILE    : chnkfname = genCTFFilename(transfilename);
-
+	  case CTM_FILE    :
+			     chnkfname = genCTFFilename(transfilename);
 			     unlinkCTF(chnkfname);		// don't care about return code
 			     if(chnkfname) free(chnkfname);	// we done with the temporary name
 			     break;
 	  case CTM_NONE    :					// no or unsupported type? -> nothing to do
 	  case CTM_UNKNOWN : 
-          default          : break;
+	  default          : break;
 	}
 	return;
 }
@@ -340,9 +352,9 @@ int transferredCTM(CTM *ctmptr) {
 	int i = 0;					// index into 
 
 	if(ctmptr) {
-	  while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i))
-	     i++;
-	  rc = (int)(i >= ctmptr->chnknum);
+		while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i))
+			i++;
+		rc = (int)(i >= ctmptr->chnknum);
 	}
 	return(rc);
 }
@@ -374,15 +386,16 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 
 	flags = (char *)malloc((2*ctmptr->chnknum)+1);
 	for(i=0; i<ctmptr->chnknum; i++)
-	  snprintf(flags+(2*i),3,"%d,",TestBit(ctmptr->chnkflags,i));
+		snprintf(flags+(2*i),3,"%d,",TestBit(ctmptr->chnkflags,i));
 	i = strlen(flags);
 	flags[i-1] = '\0';
 
 	if(!(*rbuf)) {					// rbuf NOT allocated
-	  *rlen = strlen(ctmptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
-	  *rbuf = (char *)malloc(*rlen);
+		*rlen = strlen(ctmptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
+		*rbuf = (char *)malloc(*rlen);
 	}
-	snprintf(*rbuf,*rlen,"%s: %s, %ld, (%ld)\n\t[%s]", _impl2str(ctmptr->chnkimpl),ctmptr->chnkfname, ctmptr->chnknum, ctmptr->chnksz,flags);
+	snprintf(*rbuf,*rlen,"%s: %s, %ld, (%ld)\n\t[%s]",
+	         _impl2str(ctmptr->chnkimpl),ctmptr->chnkfname, ctmptr->chnknum, ctmptr->chnksz,flags);
 	free(flags);
 
 	return(*rbuf);
