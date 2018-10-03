@@ -827,7 +827,7 @@ int compare_file(path_item*      src_file,
    if (! p_dest->stat())
       return 2;
 
-   if (samefile(p_src, p_dest, o)) {
+   if (samefile(p_src, p_dest, o, -1)) {
 
       //metadata compare
       if (meta_data_only) {
@@ -1776,12 +1776,17 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
  *    you freshly create them and set all these values to match the
  *    original.  Therefore, it might make sense to reconsider this test.
  *
- * @param src        a path_item structure containing
- *           the metadata for the souce file
- * @param dst        a path_item structure containing
- *           the metadata for the destination
- *           file
- * @param o      the PFTOOL global options structure
+ * In order to avoid a redundant stat of the CTM file, we now have the
+ * caller pass that information in through <dst_has_ctm>, because the
+ * caller now has that information already, by other means.
+ *
+ * @param src           path_item structure containing
+ *                         the metadata for the souce file
+ * @param dst           path_item structure containing
+ *                         the metadata for the destination file
+ * @param o             the PFTOOL global options structure
+ * @param dst_has_ctm   COPYWORK destination has CTM?
+ *                      -1=unsure, 0=no, 1=yes
  *
  * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
  *   command-line includes an option to skip copying files that have
@@ -1790,7 +1795,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
  */
 
 // TBD: Use Path methods to avoid over-reliance on POSIX same-ness
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o, int dst_has_ctm) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
 
@@ -1816,9 +1821,17 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
+       //
+       // QUES: is this still a good test, now that we do restarts with
+       //    temp dest-files?  If source is different from destination in
+       //    MD terms, then a copy will restart using any CTM that may be
+       //    there.  If the source is not different from dest, then who
+       //    cares if there is CTM?  We don't have to worry that
+       //    destination has been modified.
        if ((o.work_type == COPYWORK)
            && (src.st.st_size >= o.chunk_at)
-           && (hasCTM(dst.path)))
+           && ((dst_has_ctm > 0)
+               || ((dst_has_ctm < 0) && hasCTM(dst.path))))
           return 0;
 
        // class-specific techniques (e.g. MarFS file has RESTART?)

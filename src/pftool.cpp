@@ -2587,15 +2587,15 @@ void process_stat_buffer(path_item*      path_buffer,
                 parallel_dest = 1;
 
 
-                // Maybe user only wants to operate on source-files
-                // that are "different" from the corresponding
-                // dest-files.
-                if ((o.different == 1)
-                    && samefile(p_work, p_out, o)) {
+             // Maybe user only wants to operate on source-files that
+             // are "different" from the corresponding dest-files.
+             if (o.different
+                 && samefile(p_work, p_out, o, dest_has_ctm)) {
 
-                   process = 0; // source/dest are the same, so skip
-                   num_finished_bytes += work_node.st.st_size;
-                }
+                process = 0; // source/dest are the same, so skip
+                num_finished_bytes += work_node.st.st_size;
+                // printf("  samefile\n");
+             }
 
 
              // we are definitely doing the copy ...

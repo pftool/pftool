@@ -372,10 +372,10 @@ void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, 
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o, int dst_has_ctm);
 int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
-int  check_temporary(PathPtr p_src, path_item* out_node);
+int check_temporary(PathPtr p_src, path_item* out_node);
 int epoch_to_string(char* str, size_t size, const time_t* time);
 
 //void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
