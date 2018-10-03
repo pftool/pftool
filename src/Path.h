@@ -2345,8 +2345,19 @@ public:
       //return true;
    }
 
+
+   // called from close()/close_fh() to send accumulated timing-data to syslog.
    static void send_to_manager(MarFS_FileHandle* whichFh)
    {
+      // For a zero-length file, nothing will ever have been written and so
+      // the ObjectStream (in the MARFS_FileHandle) will never have been
+      // opened, even though the file-handle is "open".  This also means
+      // that no data will have been collected, timing_stats won't have
+      // been initialized, and most of these other pointers will be NULL.
+      // Don't segfault, in this case.
+      if (! (whichFh->os.flags & OSF_OPEN))
+         return;
+
       //send logics
       send_manager_timing_stats(whichFh->tot_stats,
                                 whichFh->pod_id,
