@@ -1879,5 +1879,5 @@ int check_temporary(PathPtr p_src, path_item* out_node)
    snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
    // src_to_hash[PATHSIZE_PLUS -1] = 0; /* no need for this */
 
-   return check_ctm_match(out_node->path, src_to_hash);
+   return check_ctm_match(src_to_hash, out_node->path);
 }

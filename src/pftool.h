@@ -21,7 +21,7 @@
 
 /* Function Prototypes */
 //manager rank operations
-int manager(int rank, struct options& o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path);
+int  manager(int rank, struct options& o, int nproc, path_list *input_queue_head, path_list *input_queue_tail, int input_queue_count, const char *dest_path);
 void manager_workdone(int rank, int sending_rank, struct worker_proc_status *proc_status, int* free_rank_count, int* readdir_rank_count);
 int  manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_list **queue_tail, int *queue_count);
 void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
@@ -38,7 +38,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
 void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *output_count, struct options& o);
 void worker_update_chunk(int rank, int sending_rank, HASHTBL **chunk_hash, int *hash_count, const char *base_path, path_item* dest_node, struct options& o);
 void worker_readdir(int rank, int sending_rank, const char *base_path, path_item* dest_node, int start, int makedir, struct options& o);
-int stat_item(path_item *work_node, struct options& o);
+int  stat_item(path_item *work_node, struct options& o);
 void process_stat_buffer(path_item *path_buffer, int *stat_count, const char *base_path, path_item *dest_node, struct options& o, int rank);
 void worker_copylist(int rank, int sending_rank, const char *base_path, path_item* dest_node, struct options& o);
 void worker_comparelist(int rank, int sending_rank, const char *base_path, path_item* dest_node, struct options& o);

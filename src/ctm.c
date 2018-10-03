@@ -416,101 +416,105 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  * was written.  We can detect this, during a restart, and avoid
  * transferring part of one file on top of part of another.
  *
- * @param dest         the (original) dest-filename, e.g. for a copy
- *
  * @param src_to_hash  the source-filename (with its mtime appended)
  *
- * @return -errno, if there's a problem accessing the CTM file. 0, if
- * there's no CTM file.  2, if the hash from the CTM matches the hashed
- * source-filename, 3, if there's no match.
+ * @param dest         the (original) dest-filename, e.g. for a copy
+ *
+ * @return            -errno  -- problem accessing the CTM file.
+ *                     0      -- no CTM file
+ *                     2      -- hash from CTM matches hashed source-filename
+ *                     3,     -- no match
+ *                     4,     -- destination temp-file is missing
  */
-int check_ctm_match(const char* dest, const char* src_to_hash)
+int check_ctm_match(const char* src_to_hash, const char* dest)
 {
-   int ret = 0;
-   int fd;
-   char* ctm_name;
-   char* src_hash; //must be freed
-   char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
+	int ret = 0;
+	int fd;
+	char* ctm_name;
+	char* src_hash; //must be freed
+	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
 
-   ctm_name = genCTFFilename(dest);
-   src_hash = str2sig(src_to_hash);
+	ctm_name = genCTFFilename(dest);
+	src_hash = str2sig(src_to_hash);
 
 
-   if((fd = open(ctm_name, O_RDONLY)) < 0) {
-      if (errno == ENOENT)
-         ret = 0; //there is no ctm, no match
-      else
-         ret = -errno;
-   }
+	if((fd = open(ctm_name, O_RDONLY)) < 0) {
+		if (errno == ENOENT)
+			ret = 0; //there is no ctm, no match
+		else
+			ret = -errno;
+	}
 
-   //read src hash
-   else if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0) {
-      ret = -errno;
-   }
+	//read src hash
+	else if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0) {
+		ret = -errno;
+	}
 
-   else if(!strcmp(ctm_src_hash, src_hash)) {
-      // we have a match!
+	else if(!strcmp(ctm_src_hash, src_hash)) {
+		// we have a match!
 
-      // check whether destination temp-file also exists.
-      // For that, we need to also read the dest temp-file timestamp.
-      // Do that now, while we still have the CTM-file open.
-      struct stat st;
+		// check whether destination temp-file also exists.
+		// For that, we need to also read the dest temp-file timestamp.
+		// Do that now, while we still have the CTM-file open.
+		struct stat st;
 
-      // assure there's room for timestamp at the end of <dest>
-      size_t dest_len = strlen(dest);
-      if ((PATHSIZE_PLUS - dest_len) < DATE_STRING_MAX) {
-         ret = -EIO;
-      }
-      else {
+		// assure there's room for timestamp at the end of <dest>
+		size_t dest_len = strlen(dest);
+		if ((PATHSIZE_PLUS - dest_len) < DATE_STRING_MAX) {
+			ret = -EIO;
+		}
+		else {
 
-         // prepare to read timestamp onto the end of <dest>
+			// prepare to read timestamp onto the end of <dest>
 #if 1
-         char dest_temp[PATHSIZE_PLUS];
-         strcpy(dest_temp, dest);
+			char dest_temp[PATHSIZE_PLUS];
+			strcpy(dest_temp, dest);
 #else
-         char* dest_temp = dest; // alter existing <dest> string
+			char* dest_temp = dest; // alter existing <dest> string
 #endif
-         dest_temp[dest_len] = '+';
-         char* timestamp = dest_temp + dest_len +1;
+			dest_temp[dest_len] = '+';
+			char* timestamp = dest_temp + dest_len +1;
 
 
-         // read timestamp onto the end of <dest> to make dest temp-fname.
-         // if it doesn't exist, then user must've deleted it (CTM does
-         // exist so it's not that the temp-file was renamed over the
-         // detination).  in that case, we signal to caller by indicating a
-         // mis-match, which triggers wiping the CTM and starting over.
-         errno = 0;
-         if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX) {
-            ret = -errno;  // something wrong with timestamp
-         }
-         else if (stat(dest_temp, &st) && (errno != ENOENT)) {
-            ret = -errno;    // stat failed for some reason other than ENOENT
-         }
-         else if (errno == ENOENT) {
-            ret = 3;         // no destination temp-file.  treat as mismatch
-         }
-         else
-            ret = 2;         // passed all the tests.  It's a match
+			// read timestamp onto the end of <dest> to make dest temp-fname.
+			// if it doesn't exist, then user must've deleted it (CTM does
+			// exist so it's not that the temp-file was renamed over the
+			// destination [assuming rename is atomic]).  If the temp-file
+			// doesn't exist, we signal to caller by indicating a mis-match,
+			// which triggers wiping the CTM and starting over.
+			errno = 0;
+			if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX) {
+				ret = -errno;  // something wrong with timestamp
+			}
+			else if (stat(dest_temp, &st)
+			         && (errno != ENOENT)) {
+				ret = -errno;    // stat failed for some reason other than ENOENT
+			}
+			else if (errno == ENOENT) {
+				ret = 4;         // no destination temp-file.
+			}
+			else
+				ret = 2;         // passed all the tests.  It's a match
 #if 1
 #else
-         dest_temp[dest_len] = 0; // undo damage to original <dest>
+			dest_temp[dest_len] = 0; // undo damage to original <dest>
 #endif
-      }
-   }
-   else {
-      //we dont have a match
-      ret = 3;
-   }
+		}
+	}
+	else {
+		//we dont have a match
+		ret = 3;
+	}
 
 
-   if((fd > 0) && (close(fd) < 0)) {
-      ret = -errno;
-   }
+	if((fd > 0) && (close(fd) < 0)) {
+		ret = -errno;
+	}
 
 
-   free(ctm_name);
-   free(src_hash);
-   return ret;
+	free(ctm_name);
+	free(src_hash);
+	return ret;
 }
 
 // We assume <timestamp> has size DATE_STRING_MAX, at least
