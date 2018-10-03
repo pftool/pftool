@@ -938,9 +938,10 @@ int manager(int             rank,
     // (because we assume we can use base_path to generate all destination paths?)
     // (because multiple roots imply recursive descent will iterate forever?)
     iter = input_queue_head;
-    if ((o.recurse == 1)
+    if (o.recurse
         && strncmp(base_path, ".", PATHSIZE_PLUS)
         && (o.work_type != LSWORK)) {
+
         char iter_base_path[PATHSIZE_PLUS];
         while (iter != NULL) {
             get_base_path(iter_base_path, &(iter->data), wildcard);
@@ -1082,6 +1083,7 @@ int manager(int             rank,
 
             if (dir_buf_list_size
                 && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks))) {
+
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                 if (work_rank >= 0) {
                     if (((start == 1 || o.recurse) && dir_buf_list_size)) {
@@ -1268,24 +1270,25 @@ int manager(int             rank,
     //
     //    NOTE: worker_copylist() and worker_comparelist() call
     //    update_chunk() on their way out, which results in a UPDCHUNK
-    //    message sent directly (and asynchronously) to the ACCUM_PROC.
-    //    Then the sending worker immediately reports WORKDONE.  We
-    //    (manager) might see that WORKDONE, determin that all work is
-    //    completed, then come here and send EXIT to everyone.
+    //    message sent directly to the ACCUM_PROC.  Then the sending worker
+    //    immediately reports WORKDONE.  We (manager) might see that
+    //    WORKDONE, determine that all work is completed, then come here
+    //    and send EXIT to everyone .... all before ACCUM_PROC finishes
+    //    handling the UPDCHUNK.
     //
     //    Suppose the OUTPUT_PROC gets our EXIT command, and moves to
-    //    MPI_Finalize().  If the ACCUM_PROC is still working on the
-    //    UPDCHUNK, and produces any output (e.g. error-messages or
-    //    diagnostics in worker_update_chunk) then (a) pftool deadlocks
-    //    with successful-looking footer printed, and (b) the
-    //    error-messages or diagnostic will never be seen.
+    //    MPI_Finalize().  If the ACCUM_PROC (still working on the
+    //    UPDCHUNK) produces any output (e.g. error-messages or diagnostics
+    //    in worker_update_chunk) then (a) pftool deadlocks with
+    //    successful-looking footer printed, and (b) the error-messages or
+    //    diagnostic will never be seen.
     //
     //    [Putting this here, instead of after the footer, so any
     //    err/diagnostic output from ACCUM_PROC will have a chance to
     //    print, before the footer.]
     // 
     //    We could fix this by making UPDCHUNK synchronous, but that misses
-    //    most of the point of shunting this work to ACCUM_PROC.  There are
+    //    part of the point of shunting this work to ACCUM_PROC.  There are
     //    some patches (in the handle_ctl_C branch that address this in a
     //    better way than we're doing here, but this will be a start.
 
