@@ -2351,11 +2351,11 @@ public:
    {
       // For a zero-length file, nothing will ever have been written and so
       // the ObjectStream (in the MARFS_FileHandle) will never have been
-      // opened, even though the file-handle is "open".  This also means
-      // that no data will have been collected, timing_stats won't have
-      // been initialized, and most of these other pointers will be NULL.
-      // Don't segfault, in this case.
-      if (! (whichFh->os.flags & OSF_OPEN))
+      // opened or closed, even though the file-handle was "open".  This
+      // also means that no data will have been collected, timing_stats
+      // won't have been initialized, and most of these other pointers will
+      // be NULL.  Don't segfault, in this case.
+      if (! (whichFh->os.flags & OSF_CLOSED))
          return;
 
       //send logics
