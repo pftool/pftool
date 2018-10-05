@@ -1163,7 +1163,7 @@ int manager(int             rank,
                 break;
             case INPUTCMD:
                 manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_tail, &stat_buf_list_size);
-
+                break;
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
