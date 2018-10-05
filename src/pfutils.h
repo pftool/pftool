@@ -279,20 +279,25 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
-typedef struct pod_stat
+typedef struct pod_data
 {
    size_t buff_size;
-   char* buffer;
+   char*  buffer;
 } pod_data;
+
+typedef std::map<int, pod_data*>               PodDataMap;
+typedef std::map<int, pod_data*>::iterator     PodDataMapIt;
+
 
 typedef struct repo_timing_stats
 {
-   int tot_stats;
-   int total_blk;
-   int has_data;
-   int total_pods;
-   std::map<int, pod_data*> pod_to_stat;
+   int        tot_stats;
+   int        total_blk;
+   int        has_data;
+   int        total_pods;
+   PodDataMap pod_to_stat;  // pod_data for each pod
 } repo_stats;
+
 
 
 //Function Declarations

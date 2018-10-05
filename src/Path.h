@@ -2363,9 +2363,8 @@ public:
                                 whichFh->pod_id,
                                 whichFh->total_blk,
                                 whichFh->timing_stats_buff_size,
-                                whichFh->repo, whichFh->timing_stats);
+                                whichFh->repo_name, whichFh->timing_stats);
       //now free buffers
-      free(whichFh->repo);
       free(whichFh->timing_stats);
 
       //whichFh->repo = NULL; dont need to set it to NULL because it gets memset to  zero
@@ -2383,19 +2382,17 @@ public:
          usePacked = false;
          packed = 1;
       }
-      else {
+      else
          whichFh = &fh;
-      }
-      rc = marfs_release(marfs_sub_path(_item->path), whichFh);
-      //we send timing info to manager in close if files is not packed
-      //and deallocate the buffer after send is complete
-      if (!packed)
-      {
-         //we send timing info to manager in close if file is not packed
-         //and deallocate the buffer after send is complete
-         MARFS_Path::send_to_manager(whichFh);
 
+      rc = marfs_release(marfs_sub_path(_item->path), whichFh);
+
+      //we send timing info to manager in close if files is not packed
+      //and deallocate the buffer after send is complete.
+      if (!packed) {
+         MARFS_Path::send_to_manager(whichFh);
       }
+
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
@@ -2432,20 +2429,19 @@ public:
 
    // closes the underlying fh stream for packed files
    static bool close_fh() {
-      int rc = 0;
+      int    rc = 0;
       size_t packedPathsCount;
+
       //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
 
-
       //send time info back to manager
-      if (packedFh.repo != NULL)
-      {
+      if (packedFh.repo_name[0])
          MARFS_Path::send_to_manager(&packedFh);
-      }
+
       memset(&packedFh, 0, sizeof(MarFS_FileHandle));
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
@@ -2457,20 +2453,18 @@ public:
       packedPathsCount = packedPaths.size();
 
       // set the post xattr for the files
-      for(
-              std::vector<path_item>::iterator it = packedPaths.begin();
-              it < packedPaths.end();
-              it++
-         ) {
+      for(std::vector<path_item>::iterator it = packedPaths.begin();
+          it < packedPaths.end();
+          it++) {
+
          marfs_packed_set_post(marfs_sub_path(it->path), packedPathsCount);
       }
 
       // clear the restart xattr for the files
-      for(
-              std::vector<path_item>::iterator it = packedPaths.begin();
-              it < packedPaths.end();
-              it++
-         ) {
+      for(std::vector<path_item>::iterator it = packedPaths.begin();
+          it < packedPaths.end();
+          it++) {
+
          marfs_packed_clear_restart(marfs_sub_path(it->path));
       }
 

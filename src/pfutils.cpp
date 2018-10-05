@@ -1168,13 +1168,15 @@ void send_manager_work_done(int ignored) {
     send_command(MANAGER_PROC, WORKDONECMD);
 }
 
-void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats)
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo_name, char* timing_stats)
 {
-   send_command(MANAGER_PROC, STATS);
-   char* cursor;
-   char* buffer = (char*)malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+   static const int count = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
 
-   cursor = buffer;
+   char* buffer = (char*)malloc(count);
+   char* cursor = buffer;
+
+   if (! buffer)
+       errsend_fmt(FATAL, "Failed to allocate %d bytes for statistics\n", count);
 
    memcpy(cursor, &tot_stats, sizeof(int));
    cursor += sizeof(int);
@@ -1188,10 +1190,11 @@ void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t 
    memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
    cursor += sizeof(size_t);
 
-   memcpy(cursor, repo, MARFS_MAX_REPO_SIZE);
+   memcpy(cursor, repo_name, MARFS_MAX_REPO_NAME);
    
    //send metadata of timing stats
-   if(MPI_Send(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   send_command(MANAGER_PROC, STATS);
+   if(MPI_Send(buffer, count, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
       {
          fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
          MPI_Abort(MPI_COMM_WORLD, -1);

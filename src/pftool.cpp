@@ -34,10 +34,11 @@
 #include <vector>
 using namespace std;
 
+typedef map<string, repo_stats*>             OpStatsMap;
+typedef map<string, repo_stats*>::iterator   OpStatsMapIt;
 
-map<string, repo_stats*> timing_stats_table;//ONLY MANAGER WOULD USE THIS
+OpStatsMap  timing_stats_table;//ONLY MANAGER WOULD USE THIS
 const char* stats_name[] = {"Open", "Read", "Write", "Close"};
-static int need_open = 1;
 
 // avoid deadlock where ACCUM_PROC tries to print errors/diagnostics
 // after OUTPUT_PROC is already in MPI_Finalize().
@@ -678,7 +679,7 @@ size_t write_histo(double* bin, char* buffer)
 
 void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
 {
-   char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_SIZE + 512));
+   char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_NAME + 512));
    char* msg_cursor = msg;
    int i, j;
    char* cursor = buffer;
@@ -707,8 +708,8 @@ void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, i
       //printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
       for(j = 0; j < total_blk; j++)
       {
-         written = snprintf(msg_cursor, MARFS_MAX_REPO_SIZE + 128,
-                            " %s %s pod %d blk %d: ",
+         written = snprintf(msg_cursor, MARFS_MAX_REPO_NAME + 128,
+                            " %s %s pod %d blk %2d: ",
                             repo.c_str(), stats_name[stat_type], pod_id, j);
          msg_cursor += written;
          //printf("%s", msg);
@@ -737,9 +738,10 @@ void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, i
 }*/
 
 
-//print data and send it to syslog
-void show_data(struct options& o)
+//print accumulated marfs-internals performance-data and send it to syslog
+void show_statistics(struct options& o)
 {
+   static int need_open = 1;
    if (need_open)
    {
       char sysmsg[MESSAGESIZE + 64];
@@ -1244,7 +1246,8 @@ int manager(int             rank,
                         non_fatal);
                 write_output(message, 0); // stdout-only
 
-                show_data(o);
+                // show accumulated performance-statistics for marfs-internals
+                show_statistics(o);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1367,15 +1370,14 @@ int manager(int             rank,
             ((elapsed_time == 1) ? "" : "s"));
     write_output(message, 1);
 
+    //show statistics accumulated over final period
+    show_statistics(o);
 
 
     // *now* we're done with OUTPUT_PROC.  All other workers have exited.
     send_worker_exit(OUTPUT_PROC); // no need for barrier here ...
 
     free(proc_status);
-
-    //show data here
-    show_data(o);
 
     // return nonzero for any errors
     if (0 != non_fatal) {
@@ -1599,16 +1601,18 @@ void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_siz
 
 void manager_add_timing_stats(int sending_rank)
 {
+   static const int BUF_SIZE = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
    MPI_Status status;
    int tot_stats;
    int pod_id;
    int total_blk;
    size_t timing_stats_buff_size;
    char* timing_stats; //need free
-   char* repo = (char*) malloc(MARFS_MAX_REPO_SIZE);//need free
-   char* buffer = (char*) malloc(sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE);
+   char  repo_name[MARFS_MAX_REPO_NAME];
+
+   char* buffer = (char*) malloc(BUF_SIZE);
    char* cursor = buffer;
-   if(MPI_Recv(buffer, sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+   if(MPI_Recv(buffer, BUF_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
    {
       errsend(FATAL, "Failed to receive meta data of timing stats\n");
    }
@@ -1626,7 +1630,7 @@ void manager_add_timing_stats(int sending_rank)
    memcpy(&timing_stats_buff_size, cursor, sizeof(size_t));
    cursor += sizeof(size_t);
 
-   memcpy(repo, cursor, MARFS_MAX_REPO_SIZE);
+   memcpy(repo_name, cursor, MARFS_MAX_REPO_NAME);
 
    //allocate timing stats buffer
    timing_stats = (char*)malloc(timing_stats_buff_size);
@@ -1637,10 +1641,9 @@ void manager_add_timing_stats(int sending_rank)
 
 
    //need to add to table and accumulate
-   add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo, timing_stats);
+   add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo_name, timing_stats);
 
    free(timing_stats);
-   free(repo);
    free(buffer);
 }
 
