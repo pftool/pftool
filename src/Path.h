@@ -365,9 +365,9 @@ protected:
 
 
    // Factory uses default constructors, then calls specific subclass
-   // versions of factory_install().  We want the constructors to be private
-   // so, only the factory (our friend) will do creations.  Each subclass
-   // might have unique args, so factory_install() is not virtual.
+   // versions of factory_install().  We want the constructors to be
+   // private, so only the factory (our friend) will do creations.  Each
+   // subclass might have unique args, so factory_install() is not virtual.
    //
    // This is also the default constructor!
    //
@@ -736,8 +736,10 @@ public:
    // whatever), and return false.  Caller can then come back and get the
    // corresponding error-string from here.
    virtual const char* const strerror()     { return ::strerror(_errno); }
-   virtual int     get_errno()     { return _errno; }
-   virtual int     get_rc()        { return _rc; }
+   virtual int     get_errno()              { return _errno; }
+   virtual int     get_rc()                 { return _rc; }
+
+   virtual int     set_error(int rc, int err_no) { _rc = rc; _errno = err_no; }
 
    // like POSIX access().  Return true if accessible in given mode
    virtual bool    access(int mode)  = 0;
@@ -1279,8 +1281,8 @@ public:
        if(NULL == resolved_path) {
            resolved_path = (char *)malloc(strlen(_item->path)+1);
            if(NULL == resolved_path) {
-               _errno = errno;
-               return NULL;
+              _errno = errno;
+              return NULL;
            }
        }
 
@@ -1857,7 +1859,7 @@ protected:
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
 
-   // decides wether or not this object is using the packed fh
+   // decides whether or not this object is using the packed fh
    bool             usePacked;
 
    size_t           _total_size;
@@ -1884,7 +1886,10 @@ protected:
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
-      return mar_stat(_item->path, &_item->st);
+      bool okay = mar_stat(_item->path, &_item->st);
+      if (! okay)
+         set_err_string(errno, NULL);
+      return okay;
    }
 
    MARFS_Path()
@@ -1927,6 +1932,10 @@ protected:
       _err_str.clear();
    }
 
+   virtual int     set_error(int rc, int err_no) {
+      _rc = rc;
+      set_err_string(err_no, NULL);
+   }
 
 public:
 
@@ -2017,7 +2026,7 @@ public:
 
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
-    //  printf("rank %d mar_stat calling sub path\n", MARFS_Path::_rank);
+      // printf("rank %d mar_stat calling sub path\n", MARFS_Path::_rank);
       rc = marfs_getattr(marfs_sub_path(path_name), st);
       if (rc) {
          // set_err_string(errno, NULL);
@@ -2210,13 +2219,13 @@ public:
    virtual bool    access(int mode) {
       expand_path_info(&fh.info, marfs_sub_path(_item->path));
       if (_rc = ::access(fh.info.post.md_path, mode))
-         _errno = errno;
+         set_err_string(errno, NULL);
       return (_rc == 0);
    }
    // path must not be relative
    virtual bool    faccessat(int mode, int flags) {
       if (_rc = marfs_faccessat(marfs_sub_path(_item->path), mode, flags))
-         _errno = errno;
+         set_err_string(errno, NULL);
       return (_rc == 0);
    }
 
@@ -2416,11 +2425,11 @@ public:
       // in order to keep MD for the trashed storage
       // https://github.com/mar-file-system/marfs/issues/207
       if(_rc = marfs_unlink(new_path) && (errno != ENOENT))
-         _errno = errno;
+         set_err_string(errno, NULL);
 
       else if (_rc = marfs_rename(marfs_sub_path(_item->path),
                                   marfs_sub_path(new_path)))
-         _errno = errno;
+         set_err_string(errno, NULL);
       else
          reset_path_item();
 
@@ -2489,8 +2498,8 @@ public:
        if(NULL == resolved_path) {
            resolved_path = (char *)malloc(strlen(_item->path)+1);
            if(NULL == resolved_path) {
-               _errno = errno;
-               return NULL;
+              set_err_string(errno, NULL);
+              return NULL;
            }
        }
 
@@ -2653,7 +2662,7 @@ public:
       ssize_t count = marfs_readlink(marfs_sub_path(_item->path), buf, bufsiz);
       if (-1 == count) {
          _rc = -1;              // we need an _rc_ssize
-         _errno = errno;
+         set_err_string(errno, NULL);
       }
       return count;
    }
@@ -2664,7 +2673,7 @@ public:
 
       // we do the symlinking here because it does not work otherwise
       if (_rc = marfs_symlink(link_name, marfs_sub_path(_item->path))) {
-         _errno = errno;
+         set_err_string(errno, NULL);
       }
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       if (_rc != 0) {
@@ -2823,9 +2832,12 @@ public:
       switch (item->ftype) {
       case NONE:
       case TBD: {
-         int rc = stat_item(item.get(), *_opts); // initialize item->ftype
+         int rc         = stat_item(item.get(), *_opts); // initialize item->ftype
+         int errno_save = errno;
          p = create_shallow(item);      // recurse
          p->did_stat(rc == 0);          // avoid future repeats of failed stat
+         if (rc)
+            p->set_error(rc, errno_save);
          return p;
       }
 

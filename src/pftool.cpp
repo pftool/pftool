@@ -522,7 +522,13 @@ int main(int argc, char *argv[]) {
            do {
               strcpy(dest_path, buf);
               PathPtr p_dest(PathFactory::create(dest_path));
-              if(NULL == p_dest->realpath(buf) && ENOENT != errno) {
+
+              if (! p_dest->stat() && (p_dest->get_errno() != ENOENT)) {
+                 fprintf(stderr, "Problem with destination-path '%s': %s\n",
+                         dest_path, p_dest->strerror());
+                 MPI_Abort(MPI_COMM_WORLD, -1);
+              }
+              else if ((NULL == p_dest->realpath(buf)) && (ENOENT != errno)) {
                  fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
                  MPI_Abort(MPI_COMM_WORLD, -1);
               }
