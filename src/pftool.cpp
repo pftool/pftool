@@ -819,7 +819,7 @@ int manager(int             rank,
     char        message[MESSAGESIZE];
     char        errmsg[MESSAGESIZE];
     char        base_path[PATHSIZE_PLUS];
-    char        temp_path[PATHSIZE_PLUS];
+    char        dir_path[PATHSIZE_PLUS];
 
     struct stat st;
 
@@ -916,8 +916,18 @@ int manager(int             rank,
 
             PathPtr p(PathFactory::create_shallow(&dest_node));
 
-            // we need to use the permissions of the source filtering out other mode things
-            p->mkdir(beginning_node.st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO));
+            if (p->exists() && ! p->is_dir()) {
+               fprintf(stderr, "can't recursive-copy directory to non-directory '%s'\n",
+                       p->path());
+               MPI_Abort(MPI_COMM_WORLD, -1);
+            }
+
+            // use the permissions of the source, filtering out other mode things
+            if (! p->mkdir(beginning_node.st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO))) {
+               fprintf(stderr, "couldn't create directory '%s': %s\n",
+                       p->path(), p->strerror());
+               MPI_Abort(MPI_COMM_WORLD, -1);
+            }
 
             // TBD: Remove this.  This is just for now, because most of
             //       pftool still just looks at naked stat structs,
@@ -931,6 +941,30 @@ int manager(int             rank,
             p->stat();
         }
 
+        //quick check that source is not nested
+        char* copy = strdup(dest_path); // dirname() modifies arg
+        strncpy(dir_path, dirname(copy), PATHSIZE_PLUS);
+        free(copy);
+
+        // possible confusion?  PathFactory::create() doesn't create a
+        // *directory*, it just creates a Path object *representing* a
+        // directory.  We'd have to call Path::mkdir(), if we wanted to
+        // actually create the directory.
+        PathPtr p_dir(PathFactory::create((char*)dir_path));
+        if (! p_dir->exists()) {
+            fprintf(stderr, "parent doesn't exist: %s\n", dir_path);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+        // check to make sure that if the source is a directory, then -R was specified. If not, error out.
+        if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse) {
+           fprintf(stderr, "%s is a directory, but no recursive operation specified\n",
+                   beginning_node.path);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+
+
+        // <dest_node> is only needed for COPY/COMPARE
         mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
         if (mpi_ret_code < 0) {
             errsend(FATAL, "Failed to Bcast dest_path");
@@ -960,25 +994,6 @@ int manager(int             rank,
         }
     }
 
-    if(o.work_type != LSWORK) {
-        //quick check that source is not nested
-
-        char* copy = strdup(dest_path); // dirname() modifies arg
-        strncpy(temp_path, dirname(copy), PATHSIZE_PLUS);
-        free(copy);
-
-        PathPtr p_dir(PathFactory::create((char*)temp_path));
-        if (! p_dir->exists()) {
-            fprintf(stderr, "manager: failed to create temp_path %s\n", temp_path);
-            char err_cause[MESSAGESIZE];
-            strerror_r(errno, err_cause, MESSAGESIZE);
-            errsend_fmt(FATAL, "parent doesn't exist: %s: %s", dest_path, err_cause);
-        }
-
-        // check to make sure that if the source is a directory, then -R was specified. If not, error out.
-        if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
-            errsend_fmt(NONFATAL,"%s is a directory, but no recursive operation specified\n",beginning_node.path);
-    }
 
     //pack our list into a buffer:
     pack_list(input_queue_head, input_queue_count, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
