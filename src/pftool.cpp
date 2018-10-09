@@ -922,7 +922,8 @@ int manager(int             rank,
             }
 
             // use the permissions of the source, filtering out other mode things
-            if (! p->mkdir(beginning_node.st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO))) {
+            if ((! p->mkdir(beginning_node.st.st_mode & (S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO)))
+                && (p->get_errno() != EEXIST)) {
                fprintf(stderr, "couldn't create directory '%s': %s\n",
                        p->path(), p->strerror());
                MPI_Abort(MPI_COMM_WORLD, -1);
