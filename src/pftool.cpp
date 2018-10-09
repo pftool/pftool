@@ -42,8 +42,8 @@ const char* stats_name[] = {"Open", "Read", "Write", "Close"};
 
 // avoid deadlock where ACCUM_PROC tries to print errors/diagnostics
 // after OUTPUT_PROC is already in MPI_Finalize().
-MPI_Comm  worker_comm;
-MPI_Comm  accum_comm;
+MPI_Comm  worker_comm;          // manager + workers
+MPI_Comm  accum_comm;           // manager + ACCUM
 
 
 int main(int argc, char *argv[]) {
@@ -860,6 +860,15 @@ int manager(int             rank,
     struct timeval       now;   // time-of-day when the timer expired
     struct timeval       prev;  // previous expiration
 
+
+    // ...........................................................................
+    // If we use 'errsend' functions anywhere before the MPI_Bcast(), we'll
+    // deadlock because OUTPUT_PROC is waiting at the Bcast() below, like
+    // everyone else.  Either the errsend() functions should send
+    // asynchronously, or OUTPUT_PROC should skip the bcasts.  Maybe the
+    // bcasts should just apply to worker_comm?
+    // ...........................................................................
+
     if (! o.verbose) {
         // create timer
         event.sigev_notify = SIGEV_NONE; // we'll poll for timeout
@@ -904,16 +913,6 @@ int manager(int             rank,
 
         // setup destination directory, if needed. Make sure -R has been specified!
         if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1 && o.recurse){
-            // NOTE: If we errsend anything here, we'll deadlock on the
-            //       other procs that are waiting at the Bcast(),
-            //       below.  That's because there's a problem with the
-            //       way OUTPUT_PROC is used.  Either the errsend()
-            //       functions should send asynchronously, or
-            //       OUTPUT_PROC should run a special process (other
-            //       than worker()), so that it does nothing but
-            //       synchronous recvs of the diagnostic messages
-            //       OUTCMD and LOGCMD.
-
             PathPtr p(PathFactory::create_shallow(&dest_node));
 
             if (p->exists() && ! p->is_dir()) {
@@ -967,14 +966,21 @@ int manager(int             rank,
         // <dest_node> is only needed for COPY/COMPARE
         mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
         if (mpi_ret_code < 0) {
-            errsend(FATAL, "Failed to Bcast dest_path");
+           fprintf(stderr, "Failed to Bcast dest_path");
+           MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
 
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     if (mpi_ret_code < 0) {
-        errsend(FATAL, "Failed to Bcast base_path");
+       fprintf(stderr, "Failed to Bcast base_path");
+       MPI_Abort(MPI_COMM_WORLD, -1);
     }
+
+    // ...........................................................................
+    // 'errsend' is safe beyond this point
+    // ...........................................................................
+
 
     // Make sure there are no multiple roots for a recursive operation
     // (because we assume we can use base_path to generate all destination paths?)
@@ -1004,7 +1010,7 @@ int manager(int             rank,
     proc_status = (struct worker_proc_status*)malloc(proc_status_size);
     if (! proc_status) {
        fprintf(stderr, "manager; couldn't allocate %ld bytes for proc_status\n", proc_status_size);
-       return -1;
+       MPI_Abort(MPI_COMM_WORLD, -1);
     }
     memset(proc_status, 0, proc_status_size);
 
@@ -1691,7 +1697,7 @@ void worker(int rank, struct options& o) {
     int       output_count = 0;
 
 
-    // OUTPUT_PROC could just sits out the Bcast of dest_node and base path
+    // OUTPUT_PROC could just skip the bcasts of dest_node and base path
     // (if we used a communicator without him).  OUTPUT_PROC won't need
     // those, and waiting at the Bcast means anybody else who calls
     // errsend() before hitting the Bcast will deadlock everything.
@@ -1699,7 +1705,6 @@ void worker(int rank, struct options& o) {
         const size_t obuf_size = MESSAGEBUFFER * MESSAGESIZE * sizeof(char);
         output_buffer = (char *) malloc(obuf_size);
         if (! output_buffer) {
-            // // This would never work ...
             fprintf(stderr, "OUTPUT_PROC Failed to allocate %lu bytes "
                     "for output_buffer\n", obuf_size);
             MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1712,13 +1717,20 @@ void worker(int rank, struct options& o) {
     if (o.work_type != LSWORK) {
         mpi_ret_code = MPI_Bcast(&dest_node, sizeof(path_item), MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
         if (mpi_ret_code < 0) {
-            errsend(FATAL, "Failed to Receive Bcast dest_path");
+           fprintf(stderr, "Failed to Receive Bcast dest_path");
+           MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
     mpi_ret_code = MPI_Bcast(base_path, PATHSIZE_PLUS, MPI_CHAR, MANAGER_PROC, MPI_COMM_WORLD);
     if (mpi_ret_code < 0) {
-        errsend(FATAL, "Failed to Receive Bcast base_path");
+       fprintf(stderr, "Failed to Receive Bcast base_path");
+       MPI_Abort(MPI_COMM_WORLD, -1);
     }
+    
+    // ...........................................................................
+    // 'errsend' safe below here
+    // ...........................................................................
+
     get_stat_fs_info(base_path, &o.sourcefs);
     if (o.parallel_dest == 0 && o.work_type != LSWORK) {
         get_stat_fs_info(dest_node.path, &o.destfs);
@@ -1726,7 +1738,6 @@ void worker(int rank, struct options& o) {
             o.parallel_dest = 1;
         }
     }
-    
 
     // can't do this before the Bcast above, or we'll deadlock, because
     // output-proc won't yet be listening for work.
@@ -1754,13 +1765,15 @@ void worker(int rank, struct options& o) {
                 usleep(1);
         }
 
-        //grab message type
+        //recv message-type
         if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {
             errsend(FATAL, "Failed to receive type_cmd\n");
         }
         sending_rank = status.MPI_SOURCE;
-        PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n", rank, cmd2str((OpCode)type_cmd), sending_rank);
-        //do operations based on the message
+        PRINT_MPI_DEBUG("rank %d: worker() Receiving the type_cmd %s from rank %d\n",
+                        rank, cmd2str((OpCode)type_cmd), sending_rank);
+
+        //do operations based on the message-type
         switch(type_cmd) {
             case BUFFEROUTCMD:
                 worker_buffer_output(rank, sending_rank, output_buffer, &output_count, o);
