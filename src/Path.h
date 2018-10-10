@@ -2355,7 +2355,7 @@ public:
    }
 
 
-   // called from close()/close_fh() to send accumulated timing-data to syslog.
+   // called from close()/close_fh() to send accumulated timing-data to manager
    static void send_to_manager(MarFS_FileHandle* whichFh)
    {
       // For a zero-length file, nothing will ever have been written and so
@@ -2367,17 +2367,23 @@ public:
       if (! (whichFh->os.flags & OSF_CLOSED))
          return;
 
-      //send logics
-      send_manager_timing_stats(whichFh->tot_stats,
-                                whichFh->pod_id,
-                                whichFh->total_blk,
-                                whichFh->timing_stats_buff_size,
-                                whichFh->repo_name, whichFh->timing_stats);
-      //now free buffers
-      free(whichFh->timing_stats);
+      //send accumulated statistics (if any)
+      if (whichFh->tot_stats) {
 
-      //whichFh->repo = NULL; dont need to set it to NULL because it gets memset to  zero
-      //whichFh->timing_stats = NULL;
+         send_manager_timing_stats(whichFh->tot_stats,
+                                   whichFh->pod_id,
+                                   whichFh->total_blk,
+                                   whichFh->timing_stats_buff_size,
+                                   whichFh->repo_name, whichFh->timing_stats);
+         //now free buffers
+         free(whichFh->timing_stats);
+
+         // this stuff is done implicitly by the memset in close_fh(), but
+         // not in close().  should we be doing a memset in close()?
+         // Meanwhile, resetting these here, for safety.
+         whichFh->tot_stats    = 0;
+         whichFh->timing_stats = NULL;
+      }
    }
 
    virtual bool    close() {
@@ -2401,6 +2407,9 @@ public:
       if (!packed) {
          MARFS_Path::send_to_manager(whichFh);
       }
+
+      // QUESTION: should we be resetting the entire FH, like close_fh() does?
+      //      (see also comments in send_to_manager()).
 
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
@@ -2451,7 +2460,11 @@ public:
       if (packedFh.repo_name[0])
          MARFS_Path::send_to_manager(&packedFh);
 
+      // wipe the static filehandle we've been using to track across
+      // "open"/"close", in order to allow us to write multiple files
+      // through it.
       memset(&packedFh, 0, sizeof(MarFS_FileHandle));
+
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
           // successful later
@@ -2494,6 +2507,8 @@ public:
       return true;
    }
 
+   // TBD?  This is not following links.
+   //    [See old code for chasing links in MarFS, assuring we don't leave the MDFS, etc]
    virtual char *realpath(char *resolved_path) {
        if(NULL == resolved_path) {
            resolved_path = (char *)malloc(strlen(_item->path)+1);
