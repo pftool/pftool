@@ -34,10 +34,8 @@
 #include <vector>
 using namespace std;
 
-typedef map<string, repo_stats*>             OpStatsMap;
-typedef map<string, repo_stats*>::iterator   OpStatsMapIt;
 
-OpStatsMap  timing_stats_table;//ONLY MANAGER WOULD USE THIS
+RepoStatsMap  timing_stats_table;//ONLY MANAGER WOULD USE THIS
 const char* stats_name[] = {"Open", "Read", "Write", "Close"};
 
 // avoid deadlock where ACCUM_PROC tries to print errors/diagnostics
@@ -646,93 +644,126 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
     return n;
 }
 
-size_t write_histo(double* bin, char* buffer)
+size_t write_histo(double* bin, char* buffer, size_t buf_size)
 {
-   int simple = 1;
-   size_t written = 0;
+   int    simple      = 1;
+   size_t written     = 0;
    size_t tot_written = 0;
-   int i;
-   char* cursor = buffer;
+   char*  cursor      = buffer;
+   size_t remain      = buf_size;
+
+   int   i;
    for(i = 0; i < 65; i++)
    {
       if (i && !(i %  4))
       {
          //printf("  ");
-         written = snprintf(cursor, 64, "  ");
+         written = snprintf(cursor, remain, "  ");
          cursor += written;
          tot_written += written;
+         remain      -= written;
       }
 
       if (bin[64 - i] || simple)
       {
-         written = snprintf(cursor, 64, "%d ", (int)(bin[64 - i]));
+         written = snprintf(cursor, remain, "%d ", (int)(bin[64 - i]));
          cursor += written;
          tot_written += written;
+         remain      -= written;
          //printf("%2d", (int)(bin[64-i]));
       }
       else
       {
-         written = snprintf(cursor, 64, "-- ");
+         written = snprintf(cursor, remain, "-- ");
          cursor += written;
          tot_written += written;
+         remain      -= written;
          //printf("-- ");
       }
    }
-   tot_written += snprintf(cursor, 64, "\n");
+   tot_written += snprintf(cursor, remain, "\n");
    //printf("\n");
    return tot_written;
 }
 
-void print_buffer(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
+// we assume a pod has histogram data for <tot_stats> different statisitcs.
+// For each statistic, there are <total_blk> histograms (i.e. 1 histogram
+// for each block in the pod).  Each histogram consists of 65 sequential
+// doubles stored in host-order.
+//
+// TBD: This code uses unaligned accesses to doubles in the buffer.  In a
+//    careful test, we found that unaligned access to doubles costs < 1% of
+//    performance (versus aligned access), on a Xeon(R) CPU E5-2407 v2
+//    @2.40GHz.  Good enough, for now.
+
+void print_pod_stats(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
 {
-   char* msg = (char*) malloc(tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_NAME + 512));
-   char* msg_cursor = msg;
-   int i, j;
-   char* cursor = buffer;
-   size_t written;
-   int stat_type; 
+   // const size_t MSG_SIZE   = (tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_NAME + 512));
+   const size_t HEADER_SIZE = MARFS_MAX_REPO_NAME + 512;
+   const size_t PRINTED_I32 = 12; // 2^32 -1, plus space
+   const size_t HISTO_SIZE  = (HEADER_SIZE + (65 * PRINTED_I32));
+
+   char         msg[HISTO_SIZE];
+   char*        msg_cursor  = msg;        // output
+   size_t       remain      = HISTO_SIZE; // remaining space in output
+
+   char*        in_cursor   = buffer;     // input (tot_stats * total_blk * 65 * sizeof(double))
+
+   size_t       written;
+   int          stat_type; 
+   int          i, j;
 
    for(i = 0; i < tot_stats; i++)
    {
-      if (strcmp(cursor, "OP") == 0)
+      if (strcmp(in_cursor, "OP") == 0)
       {
          stat_type = 0;
       }
-      else if (strcmp(cursor, "RD") == 0)
+      else if (strcmp(in_cursor, "RD") == 0)
       {
          stat_type = 1;
       }
-      else if (strcmp(cursor, "WR") == 0)
+      else if (strcmp(in_cursor, "WR") == 0)
       {
          stat_type = 2;
       }
-      else if (strcmp(cursor, "CL") == 0)
+      else if (strcmp(in_cursor, "CL") == 0)
       {
          stat_type = 3;
       }
-      cursor += 3;
-      //printf("repo %s printin stat %s\n", repo.c_str(), stats_name[stat_type]);
+      in_cursor += 3;
+      remain -= 3;
+      // printf("repo %s printing stat %s\n", repo.c_str(), stats_name[stat_type]);
+
+      // syslog truncates at ~2048 chars.  Not quite enough to reliably
+      // print histos for all the blocks for one stat-type.  So, we now
+      // send each per-block histo individually.
       for(j = 0; j < total_blk; j++)
       {
-         written = snprintf(msg_cursor, MARFS_MAX_REPO_NAME + 128,
+         // print header into msg
+         written = snprintf(msg_cursor, HEADER_SIZE,
                             " %s %s pod %d blk %2d: ",
                             repo.c_str(), stats_name[stat_type], pod_id, j);
          msg_cursor += written;
-         //printf("%s", msg);
-         //now write histogram
-         double* bin_in = (double*)cursor;
-         written = write_histo(bin_in, msg_cursor);
-         //printf("%dth block written %ld\n", j, written);
-         msg_cursor += written;
-         cursor += sizeof(double) * 65;
+         remain     -= written;
+
+         // print histogram-data into msg
+         double* bin_in = (double*)in_cursor; // not aligned
+         written = write_histo(bin_in, msg_cursor, remain);
+
+         // printf("msg: %s\n", msg);
+         syslog (LOG_INFO, "%s", msg);
+
+         // advance to next block (or stat-type)
+         in_cursor += sizeof(double) * 65;
+
+         // reuse the output buffer
+         // msg_cursor += written;
+         // remain     -= written;
+         msg_cursor = msg;
+         remain     = HISTO_SIZE;
       }
    }
-   
-   //printf("%s\n", msg);
-   //printf("sending to syslog\n");
-   syslog (LOG_INFO, "%s", msg);
-   
-   free(msg);
 }
 
 /*
@@ -756,32 +787,41 @@ void show_statistics(struct options& o)
       need_open = 0;
    }
    
-   map<string, repo_stats*>::iterator it_stats;
-   for(it_stats = timing_stats_table.begin(); it_stats != timing_stats_table.end(); it_stats++)
+   // go through per-repo statistics
+   RepoStatsMapIt it_stats;
+   for(it_stats  = timing_stats_table.begin();
+       it_stats != timing_stats_table.end();
+       it_stats++)
    {
-      if (it_stats->second->has_data)
-      {
-         //iterate though all pods
-         map<int, pod_data*>::iterator it_pods;
-         for(it_pods = it_stats->second->pod_to_stat.begin();
-             it_pods != it_stats->second->pod_to_stat.end();
+      string             repo_name(it_stats->first);
+      repo_timing_stats* repo_stats(it_stats->second);
+
+      if (repo_stats->has_data) {
+
+         // got through per-pod stats for this repo
+         PodDataMapIt it_pods;
+         for(it_pods  = repo_stats->pod_to_stat.begin();
+             it_pods != repo_stats->pod_to_stat.end();
              it_pods++)
          {
-            if (it_pods->second->buffer[0] != 0)
+            int        pod_num(it_pods->first);
+            pod_data*  pod_dat(it_pods->second);
+
+            if (pod_dat->buffer[0] != 0)
             {
                //this pod has valid data 
-               print_buffer(o, it_pods->second->buffer, it_stats->first,
-                            it_stats->second->tot_stats, it_stats->second->total_blk,
-                            it_pods->first);
+               print_pod_stats(o, pod_dat->buffer, repo_name,
+                               repo_stats->tot_stats, repo_stats->total_blk,
+                               pod_num);
                // after we are done sending stats to syslog, we clear the
                // buffer so that it is ready for next interval's
                // accumulation
-               memset(it_pods->second->buffer, 0, it_pods->second->buff_size);
+               memset(pod_dat->buffer, 0, pod_dat->buff_size);
             }
          }
          //now mark this repo does not have data since we have sent them to syslog
          //and we set the stat buffer pointer mapped by this pod_id to NULL
-         it_stats->second->has_data = 0;
+         repo_stats->has_data = 0;
       }
    }
 }
@@ -1578,12 +1618,12 @@ void accumulate_timing_stats(int tot_stats, int total_blk, char* timing_stats, c
 void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_size, char* repo, char* timing_stats)
 {
    int i;
-   map<string, repo_stats*>::iterator it;
+   RepoStatsMapIt it;
    string key(repo);
 
    if ((it = timing_stats_table.find(key)) != timing_stats_table.end()) {
       //we found the repo, now check if this pod exists
-      map<int, pod_data*>::iterator pod_it;
+      PodDataMapIt pod_it;
       if((pod_it = it->second->pod_to_stat.find(pod_id)) != it->second->pod_to_stat.end())
       {
          //pod exists, now we can accumulate
@@ -1607,7 +1647,7 @@ void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_siz
    else
    {
       //repo does not exists, we need to create a repo_stat
-      repo_stats* entry = new repo_stats;//(repo_stats*) malloc(sizeof(repo_stats));
+      repo_timing_stats* entry = new repo_timing_stats;//(repo_timing_stats*) malloc(sizeof(repo_stats));
       //allocate new accumulate buffer
       char* buffer = (char*)malloc(buff_size);
       memset(buffer, 0, buff_size);

@@ -285,7 +285,7 @@ typedef struct pod_data
    char*  buffer;
 } pod_data;
 
-typedef std::map<int, pod_data*>               PodDataMap;
+typedef std::map<int, pod_data*>               PodDataMap; // int is pod-number
 typedef std::map<int, pod_data*>::iterator     PodDataMapIt;
 
 
@@ -296,7 +296,10 @@ typedef struct repo_timing_stats
    int        has_data;
    int        total_pods;
    PodDataMap pod_to_stat;  // pod_data for each pod
-} repo_stats;
+} repo_timing_stats;
+
+typedef std::map<std::string, repo_timing_stats*>             RepoStatsMap;   // string is repo-name
+typedef std::map<std::string, repo_timing_stats*>::iterator   RepoStatsMapIt;
 
 
 
@@ -382,8 +385,6 @@ int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct 
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
 int check_temporary(PathPtr p_src, path_item* out_node);
 int epoch_to_string(char* str, size_t size, const time_t* time);
-
-//void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 #endif
 

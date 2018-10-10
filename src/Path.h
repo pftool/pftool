@@ -835,7 +835,7 @@ public:
 #endif
 
    //additional functions needed for timing collection fron libne
-   virtual int build_repo_info(repo_stats timing_stats) {return 0;}
+   virtual int build_repo_info(repo_timing_stats timing_stats) {return 0;}
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
@@ -1955,7 +1955,7 @@ public:
          close_md(&fh);
    }
 
-   virtual int build_repo_info(repo_stats timing_stats)
+   virtual int build_repo_info(repo_timing_stats timing_stats)
    {
       int ret = 1;
       int i;

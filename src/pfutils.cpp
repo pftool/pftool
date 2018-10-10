@@ -1171,7 +1171,7 @@ void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t 
 {
    static const int count = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
 
-   char* buffer = (char*)malloc(count);
+   char  buffer[count];
    char* cursor = buffer;
 
    if (! buffer)
@@ -1194,18 +1194,16 @@ void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t 
    //send metadata of timing stats
    send_command(MANAGER_PROC, STATS);
    if(MPI_Send(buffer, count, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-      {
-         fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
-         MPI_Abort(MPI_COMM_WORLD, -1);
-      }
+   {
+      fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+      MPI_Abort(MPI_COMM_WORLD, -1);
+   }
 
    //send timing_stats buffer
    if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-      {
-         fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
-      }
-
-   free(buffer);
+   {
+      fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+   }
 }
 
 //worker
