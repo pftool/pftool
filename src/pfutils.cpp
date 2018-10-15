@@ -17,10 +17,17 @@
 
 #include "pfutils.h"
 #include "ctm.h"                // hasCTM()
+#include "sig.h"
 #include "debug.h"
 
 #include <syslog.h>
 #include <signal.h>
+
+#include <pthread.h>            // manager_sig_handler()
+
+// EXITCMD, or ctl-C
+volatile int worker_exit = 0;
+
 
 void usage () {
     // print usage statement
@@ -42,11 +49,11 @@ void usage () {
     printf (" [-s]         block size for COPY and COMPARE\n");
     printf (" [-C]         file size to start chunking (for N:1)\n");
     printf (" [-S]         chunk size for COPY\n");
-    printf (" [-n]         operate on file if different\n");
+    printf (" [-n]         only operate on file if different (aka 'restart')\n");
     printf (" [-r]         recursive operation down directory tree\n");
     printf (" [-t]         specify file system type of destination file/directory\n");
     printf (" [-l]         turn on logging to syslog\n");
-    printf (" [-P]         force destination filesystem to be treated as parallel\n");
+    printf (" [-P]         force destination to be treated as parallel (i.e. assume N:1 support)\n");
     printf (" [-M]         perform block-compare, default: metadata-compare\n");
     printf (" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
     printf (" [-e]         excludes files that match this pattern\n");
@@ -69,33 +76,33 @@ void usage () {
 * Returns the PFTOOL internal command in string format.
 * See pfutils.h for the list of commands.
 *
-* @param cmdidx		the command (or command type)
+* @param cmdidx   the command (or command type)
 *
 * @return a string representation of the command
 */
 const char *cmd2str(OpCode cmdidx) {
-	static const char *CMDSTR[] = {
-			 "EXITCMD"
-			,"UPDCHUNKCMD"
-			,"BUFFEROUTCMD"
-			,"OUTCMD"
-			,"LOGCMD"
-			,"LOGONLYCMD"
-			,"QUEUESIZECMD"
-			,"STATCMD"
-			,"COMPARECMD"
-			,"COPYCMD"
-			,"PROCESSCMD"
-			,"INPUTCMD"
-			,"DIRCMD"
-			,"WORKDONECMD"
-			,"NONFATALINCCMD"
-			,"CHUNKBUSYCMD"
-			,"COPYSTATSCMD"
-			,"EXAMINEDSTATSCMD"
-				};
+   static const char *CMDSTR[] = {
+      "EXITCMD"
+      ,"UPDCHUNKCMD"
+      ,"BUFFEROUTCMD"
+      ,"OUTCMD"
+      ,"LOGCMD"
+      ,"LOGONLYCMD"
+      ,"QUEUESIZECMD"
+      ,"STATCMD"
+      ,"COMPARECMD"
+      ,"COPYCMD"
+      ,"PROCESSCMD"
+      ,"INPUTCMD"
+      ,"DIRCMD"
+      ,"WORKDONECMD"
+      ,"NONFATALINCCMD"
+      ,"CHUNKBUSYCMD"
+      ,"COPYSTATSCMD"
+      ,"EXAMINEDSTATSCMD"
+   };
 
-	return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+   return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -138,61 +145,69 @@ char *printmode (mode_t aflag, char *buf) {
 * the path as a directory - if they do not exist. It
 * basically does a "mkdir -p" programatically.
 *
-* @param thePath	the path to test and create
-* @param perms		the permission mode to use when
-* 			creating directories in this path
+* @param thePath  the path to test and create
+* @param perms    the permission mode to use when
+*        creating directories in this path
 *
 * @return 0 if all directories are succesfully created.
-* 	errno (i.e. non-zero) if there is an error. 
-* 	See "man -s 2 mkdir" for error description.
+*  errno (i.e. non-zero) if there is an error. 
+*  See "man -s 2 mkdir" for error description.
 */
 int mkpath(char *thePath, mode_t perms) {
-	char *slash = thePath;				// point at the current "/" in the path
-	struct stat sbuf;				// a buffer to hold stat information
-	int save_errno;					// errno from mkdir()
+   char *slash = thePath;       // point at the current "/" in the path
+   struct stat sbuf;            // a buffer to hold stat information
+   int save_errno;              // errno from mkdir()
 
-	while( *slash == '/') slash++;			// burn through any leading "/". Note that if no leading "/",
-							// then thePath will be created relative to CWD of process.
-	while(slash = strchr(slash,'/')) {		// start parsing thePath
-	  *slash = '\0';
-	  
-	  if(stat(thePath,&sbuf)) {			// current path element cannot be stat'd - assume does not exist
-	    if(mkdir(thePath,perms)) {			// problems creating the directory - clean up and return!
-	      save_errno = errno;			// save off errno - in case of error...
-	      *slash = '/';
-	      return(save_errno);
-	    }
-	  }
-	  else if (!S_ISDIR(sbuf.st_mode)) {		// element exists but is NOT a directory
-	    *slash = '/';
-	    return(ENOTDIR);
-	  }
-	  *slash = '/';slash++;				// increment slash ...
-	  while( *slash == '/') slash++;		// burn through any blank path elements
-	} // end mkdir loop
+   while( *slash == '/') slash++; // burn through any leading "/". Note that if no leading "/",
+   // then thePath will be created relative to CWD of process.
+   while(slash = strchr(slash,'/')) { // start parsing thePath
+      *slash = '\0';
+     
+      if(stat(thePath,&sbuf)) {  // current path element cannot be stat'd - assume does not exist
+         if(mkdir(thePath,perms)) { // problems creating the directory - clean up and return!
+            save_errno = errno;     // save off errno - in case of error...
+            *slash = '/';
+            return(save_errno);
+         }
+      }
+      else if (!S_ISDIR(sbuf.st_mode)) { // element exists but is NOT a directory
+         *slash = '/';
+         return(ENOTDIR);
+      }
+      *slash = '/';slash++;          // increment slash ...
+      while( *slash == '/') slash++; // burn through any blank path elements
+   } // end mkdir loop
 
-	if(stat(thePath,&sbuf)) {			// last path element cannot be stat'd - assume does not exist
-	  if(mkdir(thePath,perms))			// problems creating the directory - clean up and return!
-	    return(save_errno = errno);			// save off errno - just to be sure ...
-	}
-	else if (!S_ISDIR(sbuf.st_mode))		// element exists but is NOT a directory
-	  return(ENOTDIR);
+   if(stat(thePath,&sbuf)) {   // last path element cannot be stat'd - assume does not exist
+      if(mkdir(thePath,perms)) // problems creating the directory - clean up and return!
+         return(save_errno = errno); // save off errno - just to be sure ...
+   }
+   else if (!S_ISDIR(sbuf.st_mode))  // element exists but is NOT a directory
+      return(ENOTDIR);
 
-	return(0);
+   return(0);
 }
 
+// unused?
+// convert up to 28 bytes of <b> to ASCII-hex.
 void hex_dump_bytes (char *b, int len, char *outhexbuf) {
-    short str_index;
     char smsg[64];
     char tmsg[3];
     unsigned char *ptr;
     int start = 0;
+
     ptr = (unsigned char *) (b + start);  /* point to buffer location to start  */
     /* if last frame and more lines are required get number of lines */
     memset (smsg, '\0', 64);
-    for (str_index = 0; str_index < 28; str_index++) {
+
+    short str_index;
+    short str_max = 28;       // 64 - (2 *28) = room for terminal-NULL
+    if (len < 28)
+       str_max = len;
+
+    for (str_index = 0; str_index < str_max; str_index++) {
         sprintf (tmsg, "%02X", ptr[str_index]);
-        strncat (smsg, tmsg, 2);
+        strncat (smsg, tmsg, 2); // controlled, no overflow
     }
     sprintf (outhexbuf, "%s", smsg);
 }
@@ -201,30 +216,30 @@ void hex_dump_bytes (char *b, int len, char *outhexbuf) {
 * Low Level utility function to write a field of a data
 * structure - any data structure.
 *
-* @param fd		the open file descriptor
-* @param start		the starting memory address
-* 			(pointer) of the field
-* @param len		the length of the filed in bytes
+* @param fd    the open file descriptor
+* @param start    the starting memory address
+*        (pointer) of the field
+* @param len      the length of the filed in bytes
 *
 * @return number of bytes written, If return
-* 	is < 0, then there were problems writing,
-* 	and the number can be taken as the errno.
+*  is < 0, then there were problems writing,
+*  and the number can be taken as the errno.
 */
 ssize_t write_field(int fd, void *start, size_t len) {
-	size_t  n;					// number of bytes written for a given call to write()
-	ssize_t tot = 0;				// total number of bytes written
-	char*   wstart = (char*)start;				// the starting point in the buffer
-	size_t  wcnt = len;				// the running count of bytes to write
+   size_t  n;              // number of bytes written for a given call to write()
+   ssize_t tot = 0;           // total number of bytes written
+   char*   wstart = (char*)start;            // the starting point in the buffer
+   size_t  wcnt = len;           // the running count of bytes to write
 
-	while(wcnt > 0) {
-	  if(!(n=write(fd,wstart,wcnt)))		// if nothing written -> assume error
-	    return((ssize_t)-errno);
-	  tot += n;
-	  wstart += n;					// increment the start address by n
-	  wcnt -= n;					// decreamnt byte count by n
-	}
+   while(wcnt > 0) {
+     if(!(n=write(fd,wstart,wcnt)))    // if nothing written -> assume error
+       return((ssize_t)-errno);
+     tot += n;
+     wstart += n;             // increment the start address by n
+     wcnt -= n;               // decreamnt byte count by n
+   }
 
-	return(tot);
+   return(tot);
 }
 
 // remove trailing chars w/out repeated calls to strlen();
@@ -244,10 +259,10 @@ void get_base_path(char*            base_path,
                    const path_item* item,
                    int              wildcard) { // (<wildcard> is boolean)
 
-    char dir_name[PATHSIZE_PLUS];
+    char        dir_name[PATHSIZE_PLUS];
     struct stat st;
-    int rc;
-    char* path = (char*)item->path;
+    int         rc;
+    char*       path = (char*)item->path;
 
     PathPtr p(PathFactory::create(item));
     if (! p->stat()) {
@@ -256,12 +271,11 @@ void get_base_path(char*            base_path,
     }
     st = p->st();
 
-    // dirname() may alter its argument
-    char* path_copy = strdup(path);
+    char* path_copy = strdup(path); // dirname() may alter arg
     strncpy(dir_name, dirname(path_copy), PATHSIZE_PLUS);
     free(path_copy);
 
-    if (strncmp(".", dir_name, PATHSIZE_PLUS == 0) && S_ISDIR(st.st_mode)) {
+    if ((strncmp(".", dir_name, PATHSIZE_PLUS) == 0) && S_ISDIR(st.st_mode)) {
         strncpy(base_path, path, PATHSIZE_PLUS);
     }
     else if (S_ISDIR(st.st_mode) && wildcard == 0) {
@@ -290,11 +304,20 @@ void get_dest_path(path_item*        dest_node, // fill this in
     char*       result = dest_node->path;
     char*       path_slice;
 
-    memset(dest_node, 0, sizeof(path_item) - PATHSIZE_PLUS + 1); // zero-out header-fields
-    strncpy(result, dest_path, PATHSIZE_PLUS);                // install dest_path
-    dest_node->ftype = TBD;                     // we will figure out the file type later
+    memset(dest_node, 0, sizeof(path_item));   // zero-out header-fields
+    strncpy(result, dest_path, PATHSIZE_PLUS); // install dest_path
+    if (result[PATHSIZE_PLUS -1])              // strncpy() is unsafe
+       errsend_fmt(FATAL, "Oversize path '%s'\n", dest_path);
+
+    dest_node->ftype = TBD;                    // we will figure out the file type later
 
     strncpy(temp_path, beginning_node->path, PATHSIZE_PLUS);
+    if (temp_path[PATHSIZE_PLUS -1]) {         // strncpy() is unsafe
+       errsend_fmt(FATAL, "Not enough room to append '%s' + '%s'\n",
+                   temp_path, beginning_node->path);
+    }
+
+
     trim_trailing('/', temp_path);
 
     //recursion special cases
@@ -309,22 +332,30 @@ void get_dest_path(path_item*        dest_node, // fill this in
         if (d_dest->exists()
             && S_ISDIR(dest_st.st_mode)
             && S_ISDIR(beg_st.st_mode)
-            && (num_paths == 1))
+            && (num_paths == 1)) {
 
-        {
             // append '/' to result
-            if (result[strlen(result)-1] != '/') {
-                strncat(result, "/", PATHSIZE_PLUS);
+            size_t result_len = strlen(result);
+            if (result[result_len -1] != '/') {
+                strncat(result, "/", PATHSIZE_PLUS - result_len);
+                if (result[PATHSIZE_PLUS -1]) { // strncat() is unsafe
+                   errsend_fmt(FATAL, "Not enough room to append '%s' + '/'\n",
+                               result);
+                }
             }
 
             // append tail-end of beginning_node's path
-            if (strstr(temp_path, "/") == NULL) {
+            char* last_slash = strrchr(temp_path, '/');
+            if (last_slash)
+                path_slice = last_slash + 1;
+            else
                 path_slice = (char *)temp_path;
-            }
-            else {
-                path_slice = strrchr(temp_path, '/') + 1;
-            }
+
             strncat(result, path_slice, PATHSIZE_PLUS - strlen(result) -1);
+            if (result[PATHSIZE_PLUS -1]) {     // strncat() is unsafe
+               errsend_fmt(FATAL, "Not enough room to append '%s' + '%s'\n",
+                           result, path_slice);
+            }
         }
     }
 
@@ -343,55 +374,81 @@ void get_dest_path(path_item*        dest_node, // fill this in
 // src_node, use the part of src_node that extends beyond <base_path>.
 //
 // NOTE:  We assume <output_path> has size at least PATHSIZE_PLUS
+
 void get_output_path(path_item*        out_node, // fill in out_node.path
                      const char*       base_path,
                      const path_item*  src_node,
                      const path_item*  dest_node,
-                     struct options&   o) {
+                     struct options&   o,
+                     int               rename_flag) {
 
     const char*  path_slice;
     int          path_slice_duped = 0;
 
-    // clear out possibly-uninitialized stat-field
-    memset(out_node, 0, sizeof(path_item) - PATHSIZE_PLUS +1);
+    // start clean
+    memset(out_node, 0, sizeof(path_item));
 
     // marfs may want to know chunksize
     out_node->chksz  = dest_node->chksz;
     out_node->chkidx = dest_node->chkidx;
 
     //remove trailing slash(es)
+    // NOTE: both are the same size, and dest_node has already been assured to have
+    //       a terminal-NULL in get_dest_path(), so strncpy() okay.
     strncpy(out_node->path, dest_node->path, PATHSIZE_PLUS);
+
     trim_trailing('/', out_node->path);
-    size_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
+    ssize_t remain = PATHSIZE_PLUS - strlen(out_node->path) -1;
 
     //path_slice = strstr(src_path, base_path);
     if (o.recurse == 0) {
         const char* last_slash = strrchr(src_node->path, '/');
-        if (last_slash) {
+        if (last_slash)
             path_slice = last_slash +1;
-        }
-        else {
+        else
             path_slice = (char *) src_node->path;
-        }
     }
     else {
-        if (strncmp(base_path, ".", PATHSIZE_PLUS) == 0) {
+        if (strcmp(base_path, ".") == 0)
             path_slice = (char *) src_node->path;
-        }
         else {
             path_slice = strdup(src_node->path + strlen(base_path) + 1);
             path_slice_duped = 1;
         }
     }
 
+
+    // assure there is enough room to append path_slice
+    size_t slice_len = strlen(path_slice);
+    if (slice_len > remain) {
+       out_node->path[0] = 0;
+       return;
+    }
+    remain -= slice_len;
+
     if (S_ISDIR(dest_node->st.st_mode)) {
-        strncat(out_node->path, "/", remain);
-        remain -= 1;
-        strncat(out_node->path, path_slice, remain);
+        strcat(out_node->path, "/");
+        strcat(out_node->path, path_slice);
     }
-    if (path_slice_duped) {
+    if (path_slice_duped)
        free((void*)path_slice);
+
+
+    if ((rename_flag == 1) && (src_node->packable == 0)) {
+       //need to create temporary file name
+
+       // assure there is room
+       if (remain < DATE_STRING_MAX +1) {
+          out_node->path[0] = 0;
+          return;
+       }
+       remain -= DATE_STRING_MAX +1;
+
+       strcat(out_node->path, "+");
+       strcat(out_node->path, src_node->timestamp);
     }
+
+    out_node->path[PATHSIZE_PLUS -1] = 0;
 }
 
 int one_byte_read(const char *path) {
@@ -615,8 +672,8 @@ int copy_file(PathPtr       p_src,
            err = 1; break;  // return -1
         }
         else if (retry_count) {
-           write_output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
+           output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                      p_dest->path(), offset, completed, retry_count);
         }
 
 
@@ -702,8 +759,8 @@ int copy_file(PathPtr       p_src,
            err = 1; break;  // return -1;
         }
         else if (retry_count) {
-           write_output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                            p_dest->path(), offset, completed, retry_count);
+           output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
+                      p_dest->path(), offset, completed, retry_count);
         }
 
         completed += blocksize;
@@ -770,7 +827,7 @@ int compare_file(path_item*      src_file,
    if (! p_dest->stat())
       return 2;
 
-   if (samefile(p_src, p_dest, o)) {
+   if (samefile(p_src, p_dest, o, -1)) {
 
       //metadata compare
       if (meta_data_only) {
@@ -854,7 +911,7 @@ int compare_file(path_item*      src_file,
          crc = memcmp(ibuf,obuf,blocksize);
          if (crc != 0) {
             completed=length;
-	    break; // this code never worked prior to this addition, would read till EOF and fail.
+            break; // this code never worked prior to this addition, would read till EOF and fail.
          }
 
          completed += blocksize;
@@ -897,6 +954,7 @@ int update_stats(PathPtr      p_src,
     int            rc;
     char           errormsg[MESSAGESIZE];
     int            mode;
+
 
     // don't touch the destination, unless this is a COPY
     if (o.work_type != COPYWORK)
@@ -944,6 +1002,26 @@ int update_stats(PathPtr      p_src,
     if (! p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW)) {
        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                    p_dest->path(), p_dest->strerror());
+    }
+   
+    if(!p_src->get_packable()) {
+       const char* plus_sign = strrchr((const char*)p_dest->path(), '+');
+       if (plus_sign) {
+          size_t  p_dest_orig_len = plus_sign - p_dest->path();
+          PathPtr p_dest_orig(p_dest->path_truncate(p_dest_orig_len));
+
+          if(! p_dest->rename(p_dest_orig->path())) {
+             errsend_fmt(FATAL, "update_stats -- Failed to rename %s "
+                         "to original file path %s\n",
+                         p_dest->path(), p_dest_orig->path());
+          }
+          else if (o.verbose >= 1) {
+             output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
+                        p_dest->path(), p_dest_orig->path());
+          }
+
+          p_dest = p_dest_orig;
+       }
     }
 
     return 0;
@@ -1009,7 +1087,7 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
     free(workbuf);
 }
 
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize) {
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     int size = (*workbuflist)->size;
     int worksize = sizeof(path_item) * size;
     send_command(target_rank, command);
@@ -1021,7 +1099,7 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
         fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    dequeue_buf_list(workbuflist, workbufsize);
+    dequeue_buf_list(workbuflist, workbuftail, workbufsize);
 }
 
 //manager
@@ -1089,6 +1167,45 @@ void send_manager_work_done(int ignored) {
     send_command(MANAGER_PROC, WORKDONECMD);
 }
 
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo_name, char* timing_stats)
+{
+   static const int count = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
+
+   char  buffer[count];
+   char* cursor = buffer;
+
+   if (! buffer)
+       errsend_fmt(FATAL, "Failed to allocate %d bytes for statistics\n", count);
+
+   memcpy(cursor, &tot_stats, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &pod_id, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &total_blk, sizeof(int));
+   cursor += sizeof(int);
+
+   memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
+   cursor += sizeof(size_t);
+
+   memcpy(cursor, repo_name, MARFS_MAX_REPO_NAME);
+   
+   //send metadata of timing stats
+   send_command(MANAGER_PROC, STATS);
+   if(MPI_Send(buffer, count, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   {
+      fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+      MPI_Abort(MPI_COMM_WORLD, -1);
+   }
+
+   //send timing_stats buffer
+   if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   {
+      fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+   }
+}
+
 //worker
 void update_chunk(path_item *buffer, int *buffer_count) {
     send_path_buffer(ACCUM_PROC, UPDCHUNKCMD, buffer, buffer_count);
@@ -1118,9 +1235,9 @@ void write_output(const char *message, int log) {
 // This allows caller to use inline formatting, without first snprintf() to
 // a local errmsg-buffer.  Like so:
 //
-//    write_output_fmt(1, "rank %d hello!", rank);
+//    output_fmt(1, "rank %d hello!", rank);
 //
-void write_output_fmt(int log, const char* format, ...) {
+void output_fmt(int log, const char* format, ...) {
    char     msg[MESSAGESIZE];
    va_list  args;
 
@@ -1128,14 +1245,17 @@ void write_output_fmt(int log, const char* format, ...) {
    vsnprintf(msg, MESSAGESIZE, format, args);
    va_end(args);
 
+   // msg[MESSAGESIZE -1] = 0;  /* no need for this */
    write_output(msg, log);
 }
 
 
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count) {
+
     //write a buffer to the output proc
     //set the command type
     send_command(OUTPUT_PROC, BUFFEROUTCMD);
+
     //send the size of the buffer
     if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
@@ -1154,19 +1274,19 @@ void send_worker_queue_count(int target_rank, int queue_count) {
     }
 }
 
-void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a buffer list of paths to stat
-    send_buffer_list(target_rank, DIRCMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, DIRCMD, workbuflist, workbuftail, workbufsize);
 }
 
-void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a list buffers with paths to copy
-    send_buffer_list(target_rank, COPYCMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
 }
 
-void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize) {
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize) {
     //send a worker a list buffers with paths to compare
-    send_buffer_list(target_rank, COMPARECMD, workbuflist, workbufsize);
+    send_buffer_list(target_rank, COMPARECMD, workbuflist, workbuftail, workbufsize);
 }
 
 void send_worker_exit(int target_rank) {
@@ -1174,7 +1294,7 @@ void send_worker_exit(int target_rank) {
     send_command(target_rank, EXITCMD);
 }
 
-static void errsend_internal(int fatal, const char* errormsg) {
+static void errsend_internal(Lethality fatal, const char* errormsg) {
     write_output(errormsg, 1);
 
     if (fatal) {
@@ -1186,7 +1306,7 @@ static void errsend_internal(int fatal, const char* errormsg) {
 }
 
 //functions that workers use
-void errsend(int fatal, const char *error_text) {
+void errsend(Lethality fatal, const char *error_text) {
     //send an error message to the outputproc. Die if fatal.
     char errormsg[MESSAGESIZE];
 
@@ -1195,15 +1315,16 @@ void errsend(int fatal, const char *error_text) {
     else
        snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
 
+    // errormsg[MESSAGESIZE -1] = 0; /* no need for this */
     errsend_internal(fatal, errormsg);
 }
 
 // This allows caller to use inline formatting, without first snprintf() to
 // a local errmsg-buffer.  Like so:
 //
-//    errsend_fmt(nonfatal, "rank %d hello!", rank);
+//    errsend_fmt(NONFATAL, "rank %d hello!", rank);
 //
-void errsend_fmt(int fatal, const char* format, ...) {
+void errsend_fmt(Lethality fatal, const char* format, ...) {
    char     errormsg[MESSAGESIZE];
    va_list  args;
 
@@ -1214,6 +1335,7 @@ void errsend_fmt(int fatal, const char* format, ...) {
    vsnprintf(errormsg+offset, MESSAGESIZE-offset, format, args);
    va_end(args);
 
+   // errormsg[MESSAGESIZE -1] = 0;  /* no need for this */
    errsend_internal(fatal, errormsg);
 }
 
@@ -1234,8 +1356,8 @@ int stat_item(path_item *work_node, struct options& o) {
     char        errmsg[MESSAGESIZE];
     struct stat st;
     int         rc;
-    int  numchars;
-    char linkname[PATHSIZE_PLUS];
+    int         numchars;
+    char        linkname[PATHSIZE_PLUS];
 
     // defaults
     work_node->ftype      = REGULARFILE;
@@ -1262,7 +1384,6 @@ int stat_item(path_item *work_node, struct options& o) {
 #ifdef MARFS
     // --- is it a MARFS path?
     if(! got_type) {
-       fflush(stdout);
        if ( under_mdfs_top(work_node->path) ) {
            return -1;
        }
@@ -1274,11 +1395,11 @@ int stat_item(path_item *work_node, struct options& o) {
            work_node->ftype = MARFSFILE;
            got_type = true;
 
-        bool okay = MARFS_Path::mar_stat(work_node->path, &st);
-        if (!okay){
-           return -1;
-        }
-      }
+           bool okay = MARFS_Path::mar_stat(work_node->path, &st);
+           if (!okay){
+              return -1;
+           }
+       }
     }
 #endif
 
@@ -1286,10 +1407,10 @@ int stat_item(path_item *work_node, struct options& o) {
     // --- is it a Synthetic Data path?
     if (! got_type) {
         if (o.syn_size && isSyndataPath(work_node->path)) { 
-	   int dlvl;					// directory level, if a directory. Currently ignored.
-	   if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
-	       return -1;				// syndataSetAttr() returns non-zero on failure
-	   work_node->ftype = SYNDATA;
+           int dlvl;        // directory level, if a directory. Currently ignored.
+           if (rc = syndataSetAttr(work_node->path,&st,&dlvl,o.syn_size))
+              return -1;    // syndataSetAttr() returns non-zero on failure
+           work_node->ftype = SYNDATA;
            got_type = true;
         }
     }
@@ -1340,6 +1461,11 @@ int stat_item(path_item *work_node, struct options& o) {
 
 // <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, then initialize
 // <fs> to match the type of <path>.  Otherwise, call it ANYFS.
+//
+// QUESTION: Are we using fprintf() + MPI_Abort(), instead of errsend_fmt()
+//    because of OUTPUT_PROC might not be available, or is this just
+//    from before errsend_fmt() was available?
+
 void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 
 #ifdef HAVE_SYS_VFS_H
@@ -1348,7 +1474,12 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
     char errortext[MESSAGESIZE];
     int rc;
     char use_path[PATHSIZE_PLUS];
+
     strncpy(use_path, path, PATHSIZE_PLUS);
+    if (use_path[PATHSIZE_PLUS -1]) {  // strncpy() is unsafe
+       fprintf(stderr, "Oversize path '%s'\n", path);
+       MPI_Abort(MPI_COMM_WORLD, -1);
+    }
 
     // look at <path>, or, if that fails, look at dirname(<path>)
     PathPtr p(PathFactory::create(use_path));
@@ -1357,7 +1488,10 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
        MPI_Abort(MPI_COMM_WORLD, -1);
     }
     else if (! p->stat()) {
-       strcpy(use_path, dirname(use_path));
+       char* use_path_copy = strdup(use_path); // dirname() may alter arg
+       strncpy(use_path, dirname(use_path_copy), PATHSIZE_PLUS);
+       free(use_path_copy);
+
        p = PathFactory::create(use_path);
        if (! p) {
           fprintf(stderr, "PathFactory couldn't interpret parent-path %s\n", use_path);
@@ -1420,6 +1554,9 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs) {
 #endif
 }
 
+
+// NOTE: master spending ~50% time in this function.
+// all callers provide <start_range>==START_PROC
 int get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range) {
     //given an inclusive range, return the first encountered free rank
     int i;
@@ -1431,16 +1568,30 @@ int get_free_rank(struct worker_proc_status *proc_status, int start_range, int e
     return -1;
 }
 
-int processing_complete(struct worker_proc_status *proc_status, int nproc) {
-    //are all the ranks free?
+//are all the ranks free?
+// return 1 for yes, 0 for no.
+int processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc) {
+#if 0
     int i;
     int count = 0;
     for (i = 0; i < nproc; i++) {
-        if (proc_status[i].inuse == 1) {
-            count++;
-        }
+        if (proc_status[i].inuse == 1)
+           return 0;
     }
-    return count;
+    return 1;
+
+#else
+    if (free_worker_count == (nproc - START_PROC)) {
+       int i;
+       for (i = 0; i < START_PROC; i++) {
+          if (proc_status[i].inuse)
+             return 0;
+       }
+       return 1;
+    }
+    return 0;
+
+#endif
 }
 
 //Queue Function Definitions
@@ -1448,11 +1599,16 @@ int processing_complete(struct worker_proc_status *proc_status, int nproc) {
 // push path onto the tail of the queue
 void enqueue_path(path_list **head, path_list **tail, char *path, int *count) {
     path_list *new_node = (path_list*)malloc(sizeof(path_list));
+    memset(new_node, 0, sizeof(path_list));
     if (! new_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+       errsend_fmt(FATAL, "Failed to allocate %lu bytes for new_node\n", sizeof(path_list));
     }
+
     strncpy(new_node->data.path, path, PATHSIZE_PLUS);
+    if (new_node->data.path[PATHSIZE_PLUS -1]) { // strncpy() is unsafe
+       errsend_fmt(FATAL, "enqueue_path: Oversize path '%s'\n", path);
+    }
+
     new_node->data.start = 1;
     new_node->data.ftype = TBD;
     new_node->next = NULL;
@@ -1490,9 +1646,9 @@ void delete_queue_path(path_list **head, int *count) {
 // us to pass nodes instead of paths)
 void enqueue_node(path_list **head, path_list **tail, path_list *new_node, int *count) {
     path_list *temp_node = (path_list*)malloc(sizeof(path_list));
+    memset(temp_node, 0, sizeof(path_list));
     if (! temp_node) {
-       fprintf(stderr, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
-       MPI_Abort(MPI_COMM_WORLD, -1);
+       errsend_fmt(FATAL, "Failed to allocate %lu bytes for temp_node\n", sizeof(path_list));
     }
     temp_node->data = new_node->data;
     temp_node->next = NULL;
@@ -1518,45 +1674,53 @@ void dequeue_node(path_list **head, path_list **tail, int *count) {
     *count -= 1;
 }
 
+
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size) {
-    work_buf_list *current_pos = *workbuflist;
+
     work_buf_list *new_buf_item = (work_buf_list*)malloc(sizeof(work_buf_list));
+    memset(new_buf_item, 0, sizeof(work_buf_list));
     if (! new_buf_item) {
        fprintf(stderr, "Failed to allocate %lu bytes for new_buf_item\n", sizeof(work_buf_list));
        MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (*workbufsize < 0) {
-        *workbufsize = 0;
-    }
     new_buf_item->buf = buffer;
     new_buf_item->size = buffer_size;
     new_buf_item->next = NULL;
-    if (current_pos == NULL) {
+
+    if (*workbufsize < 0) {
+        *workbufsize = 0;
+    }
+
+    if (*workbuflist == NULL) {
         *workbuflist = new_buf_item;
-	*workbuftail = new_buf_item;
-        (*workbufsize)++;
+        *workbuftail = new_buf_item;
+        *workbufsize = 1;
         return;
     }
+
     (*workbuftail)->next = new_buf_item;
     *workbuftail = new_buf_item;
     (*workbufsize)++;
 }
 
-void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize) {
-    work_buf_list *current_pos;
-    if (*workbuflist == NULL) {
+void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
+    if (*workbuflist == NULL)
         return;
-    }
-    current_pos = (*workbuflist)->next;
+
+    if (*workbuftail == *workbuflist)
+       *workbuftail = NULL;
+
+    work_buf_list *new_head = (*workbuflist)->next;
     free((*workbuflist)->buf);
     free(*workbuflist);
-    *workbuflist = current_pos;
+
+    *workbuflist = new_head;
     (*workbufsize)--;
 }
 
-void delete_buf_list(work_buf_list **workbuflist, int *workbufsize) {
+void delete_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize) {
     while (*workbuflist) {
-        dequeue_buf_list(workbuflist, workbufsize);
+       dequeue_buf_list(workbuflist, workbuftail, workbufsize);
     }
     *workbufsize = 0;
 }
@@ -1612,12 +1776,17 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
  *    you freshly create them and set all these values to match the
  *    original.  Therefore, it might make sense to reconsider this test.
  *
- * @param src        a path_item structure containing
- *           the metadata for the souce file
- * @param dst        a path_item structure containing
- *           the metadata for the destination
- *           file
- * @param o      the PFTOOL global options structure
+ * In order to avoid a redundant stat of the CTM file, we now have the
+ * caller pass that information in through <dst_has_ctm>, because the
+ * caller now has that information already, by other means.
+ *
+ * @param src           path_item structure containing
+ *                         the metadata for the souce file
+ * @param dst           path_item structure containing
+ *                         the metadata for the destination file
+ * @param o             the PFTOOL global options structure
+ * @param dst_has_ctm   COPYWORK destination has CTM?
+ *                      -1=unsure, 0=no, 1=yes
  *
  * @return 1 (TRUE) if the files are "the same", or 0 otherwise.  If the
  *   command-line includes an option to skip copying files that have
@@ -1626,23 +1795,43 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
  */
 
 // TBD: Use Path methods to avoid over-reliance on POSIX same-ness
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o, int dst_has_ctm) {
     const path_item& src = p_src->node();
     const path_item& dst = p_dst->node();
 
     // compare metadata - check size, mtime, mode, and owners
     // (satisfied conditions -> "same" file)
+
     if (src.st.st_size == dst.st.st_size
         && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
-//        && (src.st.st_mode == dst.st.st_mode)  // by removing this we no longer care about file permissions for transfers.  Probably the right choice, but revisit if needed
-//        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || (geteuid() && !o.preserve))) {    // non-root doesn't chown unless '-o'
-	&& (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserve)) {    // only chown if preserve set
+#if 0
+        // by removing this we no longer care about file permissions for transfers.
+        // Probably the right choice, but revisit if needed
+        && (src.st.st_mode == dst.st.st_mode)
+
+        // non-root doesn't chown unless '-o'
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || (geteuid() && !o.preserve))
+#else
+        // only chown if preserve set
+        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
+            || !o.preserve)
+#endif
+        ) {
 
        // if a chunkable file matches metadata, but has CTM,
        // then files are NOT the same.
+       //
+       // QUES: is this still a good test, now that we do restarts with
+       //    temp dest-files?  If source is different from destination in
+       //    MD terms, then a copy will restart using any CTM that may be
+       //    there.  If the source is not different from dest, then who
+       //    cares if there is CTM?  We don't have to worry that
+       //    destination has been modified.
        if ((o.work_type == COPYWORK)
            && (src.st.st_size >= o.chunk_at)
-           && (hasCTM(dst.path)))
+           && ((dst_has_ctm > 0)
+               || ((dst_has_ctm < 0) && hasCTM(dst.path))))
           return 0;
 
        // class-specific techniques (e.g. MarFS file has RESTART?)
@@ -1654,4 +1843,54 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o) {
     }
 
     return 0;
+}
+
+int epoch_to_string(char* str, size_t size, const time_t* time) {
+   struct tm tm;
+
+   LOG(LOG_INFO, " epoch_to_str epoch:            %016lx\n", *time);
+
+   // time_t -> struct tm
+   if (! localtime_r(time, &tm)) {
+      LOG(LOG_ERR, "localtime_r failed: %s\n", strerror(errno));
+      return -1;
+   }
+
+   size_t strf_size = strftime(str, size, MARFS_DATE_FORMAT, &tm);
+   if (! strf_size) {
+      LOG(LOG_ERR, "strftime failed even more than usual: %s\n", strerror(errno));
+      return -1;
+   }
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (1)      %s\n", str);
+
+   // add DST indicator
+   snprintf(str+strf_size, size-strf_size, MARFS_DST_FORMAT, tm.tm_isdst);
+
+   //   // DEBUGGING
+   //   LOG(LOG_INFO, " epoch_2_str to-string (2)      %s\n", str);
+
+   return 0;
+}
+
+
+
+// <p_src>    is the (unaltered) source
+// <out_node> is the (unaltered) destination
+//
+// see comments at check_ctm_match()
+
+int check_temporary(PathPtr p_src, path_item* out_node)
+{
+   time_t src_mtime = p_src->mtime();
+   char   src_mtime_str[DATE_STRING_MAX];
+   char   src_to_hash[PATHSIZE_PLUS]; // p_src->path() + mtime string
+
+   epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
+
+   snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
+   // src_to_hash[PATHSIZE_PLUS -1] = 0; /* no need for this */
+
+   return check_ctm_match(src_to_hash, out_node->path);
 }

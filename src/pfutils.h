@@ -52,14 +52,17 @@
 
 #include "debug.h"
 
+#define DATE_STRING_MAX 64  /* includes room for leading '+', when used in filenames */
+#define PATHSIZE_PLUS   (FILENAME_MAX + DATE_STRING_MAX + 30)
+#define ERRORSIZE       PATHSIZE_PLUS
+#define MESSAGESIZE     PATHSIZE_PLUS
+#define MESSAGEBUFFER   400
 
-#define PATHSIZE_PLUS  (FILENAME_MAX+30)
-#define ERRORSIZE      PATHSIZE_PLUS
-#define MESSAGESIZE    PATHSIZE_PLUS
-#define MESSAGEBUFFER  400
+#define MAX_TEMP_UNLINK_ITER  3
+#define TEMP_UNLINK_WAIT_TIME 1
 
 // if you are trying to increase max pack size, STATBUFFER must be >= to
-// COPYBUFFER because it only collets one stat buffer worth of things before
+// COPYBUFFER because it only collects one stat buffer worth of things before
 // shipping off.
 #define DIRBUFFER      5
 #define STATBUFFER     4096
@@ -147,7 +150,8 @@ enum cmd_opcode {
     NONFATALINCCMD,
     CHUNKBUSYCMD,
     COPYSTATSCMD,
-    EXAMINEDSTATSCMD
+    EXAMINEDSTATSCMD,
+    STATS
 };
 typedef enum cmd_opcode OpCode;
 
@@ -157,12 +161,23 @@ typedef enum cmd_opcode OpCode;
 #define ACCUM_PROC    2
 #define START_PROC    3
 
-//errsend
-#define FATAL 1
-#define NONFATAL 0
+// for errsend
+enum Lethality {
+   NONFATAL = 0,
+   FATAL = 1
+};
+
+// for write_output (unused)
+// TBD: would be nicer to have OUT=1, SYS=2, BOTH=3
+enum OutputMode {
+   LOG_OUT  = 0,
+   LOG_BOTH = 1,
+   LOG_SYS  = 2
+};
+
 
 enum WorkType {
-    COPYWORK,
+    COPYWORK = 0,
     LSWORK,
     COMPAREWORK
 };
@@ -208,7 +223,7 @@ struct options {
     size_t  chunksize;
     int     preserve;           				// attempt to preserve ownership during copies.
 
-    char exclude[PATHSIZE_PLUS]; 				// pattern/list to exclude
+    char    exclude[PATHSIZE_PLUS];       // pattern/list to exclude
 
     char    file_list[PATHSIZE_PLUS];
     int     use_file_list;
@@ -244,7 +259,12 @@ typedef struct path_item {
    // tranfer length or file length
     off_t         chksz;
     int           chkidx;              // the chunk index or number of the chunk being processed
-    char          path[PATHSIZE_PLUS]; // keep this last, for efficient init
+    int           packable;
+    int           temp_flag;
+
+   // keep this last, for efficient init
+    char          path[PATHSIZE_PLUS];
+    char          timestamp[DATE_STRING_MAX];
 } path_item;
 
 // A queue to store all of our input nodes
@@ -259,6 +279,30 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
+typedef struct pod_data
+{
+   size_t buff_size;
+   char*  buffer;
+} pod_data;
+
+typedef std::map<int, pod_data*>               PodDataMap; // int is pod-number
+typedef std::map<int, pod_data*>::iterator     PodDataMapIt;
+
+
+typedef struct repo_timing_stats
+{
+   int        tot_stats;
+   int        total_blk;
+   int        has_data;
+   int        total_pods;
+   PodDataMap pod_to_stat;  // pod_data for each pod
+} repo_timing_stats;
+
+typedef std::map<std::string, repo_timing_stats*>             RepoStatsMap;   // string is repo-name
+typedef std::map<std::string, repo_timing_stats*>::iterator   RepoStatsMapIt;
+
+
+
 //Function Declarations
 void  usage();
 char *printmode (mode_t aflag, char *buf);
@@ -272,7 +316,7 @@ void  get_dest_path(path_item *dest_node, const char *dest_path, const path_item
                     int makedir, int num_paths, struct options& o);
 //char *get_output_path(const char *base_path, path_item src_node, path_item dest_node, struct options o);
 void  get_output_path(char* output_path, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
-void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o);
+void  get_output_path(path_item* out_node, const char *base_path, const path_item* src_node, const path_item* dest_node, struct options& o, int rename_flag);
 
 //int one_byte_read(const char *path);
 int   one_byte_read(const char *path);
@@ -285,17 +329,17 @@ int  request_response(int type_cmd);
 int  request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, int *workbufsize);
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 //worker utility functions
-void errsend(int fatal, const char *error_text);
-void errsend_fmt(int fatal, const char *format, ...);
+void errsend(Lethality fatal, const char *error_text);
+void errsend_fmt(Lethality fatal, const char *format, ...);
 
 //void get_stat_fs_info(path_item *work_node, int *sourcefs, char *sourcefsc);
 int  stat_item(path_item* work_node, struct options& o);
 void get_stat_fs_info(const char *path, SrcDstFSType *fs);
 int  get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range);
-int  processing_complete(struct worker_proc_status *proc_status, int nproc);
+int  processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc);
 
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
@@ -306,16 +350,18 @@ void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_work_done(int ignored);
+void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
 
 //function definitions for workers
-void update_chunk(path_item *buffer, int *buffer_count);
 void write_output(const char *message, int log);
-void write_output_fmt(int log, const char *fmt, ...);
 void write_buffer_output(char *buffer, int buffer_size, int buffer_count);
+void output_fmt(int log, const char *fmt, ...);
+
+void update_chunk(path_item *buffer, int *buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
-void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
-void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, int *workbufsize);
+void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
+void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
+void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues
@@ -328,16 +374,17 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
 
 //function definitions for workbuf_list;
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
-void dequeue_buf_list(work_buf_list **workbuflist, int *workbufsize);
-void delete_buf_list(work_buf_list **workbuflist, int *workbufsize);
+void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
+void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
-int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o);
+int samefile(PathPtr p_src, PathPtr p_dst, const struct options& o, int dst_has_ctm);
 int copy_file(PathPtr p_src, PathPtr p_dest, size_t blocksize, int rank, struct options& o);
 int update_stats(PathPtr p_src, PathPtr p_dst, struct options& o);
-
+int check_temporary(PathPtr p_src, path_item* out_node);
+int epoch_to_string(char* str, size_t size, const time_t* time);
 
 #endif
 

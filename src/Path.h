@@ -133,7 +133,7 @@ void no_op(T* ptr) {
 template <typename T>
 class NoOpSharedPtr : public std::tr1::shared_ptr<T> {
 public:
-  typedef std::tr1::shared_ptr<T>			BaseType;
+  typedef std::tr1::shared_ptr<T>         BaseType;
 
   NoOpSharedPtr(T* ptr)
     : std::tr1::shared_ptr<T>(ptr, no_op<T>) { // construct with no-op deleter
@@ -153,7 +153,7 @@ public:
 template <typename T>
 class MallocSharedPtr : public std::tr1::shared_ptr<T> {
 public:
-  typedef std::tr1::shared_ptr<T>			BaseType;
+  typedef std::tr1::shared_ptr<T>         BaseType;
 
   MallocSharedPtr(T* ptr)
     : std::tr1::shared_ptr<T>(ptr, free) {
@@ -365,9 +365,9 @@ protected:
 
 
    // Factory uses default constructors, then calls specific subclass
-   // versions of factory_install().  We want the constructors to be private
-   // so, only the factory (our friend) will do creations.  Each subclass
-   // might have unique args, so factory_install() is not virtual.
+   // versions of factory_install().  We want the constructors to be
+   // private, so only the factory (our friend) will do creations.  Each
+   // subclass might have unique args, so factory_install() is not virtual.
    //
    // This is also the default constructor!
    //
@@ -463,6 +463,16 @@ protected:
          did_stat(true);
 
       path_change_post();       // subclasses may want to be informed
+   }
+
+   // underlying path was renamed
+   // stat-info is no longer valid
+   void reset_path_item() {
+      memset(&_item->st, 0, sizeof(struct stat));
+      FlagType keeper_flags = (_flags & FOLLOW);
+
+      install_path_item(_item); // orderly reset
+      _flags |= keeper_flags;
    }
 
 
@@ -639,7 +649,8 @@ public:
    // unchanged.  Result (via the factory) might be a different subclass
    // (e.g. descending into PLFS directory).  Let PathFactory sort it out,
    // using stat_item(), etc.
-   virtual PathPtr append(char* suffix) const;
+   virtual PathPtr path_append(char* suffix) const;
+   virtual PathPtr path_truncate(ssize_t size) const;
 
 
 
@@ -661,11 +672,13 @@ public:
    // This value has no influence on the which Path subclass should own a
    // given path_item (unlike ftype), so we allow it to be set and changed
    // as needed.
-   FileType     dest_ftype() const { return _item->dest_ftype; }
-   void         dest_ftype(FileType t) { _item->dest_ftype = t; }
+   FileType     dest_ftype()           const { return _item->dest_ftype; }
+   void         dest_ftype(FileType t)       { _item->dest_ftype = t; }
 
    // ON SECOND THOUGHT:
    // virtual FileType ftype_for_destination() { REGULARFILE; } // subclasses do what they want
+
+   FileType     ftype() const { return _item->ftype; }
 
 
    // if you just want to know whether stat succeeded call this
@@ -694,7 +707,7 @@ public:
    }
 
    // try to adapt these POSIX calls
-   virtual bool    lchown(uid_t owner, gid_t group)       = 0;
+   virtual bool    lchown(uid_t owner, gid_t group)      = 0;
    virtual bool    chmod(mode_t mode)                    = 0;
    virtual bool    utime(const struct utimbuf* ut)       = 0;
    virtual bool    utimensat(const struct timespec times[2], int flags) =0;
@@ -703,9 +716,9 @@ public:
    virtual bool    supports_n_to_1() const   = 0; // can support N:1, via chunks?
 
    // This allows MARFS_Path to select the proper repo, based on total
-   // file-size, so individual chunk-mover tasks can get info form teh
-   // xattrs.  It is called single-threaded from pftool, when before
-   // copying a file.
+   // file-size, so individual chunk-mover tasks can get info from the
+   // xattrs.  It is called single-threaded from pftool, before copying
+   // to a file.
    virtual bool    pre_process(PathPtr src) { return true; } // default is no-op
 
    // Allow subclasses to maintain per-chunk state.  (e.g. MarFS can update
@@ -723,8 +736,10 @@ public:
    // whatever), and return false.  Caller can then come back and get the
    // corresponding error-string from here.
    virtual const char* const strerror()     { return ::strerror(_errno); }
-   virtual int     get_errno()     { return _errno; }
-   virtual int     get_rc()        { return _rc; }
+   virtual int     get_errno()              { return _errno; }
+   virtual int     get_rc()                 { return _rc; }
+
+   virtual int     set_error(int rc, int err_no) { _rc = rc; _errno = err_no; }
 
    // like POSIX access().  Return true if accessible in given mode
    virtual bool    access(int mode)  = 0;
@@ -769,7 +784,58 @@ public:
    virtual ssize_t readlink(char *buf, size_t bufsiz) { _errno=0; return -1; }
    virtual bool    symlink(const char* link_name)  { _errno=0; return false; }
 
+   //all additional functions needed for renaming, creating temp files, etc
+   virtual int check_packable(size_t length) {return 0;}
+   virtual int get_packable() {return _item->packable;}
 
+   // managing time-stamps (for temporary dest-pathname)
+   virtual char* get_timestamp() {return _item->timestamp;}
+
+   // In the case of Path::op=(), and Path::install_path_item(), the path
+   // being installed is compatible with the specific Path sub-class,
+   // because everything is being done by the PathFactory, which has
+   // already created the proper Path sub-class.  But in the case of a
+   // rename, we can't assume that <new_path> is consistent with what we
+   // were.
+   //
+   // Two possible approaches: (a) we remain as the old path; we do the
+   // rename, but we still represent the old path.  Thus, our path_item
+   // doesn't change.  However, in the event of success, we should probably
+   // invalidate our stat-info, etc.  (b) caller thinks we are now the new
+   // path.  That can't work without some fanciness that is probably not
+   // worth implmenting.  So, well go with (a).
+   virtual bool  rename(const char* new_path)      = 0;
+
+
+#if 0  // these should be unused, now ...
+   virtual int   rename_to_original() {return 0;}
+
+   virtual bool  create_temporary_path(const char* timestamp) {
+      const size_t len = strlen(_item->path);
+      if ((len + DATE_STRING_MAX + 1) > sizeof(_item->path))
+         return false;
+
+      char* tp_ptr = (_item->path) + len;
+      snprintf(tp_ptr, DATE_STRING_MAX + 1, "+%s", timestamp);
+      return true;
+   }
+   virtual void  restore_original_path() {
+      int i;
+      int pathlen = strlen(_item->path);
+
+      for(i = pathlen - 1; i >= 0; i--)
+      {
+         if (_item->path[i] == '+')
+         {
+            _item->path[i] = 0;
+            break;
+         }
+      }
+   }
+#endif
+
+   //additional functions needed for timing collection fron libne
+   virtual int build_repo_info(repo_timing_stats timing_stats) {return 0;}
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
@@ -787,7 +853,8 @@ public:
 #endif
 
 
-   PathPtr         get_output_path(path_item src_node, path_item dest_node, struct options o);
+   // // unused (and undefined?).  pftool uses the function-version in pfutils.cpp
+   // PathPtr         get_output_path(path_item src_node, path_item dest_node, struct options o);
 
    // fstype is apparently only used to distinguish panfs from everything else.
    static FSType   parse_fstype(const char* token) { return (strcmp(token, "panfs") ? UNKNOWN_FS : PAN_FS); }
@@ -887,7 +954,7 @@ public:
    virtual bool identical(Path* p) { 
       POSIX_Path* p2 = dynamic_cast<POSIX_Path*>(p);
       return (p2 &&
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -939,6 +1006,17 @@ public:
    virtual bool    faccessat(int mode, int flags) {
       if (_rc = ::faccessat(-1, path(), mode, flags))
          _errno = errno;
+      return (_rc == 0);
+   }
+
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path)
+   {
+      if (_rc = ::rename(_item->path, new_path))
+         _errno = errno;
+      else
+         reset_path_item();
+
       return (_rc == 0);
    }
 
@@ -1149,7 +1227,7 @@ public:
    virtual bool identical(Path* p) { 
       NULL_Path* p2 = dynamic_cast<NULL_Path*>(p);
       return (p2 && 
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
@@ -1203,8 +1281,8 @@ public:
        if(NULL == resolved_path) {
            resolved_path = (char *)malloc(strlen(_item->path)+1);
            if(NULL == resolved_path) {
-               _errno = errno;
-               return NULL;
+              _errno = errno;
+              return NULL;
            }
        }
 
@@ -1240,6 +1318,10 @@ public:
    }
    
    virtual bool    symlink(const char* link_name) {
+      return false;
+   }
+
+   virtual bool    rename(const char* new_path) {
       return false;
    }
 };
@@ -1725,6 +1807,11 @@ public:
       // return (b->code == 200);
       return true;
    }
+
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path) {
+      NO_IMPL(rename);
+   }
 };
 
 #endif
@@ -1772,7 +1859,7 @@ protected:
    MarFS_FileHandle fh;
    MarFS_DirHandle  dh;
 
-   // decides wether or not this object is using the packed fh
+   // decides whether or not this object is using the packed fh
    bool             usePacked;
 
    size_t           _total_size;
@@ -1799,7 +1886,10 @@ protected:
 
    // FUSE_CHUNKER seems to be the only one that uses stat() instead of lstat()
    virtual bool do_stat_internal() {
-      return mar_stat(_item->path, &_item->st);
+      bool okay = mar_stat(_item->path, &_item->st);
+      if (! okay)
+         set_err_string(errno, NULL);
+      return okay;
    }
 
    MARFS_Path()
@@ -1842,6 +1932,10 @@ protected:
       _err_str.clear();
    }
 
+   virtual int     set_error(int rc, int err_no) {
+      _rc = rc;
+      set_err_string(err_no, NULL);
+   }
 
 public:
 
@@ -1861,7 +1955,14 @@ public:
          close_md(&fh);
    }
 
-
+   virtual int build_repo_info(repo_timing_stats timing_stats)
+   {
+      int ret = 1;
+      int i;
+      int repo_count;
+      repo_count = get_repo_count();
+      return ret;
+   }
    // pftool gets a chunksize from the command-line, or a default.  Such
    // values won't understand about MarFS recovery-info, or about repos
    // having different chunksizes based on the total size of the file.  We
@@ -1900,14 +2001,14 @@ public:
    virtual bool identical(Path* p) {
       MARFS_Path* p2 = dynamic_cast<MARFS_Path*>(p);
       return (p2 &&
-	      p2->exists() &&
+              p2->exists() &&
               (st().st_ino == p2->st().st_ino));
    }
 
    virtual bool incomplete()           {
       expand_path_info(&fh.info, marfs_sub_path(_item->path));
 #if 0
-      stat_xattrs(&fh.info);
+      stat_xattrs(&fh.info, 0);
       return (has_any_xattrs(&fh.info, XVT_RESTART));
 #else
       // cheaper ...
@@ -1925,6 +2026,7 @@ public:
 
       // get the attributes for the file from marfs
       // TODO: is there a way to detect links
+      // printf("rank %d mar_stat calling sub path\n", MARFS_Path::_rank);
       rc = marfs_getattr(marfs_sub_path(path_name), st);
       if (rc) {
          // set_err_string(errno, NULL);
@@ -1948,6 +2050,7 @@ public:
    //     calling truncate or batch_pre_process on an existing N:1 file
    //     would lose partial writes that have already been done.
    virtual bool    pre_process(PathPtr src) {
+
       const char* marPath   = marfs_sub_path(_item->path);
       size_t      file_size = src->st().st_size;
 
@@ -1965,12 +2068,12 @@ public:
             //
             //   assert(0); // DEBUGGING: does this ever run, now? [ANS: No.]
             //
-            fprintf(stderr, "pre_process() -- file exists '%s'\n",
+            fprintf(stdout, "pre_process() -- file exists '%s'\n",
                     _item->path);
             return false;
          }
          else {
-            fprintf(stderr, "couldn't create file '%s': %s\n",
+            fprintf(stdout, "couldn't create file '%s': %s\n",
                     _item->path, ::strerror(errno));
             return false;
          }
@@ -1998,7 +2101,6 @@ public:
    virtual bool    chunks_complete(ChunkInfoVec& vec) {
       PathInfo*         info = &fh.info;                  /* shorthand */
       ObjectStream*     os   = &fh.os;
-
       // iniitalize (if not already done)
       //
       // NOTE: We are only opening the MD file, rather than what open()
@@ -2008,7 +2110,7 @@ public:
       //     Therefore, we can't just leave the md_fd open and expect the
       //     Path destructor to do everything, in worker_update_chunk().
       expand_path_info(info, marfs_sub_path(_item->path));
-      stat_xattrs(info);
+      stat_xattrs(info, 0);
 
       // we don't expect to be opened, but, if so, assure FH_WRITING is set
       if (_flags & IS_OPEN) {
@@ -2117,13 +2219,13 @@ public:
    virtual bool    access(int mode) {
       expand_path_info(&fh.info, marfs_sub_path(_item->path));
       if (_rc = ::access(fh.info.post.md_path, mode))
-         _errno = errno;
+         set_err_string(errno, NULL);
       return (_rc == 0);
    }
    // path must not be relative
    virtual bool    faccessat(int mode, int flags) {
       if (_rc = marfs_faccessat(marfs_sub_path(_item->path), mode, flags))
-         _errno = errno;
+         set_err_string(errno, NULL);
       return (_rc == 0);
    }
 
@@ -2148,7 +2250,6 @@ public:
    virtual bool    open(int flags, mode_t mode) {
       int rc;
       const char* marPath = marfs_sub_path(_item->path);
-
       // initally we will assume we are not using a packed file
       usePacked=false;
 
@@ -2222,7 +2323,6 @@ public:
    virtual bool    opendir() {
       // clear the marfs directory handle
       memset(&dh, 0, sizeof(MarFS_DirHandle));
-
       if(0 != marfs_opendir(marfs_sub_path(_item->path), &dh)) {
          set_err_string(errno, NULL);
          return false;  // return _rc;
@@ -2255,21 +2355,62 @@ public:
    }
 
 
+   // called from close()/close_fh() to send accumulated timing-data to manager
+   static void send_to_manager(MarFS_FileHandle* whichFh)
+   {
+      // For a zero-length file, nothing will ever have been written and so
+      // the ObjectStream (in the MARFS_FileHandle) will never have been
+      // opened or closed, even though the file-handle was "open".  This
+      // also means that no data will have been collected, timing_stats
+      // won't have been initialized, and most of these other pointers will
+      // be NULL.  Don't segfault, in this case.
+      if (! (whichFh->os.flags & OSF_CLOSED))
+         return;
+
+      //send accumulated statistics (if any)
+      if (whichFh->tot_stats) {
+
+         send_manager_timing_stats(whichFh->tot_stats,
+                                   whichFh->pod_id,
+                                   whichFh->total_blk,
+                                   whichFh->timing_stats_buff_size,
+                                   whichFh->repo_name, whichFh->timing_stats);
+         //now free buffers
+         free(whichFh->timing_stats);
+
+         // this stuff is done implicitly by the memset in close_fh(), but
+         // not in close().  should we be doing a memset in close()?
+         // Meanwhile, resetting these here, for safety.
+         whichFh->tot_stats    = 0;
+         whichFh->timing_stats = NULL;
+      }
+   }
 
    virtual bool    close() {
       int rc;
+      char packed = 0;
       MarFS_FileHandle *whichFh;
 
       if(usePacked) {
          whichFh = &packedFh;
          packedFhInUse = false;
          usePacked = false;
+         packed = 1;
       }
-      else {
+      else
          whichFh = &fh;
-      }
 
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
+
+      //we send timing info to manager in close if files is not packed
+      //and deallocate the buffer after send is complete.
+      if (!packed) {
+         MARFS_Path::send_to_manager(whichFh);
+      }
+
+      // QUESTION: should we be resetting the entire FH, like close_fh() does?
+      //      (see also comments in send_to_manager()).
+
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
          return false;  // return _rc;
@@ -2280,15 +2421,49 @@ public:
       return true;
    }
 
+   virtual int check_packable(size_t length)
+   {
+        const char* marPath = marfs_sub_path(_item->path);
+        return marfs_check_packable(marPath, length);
+   }
+
+   // see comments at Path::rename()
+   virtual bool rename(const char* new_path)
+   {
+      // until we fix MarFS issue #207, do an unlink before rename,
+      // in order to keep MD for the trashed storage
+      // https://github.com/mar-file-system/marfs/issues/207
+      if(_rc = marfs_unlink(new_path) && (errno != ENOENT))
+         set_err_string(errno, NULL);
+
+      else if (_rc = marfs_rename(marfs_sub_path(_item->path),
+                                  marfs_sub_path(new_path)))
+         set_err_string(errno, NULL);
+      else
+         reset_path_item();
+
+      return (_rc == 0);
+   }
+
    // closes the underlying fh stream for packed files
    static bool close_fh() {
-      int rc = 0;
+      int    rc = 0;
       size_t packedPathsCount;
 
+      //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
       if(packedFhInitialized) {
          rc = marfs_release_fh(&packedFh);
          packedFhInitialized = false;
       }
+
+      //send time info back to manager
+      if (packedFh.repo_name[0])
+         MARFS_Path::send_to_manager(&packedFh);
+
+      // wipe the static filehandle we've been using to track across
+      // "open"/"close", in order to allow us to write multiple files
+      // through it.
+      memset(&packedFh, 0, sizeof(MarFS_FileHandle));
 
       if(0 != rc) {
           // we need to clear out the packPaths so they don't get marked as
@@ -2300,20 +2475,18 @@ public:
       packedPathsCount = packedPaths.size();
 
       // set the post xattr for the files
-      for(
-              std::vector<path_item>::iterator it = packedPaths.begin();
-              it < packedPaths.end();
-              it++
-         ) {
+      for(std::vector<path_item>::iterator it = packedPaths.begin();
+          it < packedPaths.end();
+          it++) {
+
          marfs_packed_set_post(marfs_sub_path(it->path), packedPathsCount);
       }
 
       // clear the restart xattr for the files
-      for(
-              std::vector<path_item>::iterator it = packedPaths.begin();
-              it < packedPaths.end();
-              it++
-         ) {
+      for(std::vector<path_item>::iterator it = packedPaths.begin();
+          it < packedPaths.end();
+          it++) {
+
          marfs_packed_clear_restart(marfs_sub_path(it->path));
       }
 
@@ -2334,12 +2507,14 @@ public:
       return true;
    }
 
+   // TBD?  This is not following links.
+   //    [See old code for chasing links in MarFS, assuring we don't leave the MDFS, etc]
    virtual char *realpath(char *resolved_path) {
        if(NULL == resolved_path) {
            resolved_path = (char *)malloc(strlen(_item->path)+1);
            if(NULL == resolved_path) {
-               _errno = errno;
-               return NULL;
+              set_err_string(errno, NULL);
+              return NULL;
            }
        }
 
@@ -2356,7 +2531,6 @@ public:
       if(usePacked) {
          return -1;
       }
-
       bytes = marfs_read(marfs_sub_path(_item->path), buf, count, offset, &fh);
       if (bytes == (ssize_t)-1)
          set_err_string(errno, &fh.os.iob);
@@ -2370,7 +2544,6 @@ public:
       errno = 0;
       if (size)
          path[0] = 0;
-
       marfs_dirp_t d;
       rc = marfs_readdir_wrapper(&d, marfs_sub_path(_item->path), &dh);
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
@@ -2430,9 +2603,7 @@ public:
       else {
          whichFh = &fh;
       }
-
       bytes = marfs_write(marfs_sub_path(_item->path), buf, count, offset, whichFh);
-
       if (bytes == (ssize_t)-1) {
 
          if (// (fh.pre.obj_type == OBJ_Nto1) &&
@@ -2506,19 +2677,18 @@ public:
       ssize_t count = marfs_readlink(marfs_sub_path(_item->path), buf, bufsiz);
       if (-1 == count) {
          _rc = -1;              // we need an _rc_ssize
-         _errno = errno;
+         set_err_string(errno, NULL);
       }
       return count;
    }
  
    virtual bool    symlink(const char* link_name) {
-
       // delete the file that was created
       unlink();
 
       // we do the symlinking here because it does not work otherwise
       if (_rc = marfs_symlink(link_name, marfs_sub_path(_item->path))) {
-         _errno = errno;
+         set_err_string(errno, NULL);
       }
       unset(DID_STAT);          // instead of updating _item->st, just mark it out-of-date
       if (_rc != 0) {
@@ -2627,7 +2797,7 @@ public:
    static PathPtr create(const char* path_name) {
       PathItemPtr  item(Pool<path_item>::get());
       memset(item.get(), 0, sizeof(path_item));
-      strncpy(item->path, path_name, PATHSIZE_PLUS);
+      strncpy(item->path, path_name, PATHSIZE_PLUS -1);
       item->ftype = TBD;        // invoke stat_item() to determine type
 
       return create_shallow(item);
@@ -2677,9 +2847,12 @@ public:
       switch (item->ftype) {
       case NONE:
       case TBD: {
-         int rc = stat_item(item.get(), *_opts); // initialize item->ftype
+         int rc         = stat_item(item.get(), *_opts); // initialize item->ftype
+         int errno_save = errno;
          p = create_shallow(item);      // recurse
          p->did_stat(rc == 0);          // avoid future repeats of failed stat
+         if (rc)
+            p->set_error(rc, errno_save);
          return p;
       }
 

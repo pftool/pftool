@@ -18,32 +18,70 @@ int              PathFactory::_rank    = 1;
 int              PathFactory::_n_ranks = 1;
 
 
-// NOTE: New path might not be same subclass as us.  For example, we could
-// be descending into a PLFS volume.
+// NOTE: New path might not be of the same subclass as us.  For example, we
+//    could be descending into a PLFS volume.
+//
+// NOTE: We return a new Path object to the changed path, leaving the
+//    original intact.  (a) it's possible the new Path is of a different
+//    sub-class, and (b) we avoid the potential to leave various fields
+//    inconsistent.  (We could figure out which ones need to be reset and
+//    do that, but we're taking the simpler approach, for now.)
 //
 // TBD: If we give our subclass to the factory, it could run tests relevant
-//      to our type, first, in order to reduce the number of checks, which
-//      might have a better chance of succeeding.  This would reduce the
-//      overhead for constructing from a raw pathname.
-//
+//    to our type, first, in order to reduce the number of checks, which
+//    might have a better chance of succeeding.  This would reduce the
+//    overhead for constructing from a raw pathname.
+
 PathPtr
-Path::append(char* suffix) const {
+Path::path_append(char* suffix) const {
+
+   char  new_path[PATHSIZE_PLUS];
+   size_t len = strlen(_item->path);
+
+   strncpy(new_path,      _item->path, PATHSIZE_PLUS);
+   strncpy(new_path +len, suffix,      PATHSIZE_PLUS -len);
+
+   if (new_path[PATHSIZE_PLUS -1])
+      return PathPtr();         // return NULL, for overflow
+
+   return PathFactory::create(new_path);
+}
+
+
+// remove a suffix.  If <size> is negative, it is size of suffix to remove.
+// Otherwise, it is the size of the prefix to keep.
+//
+// NOTE: We return a new Path object to the changed path, leaving the
+//    original intact.  (a) it's possible the new Path is of a different
+//    sub-class, and (b) we avoid the potential to leave various fields
+//    inconsistent.  (We could figure out which ones need to be reset and
+//    do that, but we're taking the simpler approach, for now.)
+
+PathPtr
+Path::path_truncate(ssize_t size) const {
 
    char  new_path[PATHSIZE_PLUS];
    
-   size_t len = strlen(_item->path);
-   strncpy(new_path,      _item->path, PATHSIZE_PLUS);
-   strncpy(new_path +len, suffix,      PATHSIZE_PLUS -len);
+   size_t new_len = size;
+   if (size < 0)
+      new_len = strlen(_item->path) - size;
+
+   if (new_len >= PATHSIZE_PLUS)
+      return PathPtr();         // return NULL, for overflow/underflow
+
+   strncpy(new_path, _item->path, new_len);
+   new_path[new_len] = 0;
 
    return PathFactory::create(new_path);
 }
 
 
 
+
 #ifdef S3
 
 // Parse metadata for a given path, and translate into a 'struct stat'.
-// Having a sat struct allows pftool to compare with results from stat() on
+// Having a stat struct allows pftool to compare with results from stat() on
 // POSIX fielsystems (or with similar faked versions from plfs_getattr()).
 // However, there's a lot of cludgery needed, to shoehorn the kind of
 // metadata we get from S3 into a stat struct (see NOTEs, inline).
@@ -88,7 +126,7 @@ Path::append(char* suffix) const {
 //        <AccessControlList>
 //          <Grant>
 //            <Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-//      			xsi:type="CanonicalUser">
+//             xsi:type="CanonicalUser">
 //              <ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID>
 //              <DisplayName>CustomersName@amazon.com</DisplayName>
 //            </Grantee>

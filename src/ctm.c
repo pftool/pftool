@@ -1,3 +1,4 @@
+/* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 3; tab-width: 3 -*- */
 /**
 * Implements routines for a CTM (Chunk Transfer Metadata) structure
 * In order to add new implemenations, both this file and the ctm_impl.h
@@ -12,6 +13,7 @@
 
 #include "pfutils.h"
 #include "str.h"
+#include "sig.h"
 #include "ctm.h"
 #include "ctm_impl.h"					// holds implementation specific declarations
 
@@ -27,11 +29,11 @@
 */
 const char *_impl2str(CTM_ITYPE implidx) {
 	static const char *IMPLSTR[] = {
-      "No CTM"
-      ,"File CTM"
-      ,"xattr CTM"
-      ,"Unsupported CTM"
-   };
+		"No CTM"
+		,"File CTM"
+		,"xattr CTM"
+		,"Unsupported CTM"
+	};
 	return((implidx > CTM_UNKNOWN)?"Unknown CTM":IMPLSTR[implidx]);
 }
 
@@ -51,30 +53,33 @@ const char *_impl2str(CTM_ITYPE implidx) {
 CTM_ITYPE _whichCTM(const char *transfilename) {
 
 #if CTM_MODE == CTM_PREFER_FILES
-   return CTM_FILE;
+	return CTM_FILE;
 
 #elif CTM_MODE == CTM_PREFER_XATTRS
-   CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
-   if(!strIsBlank(transfilename)) {    // non-blank filename -> test if tranferred file supports xattrs
-     if(!setxattr(transfilename,CTM_TEST_XATTR,"novalue",strlen("novalue")+1,0)) {
-       removexattr(transfilename,CTM_TEST_XATTR);  // done with test -> remove it.
-       itype = CTM_XATTR;           // yes, it does!
-     }
-     else {
-       int errcpy = errno;          // make a copy of errno ...
+	CTM_ITYPE itype =  CTM_NONE;        // implementation type. Start with no CTM implementation
+	if(!strIsBlank(transfilename)) {    // non-blank filename -> test if tranferred file supports xattrs
+		if(!setxattr(transfilename,CTM_TEST_XATTR,"novalue",strlen("novalue")+1,0)) {
+			removexattr(transfilename,CTM_TEST_XATTR);  // done with test -> remove it.
+			itype = CTM_XATTR;           // yes, it does!
+		}
+		else {
+			int errcpy = errno;          // make a copy of errno ...
 
-       switch (errcpy) {
-         case ENOENT : itype = CTM_XATTR;    // if file does not exist -> assume xattrs are supported
-             break;
-         case ENOTSUP:           // xattrs are not supported
-         default     : itype = CTM_FILE;     // another error? -> use files
-       } // end error switch
-     } // end setxattr() else
-   }
-   return(itype);
+			switch (errcpy) {
+			case ENOENT :
+				itype = CTM_XATTR;    // if file does not exist -> assume xattrs are supported
+				break;
+
+			case ENOTSUP:           // xattrs are not supported
+			default     :
+				itype = CTM_FILE;     // another error? -> use files
+			} // end error switch
+		} // end setxattr() else
+	}
+	return(itype);
 
 #else
-   return CTM_NONE;
+	return CTM_NONE;
 
 #endif
 }
@@ -97,17 +102,24 @@ CTM *_createCTM(const char *transfilename) {
 	  return(newCTM);
 
 	newCTM = (CTM *)malloc(sizeof(CTM));		// now we allocate the structure
+	if (! newCTM)
+	   return NULL;
 	memset(newCTM,0,sizeof(CTM));			// clear the memory of the newCTM CTM structure
+
 	newCTM->chnkimpl = itype;				// assign implmentation
 	switch ((int)newCTM->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
-	  case CTM_XATTR : newCTM->chnkfname = strdup(transfilename);
+	  case CTM_XATTR :
+			   newCTM->chnkfname = strdup(transfilename);
 			   registerCTA(&newCTM->impl);	// assign implementation
 			   break;
 	  case CTM_FILE  :
-          default        : if(newCTM->chnkfname = genCTFFilename(transfilename))
+	  default        :
+			   if(newCTM->chnkfname = genCTFFilename(transfilename))
 			     registerCTF(&newCTM->impl);	// assign implementation
-			   else
-			     freeCTM(&newCTM);		// problems generating filename for CTM -> abort creation and clean up memory
+			   else {
+			     // problems generating filename for CTM -> abort creation and clean up memory
+			     freeCTM(&newCTM); // side-effect: newCTM == NULL
+			   }
 	}
 
 	return(newCTM);
@@ -132,6 +144,8 @@ size_t allocateCTMFlags(CTM *ctmptr) {
 								// compute the buffer size
 	bufsz = (size_t)(sizeof(unsigned long)*ComputeBitArraySize(ctmptr->chnknum));
 	ctmptr->chnkflags = (unsigned long *)malloc(bufsz);
+	if (! ctmptr->chnkflags)
+	  return((size_t)(-1));
 	memset(ctmptr->chnkflags,0,bufsz);
 
 	return(bufsz);
@@ -148,11 +162,16 @@ void freeCTM(CTM **pctmptr) {
 	CTM *ctmptr = (*pctmptr);
 
 	if(ctmptr) {
-	  if(ctmptr->chnkflags) free(ctmptr->chnkflags);
-	  if(!strIsBlank(ctmptr->chnkfname)) free(ctmptr->chnkfname);
+	  if(ctmptr->chnkflags)
+		  free(ctmptr->chnkflags);
+	  if(!strIsBlank(ctmptr->chnkfname))
+		  free(ctmptr->chnkfname);
+
+	  // make sure that the pointer to the structure is zeroed out. Note in order to change value, need to
+	  // assign pctmptr to point to NULL, rather thsn ctmptr.
 	  free(ctmptr);
-	  *pctmptr = (CTM*)NULL;				// make sure that the pointer to the structure is zeroed out. Note in order to change value, need to
-	}							// assign pctmptr to point to NULL, rather thsn ctmptr.
+	  *pctmptr = (CTM*)NULL;
+	}
 	return;
 }
 
@@ -175,8 +194,8 @@ CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
 	CTM *newCTM = _createCTM(transfilename);			// allocate the newCTM structure
 
 	if(newCTM) {						// we have an allocated CTM structure. Read from persistent store
-	  if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
-	    freeCTM(&newCTM);					// problems reading metadata -> abort get and clean up memory
+		if(newCTM->impl.read(newCTM,numchnks,sizechnks) < 0)
+			freeCTM(&newCTM);			// problems reading metadata -> abort get and clean up memory
 	}
 	return(newCTM);
 }
@@ -249,9 +268,11 @@ int hasCTM(const char *transfilename) {
 	switch ((int)itype) {					// test, based on how CTM store is implemented
 	  case CTM_NONE    :					// no or unsupported type? -> return FALSE
 	  case CTM_UNKNOWN : return(FALSE);
+
 	  case CTM_XATTR   : return(foundCTA(transfilename));
+
 	  case CTM_FILE    :
-          default          : return(foundCTF(transfilename));
+	  default          : return(foundCTF(transfilename));
 	}
 }
 
@@ -266,17 +287,18 @@ void purgeCTM(const char *transfilename) {
 	char *chnkfname;					// holds the md5 name if CTM is implemented with CTF files
 
 	switch ((int)itype) {					// test, based on how CTM store is implemented
-	  case CTM_XATTR   : deleteCTA(transfilename);		// don't care about the return code
+	  case CTM_XATTR   :
+			     deleteCTA(transfilename);		// don't care about the return code
 			     break;
 								// have to generate the md5 name for CTF files
-	  case CTM_FILE    : chnkfname = genCTFFilename(transfilename);
-
+	  case CTM_FILE    :
+			     chnkfname = genCTFFilename(transfilename);
 			     unlinkCTF(chnkfname);		// don't care about return code
 			     if(chnkfname) free(chnkfname);	// we done with the temporary name
 			     break;
 	  case CTM_NONE    :					// no or unsupported type? -> nothing to do
 	  case CTM_UNKNOWN : 
-          default          : break;
+	  default          : break;
 	}
 	return;
 }
@@ -330,8 +352,9 @@ int transferredCTM(CTM *ctmptr) {
 	int i = 0;					// index into 
 
 	if(ctmptr) {
-	  while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i)) i++;
-	  rc = (int)(i >= ctmptr->chnknum);
+		while(i < ctmptr->chnknum && TestBit(ctmptr->chnkflags,i))
+			i++;
+		rc = (int)(i >= ctmptr->chnknum);
 	}
 	return(rc);
 }
@@ -363,18 +386,220 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
 
 	flags = (char *)malloc((2*ctmptr->chnknum)+1);
 	for(i=0; i<ctmptr->chnknum; i++)
-	  snprintf(flags+(2*i),3,"%d,",TestBit(ctmptr->chnkflags,i));
+		snprintf(flags+(2*i),3,"%d,",TestBit(ctmptr->chnkflags,i));
 	i = strlen(flags);
 	flags[i-1] = '\0';
 
 	if(!(*rbuf)) {					// rbuf NOT allocated
-	  *rlen = strlen(ctmptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
-	  *rbuf = (char *)malloc(*rlen);
+		*rlen = strlen(ctmptr->chnkfname) + sizeof(size_t) + sizeof(long) + strlen(flags) + 20;
+		*rbuf = (char *)malloc(*rlen);
 	}
-	snprintf(*rbuf,*rlen,"%s: %s, %ld, (%ld)\n\t[%s]", _impl2str(ctmptr->chnkimpl),ctmptr->chnkfname, ctmptr->chnknum, ctmptr->chnksz,flags);
+	snprintf(*rbuf,*rlen,"%s: %s, %ld, (%ld)\n\t[%s]",
+	         _impl2str(ctmptr->chnkimpl),ctmptr->chnkfname, ctmptr->chnknum, ctmptr->chnksz,flags);
 	free(flags);
 
 	return(*rbuf);
 }
 
+/**
+ * Read the CTM file corresponding to an (unaltered) destination filename,
+ * and extract the hash.  Construct a hash for a source-file (with
+ * time-stamp appended) that we are considering copying to that
+ * destination.  Return a code the has information about a comparison
+ * between the two.  The result may overwrite the value of a boolean, so
+ * avoid values 0/1.
+ *
+ * When the CTM file is originally written, it now includes a hash of the
+ * source-file with its mtime appended.  The idea is that different
+ * source-filenames, or different versions of the same source-filename,
+ * will have different hashes from the one that was used when the CTM file
+ * was written.  We can detect this, during a restart, and avoid
+ * transferring part of one file on top of part of another.
+ *
+ * @param src_to_hash  the source-filename (with its mtime appended)
+ *
+ * @param dest         the (original) dest-filename, e.g. for a copy
+ *
+ * @return            -errno  -- problem accessing the CTM file.
+ *                     0      -- no CTM file
+ *                     2      -- hash from CTM matches hashed source-filename
+ *                     3,     -- no match
+ *                     4,     -- destination temp-file is missing
+ */
+int check_ctm_match(const char* src_to_hash, const char* dest)
+{
+	int ret = 0;
+	int fd;
+	char* ctm_name;
+	char* src_hash; //must be freed
+	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
 
+	ctm_name = genCTFFilename(dest);
+	src_hash = str2sig(src_to_hash);
+
+
+	if((fd = open(ctm_name, O_RDONLY)) < 0) {
+		if (errno == ENOENT)
+			ret = 0; //there is no ctm, no match
+		else
+			ret = -errno;
+	}
+
+	//read src hash
+	else if(read(fd, ctm_src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0) {
+		ret = -errno;
+	}
+
+	else if(!strcmp(ctm_src_hash, src_hash)) {
+		// we have a match!
+
+		// check whether destination temp-file also exists.
+		// For that, we need to also read the dest temp-file timestamp.
+		// Do that now, while we still have the CTM-file open.
+		struct stat st;
+
+		// assure there's room for timestamp at the end of <dest>
+		size_t dest_len = strlen(dest);
+		if ((PATHSIZE_PLUS - dest_len) < DATE_STRING_MAX) {
+			ret = -EIO;
+		}
+		else {
+
+			// prepare to read timestamp onto the end of <dest>
+#if 1
+			char dest_temp[PATHSIZE_PLUS];
+			strcpy(dest_temp, dest);
+#else
+			char* dest_temp = dest; // alter existing <dest> string
+#endif
+			dest_temp[dest_len] = '+';
+			char* timestamp = dest_temp + dest_len +1;
+
+
+			// read timestamp onto the end of <dest> to make dest temp-fname.
+			// if it doesn't exist, then user must've deleted it (CTM does
+			// exist so it's not that the temp-file was renamed over the
+			// destination [assuming rename is atomic]).  If the temp-file
+			// doesn't exist, we signal to caller by indicating a mis-match,
+			// which triggers wiping the CTM and starting over.
+			errno = 0;
+			if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX) {
+				ret = -errno;  // something wrong with timestamp
+			}
+			else if (stat(dest_temp, &st)
+			         && (errno != ENOENT)) {
+				ret = -errno;    // stat failed for some reason other than ENOENT
+			}
+			else if (errno == ENOENT) {
+				ret = 4;         // no destination temp-file.
+			}
+			else
+				ret = 2;         // passed all the tests.  It's a match
+#if 1
+#else
+			dest_temp[dest_len] = 0; // undo damage to original <dest>
+#endif
+		}
+	}
+	else {
+		//we dont have a match
+		ret = 3;
+	}
+
+
+	if((fd > 0) && (close(fd) < 0)) {
+		ret = -errno;
+	}
+
+
+	free(ctm_name);
+	free(src_hash);
+	return ret;
+}
+
+// We assume <timestamp> has size DATE_STRING_MAX, at least
+int get_ctm_timestamp(char* timestamp, const char* filename)
+{
+	char* ctm_name;//need free
+	struct stat sbuf;
+	int fd;
+	int ret = 0;
+
+	ctm_name = genCTFFilename(filename);
+	if (! ctm_name)
+		return -1;
+
+	else if (stat(ctm_name, &sbuf))
+	{
+		//CTM file should be there unelss another process started
+		//copying. REPORT ERROR
+		ret = -1;
+	}
+	else if((fd = open(ctm_name, O_RDONLY)) < 0)
+	{
+		ret = -errno;
+	}
+	else {
+
+		if (lseek(fd, SIG_DIGEST_LENGTH * 2 + 1, SEEK_CUR) < 0)
+		{
+		   //fail to seek
+		   ret = -errno;
+		}
+		else if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX)
+		{
+		   //something wrong with timestamp, report error
+		   ret = -2;
+		}
+
+		close(fd);
+	}
+
+	free(ctm_name);
+	return ret;
+}
+
+int create_CTM(PathPtr& p_out, PathPtr& p_src)
+{
+	int    fd;
+	time_t mtime = p_src->mtime();
+	char*  ctm_name;             //need free
+	char*  src_hash;             //need free
+	char   src_to_hash[PATHSIZE_PLUS];
+	char   src_mtime[DATE_STRING_MAX];
+	int    ret = 0;
+
+	//construct src hash
+	epoch_to_string(src_mtime, DATE_STRING_MAX, &mtime);
+	snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime);
+	src_hash = str2sig(src_to_hash);
+
+	ctm_name = genCTFFilename(p_out->path());
+	if (! ctm_name)
+	   return -1;
+
+	else if((fd = open(ctm_name, (O_WRONLY | O_CREAT), 0660)) < 0)
+		ret = -errno;
+
+	else {
+
+		//first write out the src_hash
+		if(write_field(fd, src_hash, SIG_DIGEST_LENGTH * 2 + 1) < 0)
+			ret = -1;                // errno is set
+
+		//write out temporary file's timestamp stored in p_src
+		else if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
+			ret = -1;                // errno is set
+
+		if (fsync(fd) < 0)
+			ret = -errno;
+
+		if (close(fd) < 0)
+			ret = -errno;
+	}
+
+	free(ctm_name);
+	free(src_hash);
+
+	return ret;
+}
