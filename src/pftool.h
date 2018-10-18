@@ -28,7 +28,10 @@ void manager_add_buffs(int rank, int sending_rank, work_buf_list **workbuflist, 
 void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, size_t *num_copied_bytes);
 void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs, size_t *num_finished_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs);
-void manager_add_timing_stats(int sending_rank);
+
+#ifdef MARFS
+void manager_add_timing_data(int sending_rank);
+#endif
 
 //worker rank operations
 void worker(int rank, struct options& o);

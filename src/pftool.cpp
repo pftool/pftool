@@ -35,8 +35,14 @@
 using namespace std;
 
 
-RepoStatsMap  timing_stats_table;//ONLY MANAGER WOULD USE THIS
-const char* stats_name[] = {"Open", "Read", "Write", "Close"};
+// manager accumulates MarFS timing data across tasks, for periodic reporting via syslog
+typedef std::map<int, TimingData>                       PodTimingMap; // int is pod-number
+typedef std::map<int, TimingData>::iterator             PodTimingMapIt;
+
+typedef std::map<std::string, PodTimingMap>             RepoPodMap;   // string is repo-name
+typedef std::map<std::string, PodTimingMap>::iterator   RepoPodMapIt;
+
+RepoPodMap  timing_stats_map; //only manager would use this
 
 // avoid deadlock where ACCUM_PROC tries to print errors/diagnostics
 // after OUTPUT_PROC is already in MPI_Finalize().
@@ -644,49 +650,8 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
     return n;
 }
 
-size_t write_histo(double* bin, char* buffer, size_t buf_size)
-{
-   int    simple      = 1;
-   size_t written     = 0;
-   size_t tot_written = 0;
-   char*  cursor      = buffer;
-   size_t remain      = buf_size;
 
-   int   i;
-   for(i = 0; i < 65; i++)
-   {
-      if (i && !(i %  4))
-      {
-         //printf("  ");
-         written = snprintf(cursor, remain, "  ");
-         cursor += written;
-         tot_written += written;
-         remain      -= written;
-      }
-
-      if (bin[64 - i] || simple)
-      {
-         written = snprintf(cursor, remain, "%d ", (int)(bin[64 - i]));
-         cursor += written;
-         tot_written += written;
-         remain      -= written;
-         //printf("%2d", (int)(bin[64-i]));
-      }
-      else
-      {
-         written = snprintf(cursor, remain, "-- ");
-         cursor += written;
-         tot_written += written;
-         remain      -= written;
-         //printf("-- ");
-      }
-   }
-   tot_written += snprintf(cursor, remain, "\n");
-   //printf("\n");
-   return tot_written;
-}
-
-// we assume a pod has histogram data for <tot_stats> different statisitcs.
+// we assume a pod has histogram data for <tot_stats> different statistics.
 // For each statistic, there are <total_blk> histograms (i.e. 1 histogram
 // for each block in the pod).  Each histogram consists of 65 sequential
 // doubles stored in host-order.
@@ -696,74 +661,17 @@ size_t write_histo(double* bin, char* buffer, size_t buf_size)
 //    performance (versus aligned access), on a Xeon(R) CPU E5-2407 v2
 //    @2.40GHz.  Good enough, for now.
 
-void print_pod_stats(struct options& o, char* buffer, string repo, int tot_stats, int total_blk, int pod_id)
+void print_pod_stats(struct options& o, const string& repo_name, TimingData* timing)
 {
-   // const size_t MSG_SIZE   = (tot_stats * total_blk * 65 * (sizeof(int) + MARFS_MAX_REPO_NAME + 512));
    const size_t HEADER_SIZE = MARFS_MAX_REPO_NAME + 512;
-   const size_t PRINTED_I32 = 12; // 2^32 -1, plus space
-   const size_t HISTO_SIZE  = (HEADER_SIZE + (65 * PRINTED_I32));
+   char         header[HEADER_SIZE];
 
-   char         msg[HISTO_SIZE];
-   char*        msg_cursor  = msg;        // output
-   size_t       remain      = HISTO_SIZE; // remaining space in output
+   // print header into msg
+   snprintf(header, HEADER_SIZE,
+            "INFO TIMING  %s pod %d ",
+            repo_name.c_str(), timing->pod_id);
 
-   char*        in_cursor   = buffer;     // input (tot_stats * total_blk * 65 * sizeof(double))
-
-   size_t       written;
-   int          stat_type; 
-   int          i, j;
-
-   for(i = 0; i < tot_stats; i++)
-   {
-      if (strcmp(in_cursor, "OP") == 0)
-      {
-         stat_type = 0;
-      }
-      else if (strcmp(in_cursor, "RD") == 0)
-      {
-         stat_type = 1;
-      }
-      else if (strcmp(in_cursor, "WR") == 0)
-      {
-         stat_type = 2;
-      }
-      else if (strcmp(in_cursor, "CL") == 0)
-      {
-         stat_type = 3;
-      }
-      in_cursor += 3;
-      remain -= 3;
-      // printf("repo %s printing stat %s\n", repo.c_str(), stats_name[stat_type]);
-
-      // syslog truncates at ~2048 chars.  Not quite enough to reliably
-      // print histos for all the blocks for one stat-type.  So, we now
-      // send each per-block histo individually.
-      for(j = 0; j < total_blk; j++)
-      {
-         // print header into msg
-         written = snprintf(msg_cursor, HEADER_SIZE,
-                            " %s %s pod %d blk %2d: ",
-                            repo.c_str(), stats_name[stat_type], pod_id, j);
-         msg_cursor += written;
-         remain     -= written;
-
-         // print histogram-data into msg
-         double* bin_in = (double*)in_cursor; // not aligned
-         written = write_histo(bin_in, msg_cursor, remain);
-
-         // printf("msg: %s\n", msg);
-         syslog (LOG_INFO, "%s", msg);
-
-         // advance to next block (or stat-type)
-         in_cursor += sizeof(double) * 65;
-
-         // reuse the output buffer
-         // msg_cursor += written;
-         // remain     -= written;
-         msg_cursor = msg;
-         remain     = HISTO_SIZE;
-      }
-   }
+   print_timing_data(timing, header, 1);
 }
 
 /*
@@ -788,40 +696,33 @@ void show_statistics(struct options& o)
    }
    
    // go through per-repo statistics
-   RepoStatsMapIt it_stats;
-   for(it_stats  = timing_stats_table.begin();
-       it_stats != timing_stats_table.end();
-       it_stats++)
-   {
-      string             repo_name(it_stats->first);
-      repo_timing_stats* repo_stats(it_stats->second);
+   RepoPodMapIt repo_it;
+   for(repo_it  = timing_stats_map.begin();
+       repo_it != timing_stats_map.end();
+       repo_it++) {
 
-      if (repo_stats->has_data) {
+      string          repo_name(repo_it->first);
+      PodTimingMap&   pod_timing(repo_it->second);
 
-         // got through per-pod stats for this repo
-         PodDataMapIt it_pods;
-         for(it_pods  = repo_stats->pod_to_stat.begin();
-             it_pods != repo_stats->pod_to_stat.end();
-             it_pods++)
-         {
-            int        pod_num(it_pods->first);
-            pod_data*  pod_dat(it_pods->second);
+      // go through per-pod stats for this repo
+      PodTimingMapIt it_pods;
+      for(it_pods  = pod_timing.begin();
+          it_pods != pod_timing.end();
+          it_pods++) {
 
-            if (pod_dat->buffer[0] != 0)
-            {
-               //this pod has valid data 
-               print_pod_stats(o, pod_dat->buffer, repo_name,
-                               repo_stats->tot_stats, repo_stats->total_blk,
-                               pod_num);
-               // after we are done sending stats to syslog, we clear the
-               // buffer so that it is ready for next interval's
-               // accumulation
-               memset(pod_dat->buffer, 0, pod_dat->buff_size);
-            }
+         int          pod_id(it_pods->first);
+         TimingData&  timing(it_pods->second);
+
+         if (timing.flags) { // we wipe this, each iteration
+
+            //this pod has valid data 
+            print_pod_stats(o, repo_name, &timing);
+
+            // after we are done sending stats to syslog, we clear the
+            // buffer so that it is ready for next interval's
+            // accumulation
+            memset(&timing, 0, sizeof(TimingData));
          }
-         //now mark this repo does not have data since we have sent them to syslog
-         //and we set the stat buffer pointer mapped by this pod_id to NULL
-         repo_stats->has_data = 0;
       }
    }
 }
@@ -1235,8 +1136,8 @@ int manager(int             rank,
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
-            case STATS:
-               manager_add_timing_stats(sending_rank);
+            case TIMINGCMD:
+               manager_add_timing_data(sending_rank);
                break;
 
             default:
@@ -1591,130 +1492,67 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
     }
 }
 
-void accumulate_timing_stats(int tot_stats, int total_blk, char* timing_stats, char* accum_stats)
-{
-    int i,j,k;
-    for(i = 0; i < tot_stats; i++) {
-        //need to copy timing stat identifier
-        char* id_acc = accum_stats + i * (3 + sizeof(double) * 65 * total_blk);
-        char* id_timing = timing_stats + i * (3 + sizeof(double) * 65 * total_blk);
-        memcpy(id_acc, id_timing, 3);
 
-        //printf("stat %s ", id_acc);
-        double* cursor_acc = (double*)(accum_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);//move cursor to the beginning of the double arary
-        double* cursor_timing = (double*)(timing_stats + i * (3 + sizeof(double) * 65 * total_blk) + 3);
-        for(j = 0; j < total_blk; j++) {
-            //printf("blk %d ", j);
-            double* blk_acc = cursor_acc + (65 * j);
-            double* blk_timing = cursor_timing + (65 * j);
-            for(k = 64; k; k--) {
-                blk_acc[k] += blk_timing[k];
-                // printf("bin %d val %f\n", k, blk_acc[k]);
-            }
-        }
-    }  
+// master has received "exported" TimingData for the given repo and pod, in <buff>.
+// Add this into the appropriate TimingData element in timing_stats_map
+void add_to_stat_table(char* repo_name, int pod_id, char* data_buff, size_t data_buff_size)
+{
+   string         repo(repo_name);
+   TimingData&    timing(timing_stats_map[repo][pod_id]); // default-constructed, if nec
+
+   // import serialized TimingData to new struct
+   TimingData     timing_new;
+   if (import_timing_data(&timing_new, data_buff, data_buff_size) < 0)
+      errsend_fmt(FATAL, "Failed to import timing data for repo '%s', pod %d\n", repo_name, pod_id);
+
+   // add new fields into record
+   accumulate_timing_data(&timing, &timing_new);
 }
 
-void add_to_stat_table(int tot_stats, int pod_id, int total_blk, size_t buff_size, char* repo, char* timing_stats)
+#ifdef MARFS
+void manager_add_timing_data(int sending_rank)
 {
-   int i;
-   RepoStatsMapIt it;
-   string key(repo);
+   static const int MD_BUF_SIZE  = sizeof(int) + MARFS_MAX_REPO_NAME + sizeof(ssize_t);
 
-   if ((it = timing_stats_table.find(key)) != timing_stats_table.end()) {
-      //we found the repo, now check if this pod exists
-      PodDataMapIt pod_it;
-      if((pod_it = it->second->pod_to_stat.find(pod_id)) != it->second->pod_to_stat.end())
-      {
-         //pod exists, now we can accumulate
-         accumulate_timing_stats(tot_stats, total_blk, timing_stats, pod_it->second->buffer);
-      }
-      else
-      {
-         //pod does not exist, allocate and accumulate
-         char* buffer = (char*)malloc(sizeof(buff_size));
-         memset(buffer, 0, buff_size);
-         pod_data* this_pod = new pod_data;
-         this_pod->buff_size = buff_size;
-         this_pod->buffer = buffer;
-         accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
-         //add this buffer to pod_to_state table
-         it->second->pod_to_stat.insert(make_pair(pod_id, this_pod));
-         it->second->total_pods += 1;
-      }
-      it->second->has_data = 1;
-   }
-   else
-   {
-      //repo does not exists, we need to create a repo_stat
-      repo_timing_stats* entry = new repo_timing_stats;//(repo_timing_stats*) malloc(sizeof(repo_stats));
-      //allocate new accumulate buffer
-      char* buffer = (char*)malloc(buff_size);
-      memset(buffer, 0, buff_size);
-      pod_data* this_pod = new pod_data;
-      this_pod->buff_size = buff_size;
-      this_pod->buffer = buffer;
-      //now accumulate
-      accumulate_timing_stats(tot_stats, total_blk, timing_stats, buffer);
-      //add to pod_to_stat table
-      entry->pod_to_stat.insert(make_pair(pod_id, this_pod));
-      entry->has_data = 1;
-      entry->total_pods = 1;
-      entry->tot_stats = tot_stats;
-      entry->total_blk = total_blk;
-      //add the entry back to table
-      timing_stats_table.insert(make_pair(key, entry));
-   }
-}
+   int        pod_id;
+   char       repo_name[MARFS_MAX_REPO_NAME];
+   ssize_t    data_buf_size;
 
-void manager_add_timing_stats(int sending_rank)
-{
-   static const int BUF_SIZE = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
    MPI_Status status;
-   int tot_stats;
-   int pod_id;
-   int total_blk;
-   size_t timing_stats_buff_size;
-   char* timing_stats; //need free
-   char  repo_name[MARFS_MAX_REPO_NAME];
 
-   char* buffer = (char*) malloc(BUF_SIZE);
-   char* cursor = buffer;
-   if(MPI_Recv(buffer, BUF_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+   // recv metadata-bufer, with enough info to dispatch add_to_stat_table()
+   char  md_buf[MD_BUF_SIZE];
+   char* cursor = md_buf;
+   if(MPI_Recv(md_buf, MD_BUF_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
    {
       errsend(FATAL, "Failed to receive meta data of timing stats\n");
    }
 
-   //copy meta data from buffer to variables
-   memcpy(&tot_stats, cursor, sizeof(int));
-   cursor += sizeof(int);
+   //copy meta-data from buffer to variables
+   memcpy(repo_name, cursor, MARFS_MAX_REPO_NAME);
+   cursor += MARFS_MAX_REPO_NAME;
 
    memcpy(&pod_id, cursor, sizeof(int));
    cursor += sizeof(int);
 
-   memcpy(&total_blk, cursor, sizeof(int));
-   cursor += sizeof(int);
+   memcpy(&data_buf_size, cursor, sizeof(ssize_t));
+   if ((data_buf_size < 0)
+       || (data_buf_size > sizeof(TimingData))) {
+      errsend_fmt(FATAL, "Unexpected size fo serialized timing-data %lld\n", data_buf_size);
+   }
 
-   memcpy(&timing_stats_buff_size, cursor, sizeof(size_t));
-   cursor += sizeof(size_t);
-
-   memcpy(repo_name, cursor, MARFS_MAX_REPO_NAME);
-
-   //allocate timing stats buffer
-   timing_stats = (char*)malloc(timing_stats_buff_size);
-   if(MPI_Recv(timing_stats, timing_stats_buff_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
+   // receive data-buffer containing exported TimingData contents
+   TimingData  dummy;           // reliably big-enough
+   char*       data_buf = (char*)&dummy;
+   if(MPI_Recv(data_buf, data_buf_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
    {
       errsend(FATAL, "Failed to receive timing stats\n");
    }
 
-
-   //need to add to table and accumulate
-   add_to_stat_table(tot_stats, pod_id, total_blk, timing_stats_buff_size, repo_name, timing_stats);
-
-   free(timing_stats);
-   free(buffer);
+   // accumulate received timing data
+   add_to_stat_table(repo_name, pod_id, data_buf, data_buf_size);
 }
-
+#endif
 
 //worker
 void worker(int rank, struct options& o) {

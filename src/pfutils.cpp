@@ -100,9 +100,10 @@ const char *cmd2str(OpCode cmdidx) {
       ,"CHUNKBUSYCMD"
       ,"COPYSTATSCMD"
       ,"EXAMINEDSTATSCMD"
+      ,"TIMINGCMD"
    };
 
-   return((cmdidx > EXAMINEDSTATSCMD)?"Invalid Command":CMDSTR[cmdidx]);
+   return((cmdidx > TIMINGCMD) ? "Invalid Command" : CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -1167,44 +1168,58 @@ void send_manager_work_done(int ignored) {
     send_command(MANAGER_PROC, WORKDONECMD);
 }
 
-void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo_name, char* timing_stats)
+#ifdef MARFS
+// MarFS filehandles can accumulate TimingData during low-level operations.
+void send_manager_timing_data(char* repo_name, TimingData* timing)
 {
-   static const int count = sizeof(int) * 3 + sizeof(size_t) + MARFS_MAX_REPO_NAME;
+   if (! (timing->flags & ~(TF_SIMPLE)))
+      return;
 
-   char  buffer[count];
-   char* cursor = buffer;
+   // "data buffer" contains raw values, pulled from <timing>
+   TimingData  dummy;           // (aligned)
+   char*       data_buf = (char*)&dummy;
+   ssize_t     data_buf_size = export_timing_data(timing, data_buf, sizeof(TimingData));
 
-   if (! buffer)
-       errsend_fmt(FATAL, "Failed to allocate %d bytes for statistics\n", count);
-
-   memcpy(cursor, &tot_stats, sizeof(int));
-   cursor += sizeof(int);
-
-   memcpy(cursor, &pod_id, sizeof(int));
-   cursor += sizeof(int);
-
-   memcpy(cursor, &total_blk, sizeof(int));
-   cursor += sizeof(int);
-
-   memcpy(cursor, &timing_stats_buff_size, sizeof(size_t));
-   cursor += sizeof(size_t);
-
-   memcpy(cursor, repo_name, MARFS_MAX_REPO_NAME);
-   
-   //send metadata of timing stats
-   send_command(MANAGER_PROC, STATS);
-   if(MPI_Send(buffer, count, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-   {
-      fprintf(stderr, "Failed to send metadata of timing stats to rank %d\n", MANAGER_PROC);
+   if (data_buf_size == 0)
+      return;
+   if (data_buf_size < 0) {
+      fprintf(stderr, "Failed to export timing-data\n", MANAGER_PROC);
       MPI_Abort(MPI_COMM_WORLD, -1);
    }
 
-   //send timing_stats buffer
-   if(MPI_Send(timing_stats, timing_stats_buff_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   // "metadata buffer" contains metadata so manager can dispatch for import to timing_stats_map.
+   static const size_t md_buf_size = MARFS_MAX_REPO_NAME + sizeof(int) + sizeof(ssize_t);
+   char                md_buf[md_buf_size];
+   char*               md = md_buf;
+   
+   memcpy(md, repo_name, MARFS_MAX_REPO_NAME);
+   md += MARFS_MAX_REPO_NAME;
+
+   memcpy(md, (char*)&timing->pod_id, sizeof(int));
+   md += sizeof(int);
+
+   memcpy(md, &data_buf_size, sizeof(ssize_t));
+
+
+   // send command
+   send_command(MANAGER_PROC, TIMINGCMD);
+
+   // send mestadata-buffer
+   if(MPI_Send(md_buf, md_buf_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
    {
-      fprintf(stderr, "Failed to send timing stats buffer to rank %d\n", MANAGER_PROC);
+      fprintf(stderr, "Failed to send timning-stats md-buffer to rank %d\n", MANAGER_PROC);
+      MPI_Abort(MPI_COMM_WORLD, -1);
+   }
+
+   //send data-buffer
+   if(MPI_Send(data_buf, data_buf_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   {
+      fprintf(stderr, "Failed to send timing stats data-buffer to rank %d\n", MANAGER_PROC);
+      MPI_Abort(MPI_COMM_WORLD, -1);
    }
 }
+#endif
+
 
 //worker
 void update_chunk(path_item *buffer, int *buffer_count) {
