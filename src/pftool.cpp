@@ -671,7 +671,7 @@ void print_pod_stats(struct options& o, const string& repo_name, TimingData* tim
             "INFO TIMING  %s pod %d ",
             repo_name.c_str(), timing->pod_id);
 
-   print_timing_data(timing, header, 1);
+   print_timing_data(timing, header, 1, 1);
 }
 
 /*
@@ -792,7 +792,7 @@ int manager(int             rank,
     // poll.  However, that will give us not-very-perfect intervals, so we
     // also mark the TOD each time we detect the expiration.  That lets us
     // compute incremental BW more accurately.
-    static const size_t  output_timeout = 4; // secs per expiration
+    static const size_t  output_timeout = 5; // secs per expiration
     timer_t              timer;
     struct sigevent      event;
     struct itimerspec    itspec_new;
