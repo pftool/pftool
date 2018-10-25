@@ -834,8 +834,7 @@ public:
    }
 #endif
 
-   //additional functions needed for timing collection fron libne
-   virtual int build_repo_info(repo_timing_stats timing_stats) {return 0;}
+
 #if 0
    // pftool uses intricate comparisons of members of the struct st, after
    // an lstat().  This won't translate well to obj-storage systems. For
@@ -1955,14 +1954,6 @@ public:
          close_md(&fh);
    }
 
-   virtual int build_repo_info(repo_timing_stats timing_stats)
-   {
-      int ret = 1;
-      int i;
-      int repo_count;
-      repo_count = get_repo_count();
-      return ret;
-   }
    // pftool gets a chunksize from the command-line, or a default.  Such
    // values won't understand about MarFS recovery-info, or about repos
    // having different chunksizes based on the total size of the file.  We
@@ -2368,22 +2359,8 @@ public:
          return;
 
       //send accumulated statistics (if any)
-      if (whichFh->tot_stats) {
-
-         send_manager_timing_stats(whichFh->tot_stats,
-                                   whichFh->pod_id,
-                                   whichFh->total_blk,
-                                   whichFh->timing_stats_buff_size,
-                                   whichFh->repo_name, whichFh->timing_stats);
-         //now free buffers
-         free(whichFh->timing_stats);
-
-         // this stuff is done implicitly by the memset in close_fh(), but
-         // not in close().  should we be doing a memset in close()?
-         // Meanwhile, resetting these here, for safety.
-         whichFh->tot_stats    = 0;
-         whichFh->timing_stats = NULL;
-      }
+      if (whichFh->timing_data.flags & ~(TF_SIMPLE))
+         send_manager_timing_data(whichFh->repo_name, &whichFh->timing_data);
    }
 
    virtual bool    close() {
@@ -2400,11 +2377,11 @@ public:
       else
          whichFh = &fh;
 
+      // we might be collecting timing data ...
       rc = marfs_release(marfs_sub_path(_item->path), whichFh);
 
-      //we send timing info to manager in close if files is not packed
-      //and deallocate the buffer after send is complete.
       if (!packed) {
+         //send accumulated timing-data (if any) to manager
          MARFS_Path::send_to_manager(whichFh);
       }
 

@@ -41,6 +41,10 @@
 //mpi
 #include "mpi.h"
 
+#ifdef MARFS
+#  include "erasure.h" /* utils for manipulation of TimingData */
+#endif
+
 //synthetic data generation
 #ifdef GEN_SYNDATA
 #  include "syndata.h"
@@ -151,7 +155,7 @@ enum cmd_opcode {
     CHUNKBUSYCMD,
     COPYSTATSCMD,
     EXAMINEDSTATSCMD,
-    STATS
+    TIMINGCMD
 };
 typedef enum cmd_opcode OpCode;
 
@@ -279,29 +283,6 @@ typedef struct work_buf_list {
     struct work_buf_list *next;
 } work_buf_list;
 
-typedef struct pod_data
-{
-   size_t buff_size;
-   char*  buffer;
-} pod_data;
-
-typedef std::map<int, pod_data*>               PodDataMap; // int is pod-number
-typedef std::map<int, pod_data*>::iterator     PodDataMapIt;
-
-
-typedef struct repo_timing_stats
-{
-   int        tot_stats;
-   int        total_blk;
-   int        has_data;
-   int        total_pods;
-   PodDataMap pod_to_stat;  // pod_data for each pod
-} repo_timing_stats;
-
-typedef std::map<std::string, repo_timing_stats*>             RepoStatsMap;   // string is repo-name
-typedef std::map<std::string, repo_timing_stats*>::iterator   RepoStatsMapIt;
-
-
 
 //Function Declarations
 void  usage();
@@ -350,7 +331,7 @@ void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_work_done(int ignored);
-void send_manager_timing_stats(int tot_stats, int pod_id, int total_blk, size_t timing_stats_buff_size, char* repo, char* timing_stats);
+void send_manager_timing_data(char* repo_name, TimingData* timing);
 
 //function definitions for workers
 void write_output(const char *message, int log);
