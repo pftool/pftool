@@ -2347,7 +2347,7 @@ public:
 
 
    // called from close()/close_fh() to send accumulated timing-data to manager
-   static void send_to_manager(MarFS_FileHandle* whichFh)
+   static void send_timing_data(MarFS_FileHandle* whichFh)
    {
       // For a zero-length file, nothing will ever have been written and so
       // the ObjectStream (in the MARFS_FileHandle) will never have been
@@ -2360,7 +2360,7 @@ public:
 
       //send accumulated statistics (if any)
       if (whichFh->timing_data.flags & ~(TF_SIMPLE))
-         send_manager_timing_data(whichFh->repo_name, &whichFh->timing_data);
+         send_worker_add_timing(ACCUM_PROC, whichFh->repo_name, &whichFh->timing_data);
    }
 
    virtual bool    close() {
@@ -2382,11 +2382,11 @@ public:
 
       if (!packed) {
          //send accumulated timing-data (if any) to manager
-         MARFS_Path::send_to_manager(whichFh);
+         MARFS_Path::send_timing_data(whichFh);
       }
 
       // QUESTION: should we be resetting the entire FH, like close_fh() does?
-      //      (see also comments in send_to_manager()).
+      //      (see also comments in send_timing_data()).
 
       if (0 != rc) {
          set_err_string(errno, &whichFh->os.iob);
@@ -2435,7 +2435,7 @@ public:
 
       //send time info back to manager
       if (packedFh.repo_name[0])
-         MARFS_Path::send_to_manager(&packedFh);
+         MARFS_Path::send_timing_data(&packedFh);
 
       // wipe the static filehandle we've been using to track across
       // "open"/"close", in order to allow us to write multiple files

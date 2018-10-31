@@ -35,7 +35,7 @@
 using namespace std;
 
 
-// manager accumulates MarFS timing data across tasks, for periodic reporting via syslog
+// ACCUM_PROC accumulates MarFS timing data across tasks, for periodic reporting via syslog
 typedef std::map<int, TimingData>                       PodTimingMap; // int is pod-number
 typedef std::map<int, TimingData>::iterator             PodTimingMapIt;
 
@@ -463,6 +463,16 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&o.syn_size, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
 #endif
 
+    // some ranks may write to syslog
+    if (o.logging
+        && ((rank == OUTPUT_PROC) || (rank == ACCUM_PROC))) {
+
+       char sysmsg[MESSAGESIZE + 50];
+       sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+       openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
+    }
+
+
     // Path factory might want to use some of these fields.
     // TBD: Maybe we also want the src files processed via enqueue_path(), below.
     // 
@@ -674,27 +684,10 @@ void print_pod_stats(struct options& o, const string& repo_name, TimingData* tim
    print_timing_data(timing, header, 1, 1);
 }
 
-/*
-    if (needs_open) {
-        sprintf(sysmsg, "pftool [%s] -- ", o.jid);
-        openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
-        needs_open = 0;
-    }
-}*/
-
 
 //print accumulated marfs-internals performance-data and send it to syslog
 void show_statistics(struct options& o)
 {
-   static int need_open = 1;
-   if (need_open)
-   {
-      char sysmsg[MESSAGESIZE + 64];
-      sprintf(sysmsg, "pftool [%s] -- ", o.jid);
-      openlog(sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
-      need_open = 0;
-   }
-   
    // go through per-repo statistics
    RepoPodMapIt repo_it;
    for(repo_it  = timing_stats_map.begin();
@@ -1136,9 +1129,6 @@ int manager(int             rank,
             case QUEUESIZECMD:
                 send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
-            case TIMINGCMD:
-               manager_add_timing_data(sending_rank);
-               break;
 
             default:
                 break;
@@ -1215,8 +1205,8 @@ int manager(int             rank,
                         non_fatal);
                 write_output(message, 0); // stdout-only
 
-                // show accumulated performance-statistics for marfs-internals
-                show_statistics(o);
+                // log accumulated performance-statistics for marfs-internals
+                send_command(ACCUM_PROC, SHOWTIMINGCMD);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1255,25 +1245,26 @@ int manager(int             rank,
     //    successful-looking footer printed, and (b) the error-messages or
     //    diagnostic will never be seen.
     //
-    //    [Putting this here, instead of after the footer, so any
-    //    err/diagnostic output from ACCUM_PROC will have a chance to
-    //    print, before the footer.]
-    // 
     //    We could fix this by making UPDCHUNK synchronous, but that misses
     //    part of the point of shunting this work to ACCUM_PROC.  There are
     //    some patches (in the handle_ctl_C branch that address this in a
     //    better way than we're doing here, but this will be a start.
+    //
+    //    [Putting this here, instead of after the footer, so any
+    //    err/diagnostic output from ACCUM_PROC will have a chance to
+    //    print, before the footer.]
 
-    // shutdown "regular" workers
+    // (1) shutdown "regular" workers
     for(i = START_PROC; i < nproc; i++) {
         send_worker_exit(i);
     }
     MPI_Barrier(worker_comm);
 
-    // Crude attempt to assure that ACCUM gets any pending UPDCHUNK
+    // (1+) Crude attempt to assure that ACCUM gets any pending UPDCHUNK
     // messages (sent from now-closed workers), before it gets EXIT from us.
     sleep(2);
 
+    // (2) shutdown ACCUM_PROC (letting it finish whatever it's doing)
     send_worker_exit(ACCUM_PROC);
     MPI_Barrier(accum_comm);
 
@@ -1339,11 +1330,11 @@ int manager(int             rank,
             ((elapsed_time == 1) ? "" : "s"));
     write_output(message, 1);
 
-    //show statistics accumulated over final period
-    show_statistics(o);
+    // (ask ACCUM_PROC to) show statistics accumulated over final period
+    send_command(ACCUM_PROC, SHOWTIMINGCMD);
 
 
-    // *now* we're done with OUTPUT_PROC.  All other workers have exited.
+    // (3) *now* we're done with OUTPUT_PROC.  All other workers have exited.
     send_worker_exit(OUTPUT_PROC); // no need for barrier here ...
 
     free(proc_status);
@@ -1510,8 +1501,7 @@ void add_to_stat_table(char* repo_name, int pod_id, char* data_buff, size_t data
 }
 
 #ifdef MARFS
-void manager_add_timing_data(int sending_rank)
-{
+void worker_add_timing_data(int sending_rank) {
    static const int MD_BUF_SIZE  = sizeof(int) + MARFS_MAX_REPO_NAME + sizeof(ssize_t);
 
    int        pod_id;
@@ -1552,7 +1542,14 @@ void manager_add_timing_data(int sending_rank)
    // accumulate received timing data
    add_to_stat_table(repo_name, pod_id, data_buf, data_buf_size);
 }
+
+// write accumulated timing-data to syslog
+void worker_show_timing_data(int sending_rank, struct options& o) {
+   show_statistics(o);
+}
+
 #endif
+
 
 //worker
 void worker(int rank, struct options& o) {
@@ -1678,6 +1675,13 @@ void worker(int rank, struct options& o) {
             case COMPARECMD:
                 worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
                 break;
+            case ADDTIMINGCMD:
+               worker_add_timing_data(sending_rank);
+               break;
+            case SHOWTIMINGCMD:
+               worker_show_timing_data(sending_rank, o);
+               break;
+
             case EXITCMD:
                 all_done = 1;
                 break;
@@ -1858,14 +1862,6 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     //have a worker receive and print a single message
     MPI_Status status;
     char msg[MESSAGESIZE];
-    char sysmsg[MESSAGESIZE + 50];
-
-    static int needs_open = 1;
-    if (needs_open) {
-        sprintf(sysmsg, "pftool [%s] -- ", o.jid);
-        openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
-        needs_open = 0;
-    }
 
     //gather the message to print
     if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS) {

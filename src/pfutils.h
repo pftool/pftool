@@ -155,7 +155,8 @@ enum cmd_opcode {
     CHUNKBUSYCMD,
     COPYSTATSCMD,
     EXAMINEDSTATSCMD,
-    TIMINGCMD
+    ADDTIMINGCMD,
+    SHOWTIMINGCMD,
 };
 typedef enum cmd_opcode OpCode;
 
@@ -331,7 +332,6 @@ void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes);
 void send_manager_work_done(int ignored);
-void send_manager_timing_data(char* repo_name, TimingData* timing);
 
 //function definitions for workers
 void write_output(const char *message, int log);
@@ -343,6 +343,8 @@ void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
+void send_worker_add_timing(int target_rank, char* repo_name, TimingData* timing);
+void send_worker_show_timing(int target_rank);
 void send_worker_exit(int target_rank);
 
 //function definitions for queues

@@ -100,10 +100,11 @@ const char *cmd2str(OpCode cmdidx) {
       ,"CHUNKBUSYCMD"
       ,"COPYSTATSCMD"
       ,"EXAMINEDSTATSCMD"
-      ,"TIMINGCMD"
+      ,"ADDTIMINGCMD"
+      ,"SHOWTIMINGCMD"
    };
 
-   return((cmdidx > TIMINGCMD) ? "Invalid Command" : CMDSTR[cmdidx]);
+   return((cmdidx > SHOWTIMINGCMD) ? "Invalid Command" : CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -1051,7 +1052,9 @@ void send_command(int target_rank, int type_cmd) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     PRINT_MPI_DEBUG("rank %d: Sending command %d to target rank %d\n", rank, type_cmd, target_rank);
 #endif
-    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {//Tell a rank it's time to begin processing
+
+    // Send a simple CMD (without args) to a rank
+    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
         fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
@@ -1170,7 +1173,7 @@ void send_manager_work_done(int ignored) {
 
 #ifdef MARFS
 // MarFS filehandles can accumulate TimingData during low-level operations.
-void send_manager_timing_data(char* repo_name, TimingData* timing)
+void send_worker_add_timing(int target_rank, char* repo_name, TimingData* timing)
 {
    if (! (timing->flags & ~(TF_SIMPLE)))
       return;
@@ -1202,21 +1205,25 @@ void send_manager_timing_data(char* repo_name, TimingData* timing)
 
 
    // send command
-   send_command(MANAGER_PROC, TIMINGCMD);
+   send_command(target_rank, ADDTIMINGCMD);
 
-   // send mestadata-buffer
-   if(MPI_Send(md_buf, md_buf_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   // send metadata-buffer
+   if(MPI_Send(md_buf, md_buf_size, MPI_CHAR, target_rank, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
    {
       fprintf(stderr, "Failed to send timning-stats md-buffer to rank %d\n", MANAGER_PROC);
       MPI_Abort(MPI_COMM_WORLD, -1);
    }
 
    //send data-buffer
-   if(MPI_Send(data_buf, data_buf_size, MPI_CHAR, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+   if(MPI_Send(data_buf, data_buf_size, MPI_CHAR, target_rank, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
    {
       fprintf(stderr, "Failed to send timing stats data-buffer to rank %d\n", MANAGER_PROC);
       MPI_Abort(MPI_COMM_WORLD, -1);
    }
+}
+
+void send_worker_show_timing(int target_rank) {
+   send_command(target_rank, SHOWTIMINGCMD);
 }
 #endif
 
