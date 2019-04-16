@@ -134,6 +134,7 @@ AS_IF([test x"$enable_marfs" == xyes],
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
    AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
+   AC_CHECK_LIB([pthread], [pthread_tryjoin_np] )
    AC_CHECK_LIB([rdmacm], [rdma_getaddrinfo] )
    AC_CHECK_LIB([ft],   [fast_timer_inits])
    AC_CHECK_LIB([rdma_sockets], [skt_open])
