@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os.path, sys, pwd, grp, subprocess
+import os.path, sys, pwd, grp, subprocess, random
 from optparse import OptionParser
 from pfscripts import *
 
@@ -135,6 +135,11 @@ def main():
     # Add darshan logging support if its available (this must be called after adding mpigo)
     add_darshan(config, pfcmd)
 
+    # Add in the dangerous flags that are necessary for running in production
+    pfcmd.add("--oversubscribe")
+    pfcmd.add("--allow-run-as-root")
+    pfcmd.add("--map-by","node")
+    random.shuffle(host_list)
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
