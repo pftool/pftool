@@ -69,20 +69,6 @@ AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
 AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
 
 
-# # check for adequate mpi support
-# AS_IF([test x$enable_threads != xyes],
-# [AC_MSG_CHECKING([if $CXX can compile MPI applications])])
-# 
-# AS_IF([test x$enable_threads != xyes],
-# [AC_LINK_IFELSE([
-#     AC_LANG_PROGRAM(
-#         [[#include <mpi.h>]],
-#         [[MPI_Finalize();]])],
-#     [AC_MSG_RESULT([yes])],
-#     [AC_MSG_RESULT([no])
-#      AC_MSG_ERROR([$CXX cannot compile MPI applications. cannot continue.])]
-# )])
-
 
 # chunk-transfer metadata can be stored to allow incremental restarts for
 # large N:1 destination-files.  use '--enable-CTM=' to specify how (or
@@ -121,6 +107,26 @@ AS_IF([test x$enable_s3 == xyes],
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
+
+# # check for adequate mpi support
+# AS_IF([test x$enable_threads != xyes],
+# [AC_MSG_CHECKING([if $CXX can compile MPI applications])])
+# 
+# AS_IF([test x$enable_threads != xyes],
+# [AC_LINK_IFELSE([
+#     AC_LANG_PROGRAM(
+#         [[#include <mpi.h>]],
+#         [[MPI_Finalize();]])],
+#     [AC_MSG_RESULT([yes])],
+#     [AC_MSG_RESULT([no])
+#      AC_MSG_ERROR([$CXX cannot compile MPI applications. cannot continue.])]
+# )])
+
+# AS_IF([test x"$enable_threads" != xyes], [
+AC_CHECK_LIB([mpi], [MPI_Abort],
+             [],
+             [AC_MSG_ERROR([$CXX cannot compile MPI applications. Cannot continue.])] )
+# ])
 
 AC_CHECK_LIB([crypto], [MD5_Final])
 AC_CHECK_LIB([rt], [timer_settime])
