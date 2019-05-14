@@ -1321,7 +1321,7 @@ public:
    }
 
    virtual bool    rename(const char* new_path) {
-      return false;
+      return true;
    }
 };
 
