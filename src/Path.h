@@ -1235,7 +1235,19 @@ public:
       return true;
    }
 
-
+   // pftool uses the blocksize of the destination.  Match
+   // MARFS_File::blocksize() [given that our MarFS repos are typically
+   // configured with blocksize=1GiB], so that reading from marfs to
+   // /dev/null/ will pull from MarFS with the same blocksize used for
+   // writing to MarFS.  This is a decent setup for benchmarks, where
+   // reading with bs=10G has poor load-balancing for small-ish files.
+   virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size) {
+#ifdef MARFS
+      return ((1024 * 1024 * 1024) - MARFS_REC_UNI_SIZE); // M_R_U_S == 2943
+#else
+      return (1024 * 1024 * 1024);
+#endif
+   }
 
    //   virtual int    mpi_pack() { NO_IMPL(mpi_pack); } // TBD
 
@@ -1501,7 +1513,6 @@ public:
    // "filejoin" operator, which resembles MPU.  EMC extensions also
    // support writing to object+offset.
    virtual bool    supports_n_to_1() const  { return true; }
-
 
    // Fill out a struct stat, using S3 metadata from an object filesystem.
    // PathFactory can use this (via stat_item()) when determining what
