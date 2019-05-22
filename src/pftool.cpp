@@ -681,11 +681,21 @@ void print_pod_stats(struct options& o, const string& repo_name, TimingData* tim
             "INFO TIMING  %s pod %d ",
             repo_name.c_str(), timing->pod_id);
 
-   print_timing_data(timing, header, 1, 1);
+   print_timing_data(timing, header, 1, o.logging);
 }
 
 
 //print accumulated marfs-internals performance-data and send it to syslog
+//
+// NOTE: If the pftool logging-option is enabled (presence of the
+//       command-line '-l' option is represented in o.logging), you still
+//       won't get timing output to syslog unless (a) libne was built with
+//       --enable-syslog, and (b) the MarFS repo/namespace being used (for
+//       source or destination) has timing_flags specified.
+//
+//       On the other hand, if you don't provide '-l', but you do have a
+//       repo/namesapce with timing flags, you will get timing-output date
+//       to stdout.  '-l' just controls whether syslog is involved.
 void show_statistics(struct options& o)
 {
    // go through per-repo statistics
