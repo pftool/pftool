@@ -468,7 +468,7 @@ int main(int argc, char *argv[]) {
         && ((rank == OUTPUT_PROC) || (rank == ACCUM_PROC))) {
 
        char sysmsg[MESSAGESIZE + 50];
-       sprintf(sysmsg, "pftool [%s] -- ", o.jid);
+       sprintf(sysmsg, "pftool: [%s] -- ", o.jid);
        openlog (sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
     }
 
