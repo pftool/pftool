@@ -422,12 +422,15 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  *
  * @return            -errno  -- problem accessing the CTM file.
  *                     0      -- no CTM file
- *                     2      -- hash from CTM matches hashed source-filename
- *                     3,     -- no match
- *                     4,     -- destination temp-file is missing
+ *                     2      -- CTM file, and hash from CTM matches hashed source-filename
+ *                     3,     -- CTM file, but no match
+ *                     4,     -- CTM file, and match, but destination temp-file is missing
  */
 int check_ctm_match(const char* src_to_hash, const char* dest)
 {
+	static const char*  dev_null = "/dev/null/";
+	static const size_t dev_null_len = strlen(dev_null);
+
 	int ret = 0;
 	int fd;
 	char* ctm_name;
@@ -485,6 +488,12 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 			errno = 0;
 			if(read(fd, timestamp, DATE_STRING_MAX) < DATE_STRING_MAX) {
 				ret = -errno;  // something wrong with timestamp
+			}
+
+			else if (!strncmp(dest, dev_null, dev_null_len)) {
+				// pftool was writing to /dev/null/blah, which is a special target.
+				// Our attempt to stat such a file (below) would fail with ENOTDIR.
+				ret = 4;
 			}
 			else if (stat(dest_temp, &st)
 			         && (errno != ENOENT)) {
