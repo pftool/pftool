@@ -671,6 +671,7 @@ float diff_time(struct timeval* later, struct timeval* earlier) {
 //    performance (versus aligned access), on a Xeon(R) CPU E5-2407 v2
 //    @2.40GHz.  Good enough, for now.
 
+#ifdef MARFS
 void print_pod_stats(struct options& o, const string& repo_name, TimingData* timing)
 {
    const size_t HEADER_SIZE = MARFS_MAX_REPO_NAME + 512;
@@ -683,7 +684,6 @@ void print_pod_stats(struct options& o, const string& repo_name, TimingData* tim
 
    print_timing_data(timing, header, 1, o.logging);
 }
-
 
 //print accumulated marfs-internals performance-data and send it to syslog
 //
@@ -729,6 +729,7 @@ void show_statistics(struct options& o)
       }
    }
 }
+#endif
 
 int manager(int             rank,
             struct options& o,
@@ -1494,6 +1495,7 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
 }
 
 
+#ifdef MARFS
 // master has received "exported" TimingData for the given repo and pod, in <buff>.
 // Add this into the appropriate TimingData element in timing_stats_map
 void add_to_stat_table(char* repo_name, int pod_id, char* data_buff, size_t data_buff_size)
@@ -1510,7 +1512,6 @@ void add_to_stat_table(char* repo_name, int pod_id, char* data_buff, size_t data
    accumulate_timing_data(&timing, &timing_new);
 }
 
-#ifdef MARFS
 void worker_add_timing_data(int sending_rank) {
    static const int MD_BUF_SIZE  = sizeof(int) + MARFS_MAX_REPO_NAME + sizeof(ssize_t);
 
@@ -1557,6 +1558,10 @@ void worker_add_timing_data(int sending_rank) {
 void worker_show_timing_data(int sending_rank, struct options& o) {
    show_statistics(o);
 }
+
+#else
+void worker_add_timing_data(int sending_rank) { }
+void worker_show_timing_data(int sending_rank, struct options& o) { }
 
 #endif
 
@@ -2324,7 +2329,6 @@ void process_stat_buffer(path_item*      path_buffer,
 
     char        timestamp[DATE_STRING_MAX];
     time_t      tp = time(NULL);
-    epoch_to_str(timestamp, DATE_STRING_MAX, &tp);
 
     //chunks
     //place_holder for current chunk_size

@@ -43,6 +43,8 @@
 
 #ifdef MARFS
 #  include "erasure.h" /* utils for manipulation of TimingData */
+#else
+   typedef struct { } TimingData;
 #endif
 
 //synthetic data generation
