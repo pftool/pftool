@@ -102,6 +102,8 @@ def main():
     pfcmd.add("--oversubscribe")
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by","node")
+    # Export marfs config env var to all procs
+    pfcmd.add("-x","MARFSCONFIGRC")
     random.shuffle(host_list)
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
