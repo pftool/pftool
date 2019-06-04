@@ -33,18 +33,6 @@ typedef MD5_CTX SigCTX;					// If we are on a mac, then only use MD5
 #  define SigInit(C)		( MD5_Init(C) )
 #  define SigUpdate(C,D,L)	( MD5_Update(C,D,L) )
 #  define SigFinal(D,C)		( MD5_Final(D,C) )
-							// Allows for the use of different digital digest/signature alorithms for non-apple platforms
-#elif DIGEST == MD2					// Use MD2
-
-#  include <openssl/md2.h>
-
-typedef MD2_CTX SigCTX;
-
-#  define SIG_DIGEST_LENGTH	(MD2_DIGEST_LENGTH)
-
-#  define SigInit(C)		( MD2_Init(C) )
-#  define SigUpdate(C,D,L)	( MD2_Update(C,D,L) )
-#  define SigFinal(D,C)		( MD2_Final(D,C) )
 
 #else 							// Default to MD5
 
