@@ -4,7 +4,6 @@
 
 PFTool (Parallel File Tool) can stat, copy, and compare files in parallel. 
 It's optimized for an HPC workload and uses MPI for message passing.
-A threaded version is available and can be configured at build time.
 
 Additional info:
 Available under LANL LACC-2012-072.
@@ -62,18 +61,7 @@ Configuration
 ***************************************************************************
 {install_prefix}/etc/pftool.cfg is read by the pftool scripts pfls, pfcm, pfcp
 
-example config files located in ./etc/ for threaded and mpi modes. 
-
-NOTE:
-if you build with --enable-threads you MUST specify:
-	[environment]
-	threaded: True
-	
-otherwise specify:
-	[environment]
-	threaded: False
-	
-this cannot be changed at runtime
+example config files located in ./etc/. 
 
 ***************************************************************************
 Versioning
