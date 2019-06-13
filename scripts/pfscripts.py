@@ -13,6 +13,8 @@ ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
 checks if ptool is in the environment and uses that, otherwise uses ../bin/pftool
 """
 pftool=os.getenv('PFTOOL', ROOT_PATH("..","bin","pftool"))
+procs_per_node_default = 1
+nodes_per_job_default = 16
 
 class Work:
   COPY = 0
@@ -188,6 +190,7 @@ def add_darshan(pfconfig, mpicmd):
       pass
 
 
+
 def busy(): 
     print"""
 *******************************************************************
@@ -198,5 +201,179 @@ def busy():
 * Contact:  ICN Consulting Office (5-4444 option 3)               *
 *******************************************************************
 """
+def sbatch_submit(config, options, output_path, pfcmd, commands):
+	try:
+		procs_per_node = config.get('options', 'procs_per_node')
+	except:
+		print('procs_per_node is not specified in pftool config file, using default value %d' % procs_per_node_default)
+		procs_per_node = procs_per_node_default
 
+	try:
+		nodes_per_job = config.get('options', 'nodes_per_job')
+	except:
+		print('nodes_per_job is not specified in pftool config file, using default value %d' % nodes_per_job_default)
+		nodes_per_job = nodes_per_job_default
 
+	pfcmd.add(pftool)
+	pfcmd.add(*command.commands)
+	pfcmd_str = ''
+	for i in range(0, len(pfcmd.commands))
+		pfcmd_str = pfcmd_str + pfcmd.commands[i] + ' '
+
+	if options.debug:
+		print(pfcmd_str)
+
+	lines = []
+	lines.append('#!/usr/bin/env bash\n')
+	lines.append('#SBATCH --output={}/%j.out\n'.format(output_path))
+	lines.append('#SBATCH --nodes={}\n'.format(nodes_per_job))
+	lines.append('#SBATCH --ntasks-per-node={}\n'.format(procs_per_node))
+	lines.append('#SBATCH --time=0') #for interactive job, no time limit
+	lines.append('mpirun {}'.format(pfcmd_str))
+
+	job_script_path = output_path + '/job_script.sh'
+	fd = open(job_script_path, 'w+')
+	for i in range(0, len(lines)):
+		fd.write(lines[i])
+	fd.close()
+
+	try:
+		slurm_path = config.get('environment', 'slurm_exe_dir')
+	except:
+		parser.error('slurm executable directory is not specified in pftool config file')
+
+	slurm_path = slurm_path + '/sbatch'
+	args = []
+	args.append(slurm_path)
+	args.append(job_script_path)
+	sbatch_return = subprocess.check_output(args)
+	print(sbatch_return)
+	words = sbatch_return.split(' ')
+
+	if ('failed' in words) or ('fail' in words):
+		print('failed to submit pftool job to slurm')
+		sys.exit(1)
+
+	job_id = None
+	for i in range(0, len(words)):
+		if words[i] == 'job':
+			job_id = words[i+1]
+
+	return job_id
+
+def get_job_status(squeue_path, job_id):
+	args = []
+	args.append(squeue_path)
+	args.append('-j')
+	args.append(job_id)
+	squeue_out = subprocess.check_output(args)
+	splits = squeue_out.split('\n')
+	if len(splits) > 1:
+		tokens = splits[1].split(' ')
+		return tokens[4]
+	else:
+		return None
+
+def fg_output(pf_type, config, slurm_output_dir, job_id):
+	slurm_path = config.get('environment', 'slurm_exe_dir')
+	squeue_path = slurm_path + '/squeue'
+	output_file = slurm_output_dir + '/{}.out'.format(job_id)
+	running = 0
+	args = []
+	args.append(squeue_path)
+	args.append('-j')
+	args.append(job_id)
+	while running == 0:
+		time.sleep(30)
+		status = get_job_status(squeue_path, job_id)
+		if status == None:
+			continue
+		elif status == 'R' or status == 'RUNNING':
+			running = 1
+		elif status == 'PD' or status == 'PENDING':
+			print('Your %s job is still pending' % pf_type)
+		elif status == 'F' or status == 'FAILED':
+			print('Your %s job failed' % pf_type)
+			running = -1
+		elif status == 'CA' or status == 'CANCELLED':
+			print('Your %s job is canceled' % pf_type)
+			running = -1
+	if running != 1:
+		sys.exit(1)
+
+	#start reading output file
+	done = 0
+	interval_cnt = 0
+	read_size = 0
+	prev_size = 0
+	while True:
+		#update output 5 times
+		time.sleep(5)
+		try:
+			st = os.stat(output_file)
+		except OSError:
+			print('Error reading output file\nIf this persists, use CTRL+c to exit')
+			continue
+
+		current_size = st.st_size
+		if prev_size == current_size and done == 0:
+			#nothing new to read, skip
+			continue
+		elif prev_size == current_size and done != 0:
+			break
+		#read the newly written part of the file and print all the lines.
+		#If buf has a partial line at the end, save for next cycle
+		read_size = current_size - prev_size
+		fd = open(output_file, 'r')
+		fd.seek(prev_size, 0)
+		buf = fd.read(read_size)
+		fd.close()
+		print_line = None
+		if done == 0:
+			new_line_index = buf.rfind('\n')
+			print_line = buf[0:new_line_index+1]
+			prev_size = prev_size + new_line_index + 1
+		else:
+			print_line = buf
+			
+		print(print_line)
+		interval_cnt = interval_cnt + 1
+		if done != 0:
+			break
+		if (interval_cnt % 10) == 0:
+			#need to check job status
+			status = get_job_status(squeue_path, job_id)
+			if status == 'CD' or status == 'COMPLETED':
+				done = 1
+			elif status == 'CA' or status == 'CANCELLED' or \
+				status == 'F' or status == 'FAILED' or \
+				status == 'PR' or status == 'PREEMPTED' or \
+				status == 'DL' or status == 'DEADLINE':
+				done = -1
+	#job finished, cleanup
+	if done == -1:
+		print('Your %s job failed' % pf_type)
+
+	os.unlink(output_file)
+	os.rmdir(slurm_output_dir)
+	sys.exit(0)
+
+def run_with_slurm(pf_type, config, options, pfcmd, commands):
+	#first get output file directory path
+	user_home_dir = os.environ['HOME']
+	#check if output dir exists
+	slurm_output_dir = user_home_dir + '/.pf_out'
+	if os.path.isdir(slurm_output_dir) == False:
+		#we must create output directory
+		os.mkdir(slurm_output_dir, 0755)
+	#now we can specify slurm output file
+	slurm_output_file = slurm_output_dir + 'pf_output'
+	job_id = sbatch_submit(config, options, slurm_output_path, pfcmd, commands)
+	if options.fg == 0:
+		#running in the back ground
+		print('Your %s job has been submitted to slurm with job id %s' % (pf_type, job_id))
+		print('You can check your job status using squeue')
+		print('You can also check job progress by reading your job\'output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
+		print('You must delete the slurm output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
+	else:
+		fg_output(pf_type, slurm_output_dir, job_id)
