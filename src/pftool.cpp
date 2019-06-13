@@ -2336,11 +2336,6 @@ void process_stat_buffer(path_item*      path_buffer,
     size_t      chunk_at = 0;
     size_t      num_bytes_seen = 0;
 
-    // when chunking, we ship the list of chunks off as soon as they
-    // represent more than <ship_off> bytes, in total.  For Marfs, that
-    // means every single chunk is likely to be shipped off individually.
-    // Maybe this should be bigger.
-    size_t      ship_off = SHIPOFF;
     off_t       chunk_curr_offset = 0;
     int         idx = 0;
 
@@ -2747,6 +2742,16 @@ void process_stat_buffer(path_item*      path_buffer,
                       if (!o.different
                           || !chunktransferredCTM(ctm, work_node.chkidx)) {
 
+                         // if we have hit the size of a COPYBUFFER or are about to exceed chunk_size, ship off the work
+                         if ( ((reg_buffer_count % COPYBUFFER) == 0)
+                             || ( reg_buffer_count != 0  &&  ( num_bytes_seen + work_node.chksz ) > chunk_size ) ) {
+                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
+                                            "- sending %d reg buffers to manager.\n",
+                                            rank, reg_buffer_count);
+                            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
+                            num_bytes_seen = 0;
+                         }
+
                          num_bytes_seen += work_node.chksz;  // keep track of number of bytes processed
                          regbuffer[reg_buffer_count] = work_node;// copy source file info into sending buffer
                          reg_buffer_count++;
@@ -2754,14 +2759,6 @@ void process_stat_buffer(path_item*      path_buffer,
                                         "index: %d   chunk size: %ld\n",
                                         rank, work_node.chkidx, work_node.chksz);
 
-                         if (((reg_buffer_count % COPYBUFFER) == 0)
-                             || num_bytes_seen >= ship_off) {
-                            PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
-                                            "- sending %d reg buffers to manager.\n",
-                                            rank, reg_buffer_count);
-                            send_manager_regs_buffer(regbuffer, &reg_buffer_count);
-                            num_bytes_seen = 0;
-                         }
                       }
                       else {
                           if (o.verbose >= 1) {
@@ -2789,18 +2786,19 @@ void process_stat_buffer(path_item*      path_buffer,
                                rank, p_out->path(), ::strerror(errno));
                 }
                 else {
-                   work_node.chkidx = 0;           // for non-chunked files, index is always 0
-                   work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
-                   num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
-                   regbuffer[reg_buffer_count] = work_node;
-                   reg_buffer_count++;
-                   if (reg_buffer_count % COPYBUFFER == 0 || num_bytes_seen >= ship_off) {
+                   // if we have hit the size of a COPYBUFFER or are about to exceed SHIPOFF size, send the work-package now
+                   if (reg_buffer_count % COPYBUFFER == 0 || ( reg_buffer_count != 0  &&  ( num_bytes_seen + work_node.st.st_size ) > SHIPOFF ) ) {
                       PRINT_MPI_DEBUG("rank %d: process_stat_buffer() non-parallel destination "
                                       "- sending %d reg buffers to manager.\n",
                                       rank, reg_buffer_count);
                       send_manager_regs_buffer(regbuffer, &reg_buffer_count);
                       num_bytes_seen = 0;
                    }
+                   work_node.chkidx = 0;           // for non-chunked files, index is always 0
+                   work_node.chksz = work_node.st.st_size;     // set chunk size to size of file
+                   num_bytes_seen += work_node.chksz;          // send this off to the manager work list, if ready to
+                   regbuffer[reg_buffer_count] = work_node;
+                   reg_buffer_count++;
                 }
              }
           }
