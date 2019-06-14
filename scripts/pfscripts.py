@@ -1,5 +1,5 @@
 #!/usr/bin/env python2.6
-import datetime, time, os, getpass, re
+import datetime, time, os, getpass, re, sys, subprocess
 from socket import gethostname
 from syslog import *
 
@@ -201,7 +201,23 @@ def busy():
 * Contact:  ICN Consulting Office (5-4444 option 3)               *
 *******************************************************************
 """
-def sbatch_submit(config, options, output_path, pfcmd, commands):
+
+def get_job_status(squeue_path, job_id):
+        print('in get_job_status')
+        args = []
+        args.append(squeue_path)
+        args.append('-j')
+        args.append(job_id)
+        squeue_out = subprocess.check_output(args)
+        splits = filter(None, squeue_out.split('\n'))
+        if len(splits) > 1:
+                tokens = splits[1].split()
+                return tokens[4]
+        else:
+                return None
+
+
+def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	try:
 		procs_per_node = config.get('options', 'procs_per_node')
 	except:
@@ -214,21 +230,25 @@ def sbatch_submit(config, options, output_path, pfcmd, commands):
 		print('nodes_per_job is not specified in pftool config file, using default value %d' % nodes_per_job_default)
 		nodes_per_job = nodes_per_job_default
 
+	print('procs_per_node value %s' % procs_per_node)
+	print('nodes_per_job value %s' % nodes_per_job)
+
 	pfcmd.add(pftool)
-	pfcmd.add(*command.commands)
+	pfcmd.add(*commands.commands)
 	pfcmd_str = ''
-	for i in range(0, len(pfcmd.commands))
+	for i in range(0, len(pfcmd.commands)):
 		pfcmd_str = pfcmd_str + pfcmd.commands[i] + ' '
 
+	print(options.debug)
+	
 	if options.debug:
 		print(pfcmd_str)
-
 	lines = []
 	lines.append('#!/usr/bin/env bash\n')
-	lines.append('#SBATCH --output={}/%j.out\n'.format(output_path))
+	lines.append('#SBATCH --output={}/{}.out\n'.format(output_path, jid))
 	lines.append('#SBATCH --nodes={}\n'.format(nodes_per_job))
 	lines.append('#SBATCH --ntasks-per-node={}\n'.format(procs_per_node))
-	lines.append('#SBATCH --time=0') #for interactive job, no time limit
+	lines.append('#SBATCH --time=0\n') #for interactive job, no time limit
 	lines.append('mpirun {}'.format(pfcmd_str))
 
 	job_script_path = output_path + '/job_script.sh'
@@ -246,11 +266,14 @@ def sbatch_submit(config, options, output_path, pfcmd, commands):
 	args = []
 	args.append(slurm_path)
 	args.append(job_script_path)
-	sbatch_return = subprocess.check_output(args)
+	try:
+		sbatch_return = subprocess.check_output(args, stderr=subprocess.STDOUT)
+	except Exception, e:
+		sbatch_return = str(e.output)
 	print(sbatch_return)
+	os.unlink(job_script_path)
 	words = sbatch_return.split(' ')
-
-	if ('failed' in words) or ('fail' in words):
+	if ('failed' in words) or ('fail' in words) or ('error' in words):
 		print('failed to submit pftool job to slurm')
 		sys.exit(1)
 
@@ -258,34 +281,34 @@ def sbatch_submit(config, options, output_path, pfcmd, commands):
 	for i in range(0, len(words)):
 		if words[i] == 'job':
 			job_id = words[i+1]
-
+	print('Your slurm job_id %s' % job_id)
 	return job_id
 
-def get_job_status(squeue_path, job_id):
-	args = []
-	args.append(squeue_path)
-	args.append('-j')
-	args.append(job_id)
-	squeue_out = subprocess.check_output(args)
-	splits = squeue_out.split('\n')
-	if len(splits) > 1:
-		tokens = splits[1].split(' ')
-		return tokens[4]
-	else:
-		return None
+def read_file(file_path, prev_size, read_size):
+	try:
+		fd = open(file_path, 'r')
+		fd.seek(prev_size, 0)
+		if read_size == -1:
+			buf = fd.read()
+		else:
+			buf = fd.read(read_size)
+		fd.close()
+	except Exception, e:
+		str(e.output)
+		print('Error reading output file %s\nProgram exiting\nPlease cleanup output file %s' % (file_path, file_path))
+		sys.exit(1)
+	return buf
 
-def fg_output(pf_type, config, slurm_output_dir, job_id):
+def fg_output(pf_type, config, slurm_output_dir, job_id, jid):
 	slurm_path = config.get('environment', 'slurm_exe_dir')
 	squeue_path = slurm_path + '/squeue'
-	output_file = slurm_output_dir + '/{}.out'.format(job_id)
+	output_file = slurm_output_dir + '/{}.out'.format(jid)
+	
 	running = 0
-	args = []
-	args.append(squeue_path)
-	args.append('-j')
-	args.append(job_id)
 	while running == 0:
-		time.sleep(30)
+		time.sleep(2)
 		status = get_job_status(squeue_path, job_id)
+		print('job status %s from get_job_status' % status)
 		if status == None:
 			continue
 		elif status == 'R' or status == 'RUNNING':
@@ -309,6 +332,20 @@ def fg_output(pf_type, config, slurm_output_dir, job_id):
 	while True:
 		#update output 5 times
 		time.sleep(5)
+		interval_cnt = interval_cnt + 1
+		if ((interval_cnt % 10) == 0):
+			status = get_job_status(squeue_path, job_id)
+			if status == None or status == 'F' or status == 'Failed' or \
+				status == 'CD' or status == 'COMPLETED' or \
+				status == 'CA' or status == 'CANCELLED' or \
+				status == 'PR' or status == 'PREEMPTED':
+				done = 1
+		if done == 1:
+			#if file is finished, we open it and read the rest 
+			time.sleep(5)
+			buf = read_file(output_file, prev_size, -1)
+			print(buf)
+			break
 		try:
 			st = os.stat(output_file)
 		except OSError:
@@ -316,64 +353,39 @@ def fg_output(pf_type, config, slurm_output_dir, job_id):
 			continue
 
 		current_size = st.st_size
-		if prev_size == current_size and done == 0:
-			#nothing new to read, skip
-			continue
-		elif prev_size == current_size and done != 0:
-			break
 		#read the newly written part of the file and print all the lines.
 		#If buf has a partial line at the end, save for next cycle
 		read_size = current_size - prev_size
-		fd = open(output_file, 'r')
-		fd.seek(prev_size, 0)
-		buf = fd.read(read_size)
-		fd.close()
+		buf = read_file(output_file, prev_size, read_size)
 		print_line = None
-		if done == 0:
-			new_line_index = buf.rfind('\n')
-			print_line = buf[0:new_line_index+1]
-			prev_size = prev_size + new_line_index + 1
-		else:
-			print_line = buf
-			
+		new_line_index = buf.rfind('\n')
+		print_line = buf[0:new_line_index+1]
+		prev_size = prev_size + new_line_index + 1
 		print(print_line)
-		interval_cnt = interval_cnt + 1
-		if done != 0:
-			break
-		if (interval_cnt % 10) == 0:
-			#need to check job status
-			status = get_job_status(squeue_path, job_id)
-			if status == 'CD' or status == 'COMPLETED':
-				done = 1
-			elif status == 'CA' or status == 'CANCELLED' or \
-				status == 'F' or status == 'FAILED' or \
-				status == 'PR' or status == 'PREEMPTED' or \
-				status == 'DL' or status == 'DEADLINE':
-				done = -1
-	#job finished, cleanup
-	if done == -1:
-		print('Your %s job failed' % pf_type)
 
-	os.unlink(output_file)
-	os.rmdir(slurm_output_dir)
+	#job finished, cleanup
+	print('Complete')
+	#os.unlink(output_file)
 	sys.exit(0)
 
-def run_with_slurm(pf_type, config, options, pfcmd, commands):
+def run_with_slurm(pf_type, config, options, pfcmd, commands, jid):
 	#first get output file directory path
-	user_home_dir = os.environ['HOME']
+	user_home_dir = os.environ['SHARED_HOME']
 	#check if output dir exists
 	slurm_output_dir = user_home_dir + '/.pf_out'
+	print('slurm_output_dir %s' % slurm_output_dir)
 	if os.path.isdir(slurm_output_dir) == False:
 		#we must create output directory
+		print('Making slurm output directory at %s' % slurm_output_dir)
 		os.mkdir(slurm_output_dir, 0755)
-	#now we can specify slurm output file
-	slurm_output_file = slurm_output_dir + 'pf_output'
-	job_id = sbatch_submit(config, options, slurm_output_path, pfcmd, commands)
-	if options.fg == 0:
+	job_id = sbatch_submit(config, options, slurm_output_dir, pfcmd, commands, jid)
+	if options.fg == False:
 		#running in the back ground
 		print('Your %s job has been submitted to slurm with job id %s' % (pf_type, job_id))
 		print('You can check your job status using squeue')
 		print('You can also check job progress by reading your job\'output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
 		print('You must delete the slurm output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
 	else:
-		fg_output(pf_type, slurm_output_dir, job_id)
+		fg_output(pf_type, config, slurm_output_dir, job_id, jid)
+
+	sys.exit(0)
