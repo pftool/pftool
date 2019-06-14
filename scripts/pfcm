@@ -4,6 +4,7 @@ from optparse import OptionParser
 from pfscripts import *
 
 def main():
+  pf_type = 'pfcm'
   parser = OptionParser()
   parser.usage = "%prog [options] sourcePath destinationPath"
   parser.description = "%prog -- compare file(s) from sourcePath to destinationPath in parallel"
@@ -12,9 +13,14 @@ def main():
   parser.add_option("-p", dest="preserve", default=False, action="store_true", help="consider user/group ownership when comparing metadata")
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
+  parser.add_option("-f", dest="fg", default=False, action="store_true", help="Set script to run in foreground")
   (options, args) = parser.parse_args()
 
   config = parse_config()
+  try:
+    slurm = config.get('environment', 'with_slurm')
+  except:
+    parser.error('Specify with_slurm: True/False')
 
   if len(args) < 2:
     parser.error("Specify the source and destination file/dir information.")
@@ -112,6 +118,10 @@ def main():
     threaded = True
 
   pfcmd = Commands()
+  if slurm == 'True':
+    print('Running with slurm')
+    run_with_slurm(pf_type, config, options, pfcmd, commands, jid)
+
   num_procs = config.get("num_procs", "pfcm")
 
   if threaded:

@@ -4,6 +4,7 @@ from optparse import OptionParser
 from pfscripts import *
 
 def main():
+  pf_type = 'pfls'
   parser = OptionParser()
   parser.usage = "%prog [options] sourcePath"
   parser.description = "%prog --  list file(s) based on sourcePath in parallel"
@@ -11,10 +12,14 @@ def main():
   parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
   parser.add_option("-i", dest="input_list", help="input file list")
   parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
+  parser.add_option("-f", dest="fg", default=False, action="store_true", help="Set script to run in foreground")
   (options, args) = parser.parse_args()
 
   config = parse_config()
-
+  try:
+    slurm = config.get('environment', 'with_slurm')
+  except:
+    parser.error('Specify with_slurm: True/False')
 
   jid = get_jid()
   src = args
@@ -74,6 +79,11 @@ def main():
     threaded = True
 
   pfcmd = Commands()
+  if slurm == 'True':
+    print('Running with slurm')
+    run_with_slurm(pf_type, config, options, pfcmd, commands, jid)
+
+
   num_procs = config.get("num_procs", "pfls")
 
 

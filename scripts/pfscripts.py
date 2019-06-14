@@ -203,7 +203,6 @@ def busy():
 """
 
 def get_job_status(squeue_path, job_id):
-        print('in get_job_status')
         args = []
         args.append(squeue_path)
         args.append('-j')
@@ -308,10 +307,10 @@ def fg_output(pf_type, config, slurm_output_dir, job_id, jid):
 	while running == 0:
 		time.sleep(2)
 		status = get_job_status(squeue_path, job_id)
-		print('job status %s from get_job_status' % status)
 		if status == None:
 			continue
 		elif status == 'R' or status == 'RUNNING':
+			print('your %s job is running' % pf_type)
 			running = 1
 		elif status == 'PD' or status == 'PENDING':
 			print('Your %s job is still pending' % pf_type)
@@ -356,12 +355,13 @@ def fg_output(pf_type, config, slurm_output_dir, job_id, jid):
 		#read the newly written part of the file and print all the lines.
 		#If buf has a partial line at the end, save for next cycle
 		read_size = current_size - prev_size
-		buf = read_file(output_file, prev_size, read_size)
-		print_line = None
-		new_line_index = buf.rfind('\n')
-		print_line = buf[0:new_line_index+1]
-		prev_size = prev_size + new_line_index + 1
-		print(print_line)
+		if read_size != 0:
+			buf = read_file(output_file, prev_size, read_size)
+			print_line = None
+			new_line_index = buf.rfind('\n')
+			print_line = buf[0:new_line_index+1]
+			prev_size = prev_size + new_line_index + 1
+			print(print_line)
 
 	#job finished, cleanup
 	print('Complete')
