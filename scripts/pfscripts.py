@@ -218,19 +218,36 @@ def get_job_status(squeue_path, job_id):
 
 def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	try:
-		procs_per_node = config.get('options', 'procs_per_node')
+		procs_per_node = config.get('slurm', 'procs_per_node')
 	except:
 		print('procs_per_node is not specified in pftool config file, using default value %d' % procs_per_node_default)
 		procs_per_node = procs_per_node_default
 
 	try:
-		nodes_per_job = config.get('options', 'nodes_per_job')
+		nodes_per_job = config.get('slurm', 'nodes_per_job')
 	except:
 		print('nodes_per_job is not specified in pftool config file, using default value %d' % nodes_per_job_default)
 		nodes_per_job = nodes_per_job_default
 
 	print('procs_per_node value %s' % procs_per_node)
 	print('nodes_per_job value %s' % nodes_per_job)
+
+	#get rate limit file path
+	try:
+		rt_path = config.get('environment', 'rate_limit_file')
+	except:
+		print('rate_limit_file not specified in pftool config file')
+		rt_path = None
+
+	job_name = 'INT_'+jid
+
+	if rt_path != None:
+		commands.add('-L')
+		commands.add(rt_path)
+		commands.add('-R')
+		commands.add(job_name)
+
+	
 
 	pfcmd.add(pftool)
 	pfcmd.add(*commands.commands)
@@ -242,8 +259,10 @@ def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	
 	if options.debug:
 		print(pfcmd_str)
+
 	lines = []
 	lines.append('#!/usr/bin/env bash\n')
+	lines.append('#SBATCH --job-name={}'.format(job_name))
 	lines.append('#SBATCH --output={}/{}.out\n'.format(output_path, jid))
 	lines.append('#SBATCH --nodes={}\n'.format(nodes_per_job))
 	lines.append('#SBATCH --ntasks-per-node={}\n'.format(procs_per_node))
@@ -372,14 +391,14 @@ def run_with_slurm(pf_type, config, options, pfcmd, commands, jid):
 	#first get output file directory path
 	user_home_dir = os.environ['SHARED_HOME']
 	#check if output dir exists
-	slurm_output_dir = user_home_dir + '/.pf_out'
+	slurm_output_dir = user_home_dir + '/.pftool_output'
 	print('slurm_output_dir %s' % slurm_output_dir)
 	if os.path.isdir(slurm_output_dir) == False:
 		#we must create output directory
 		print('Making slurm output directory at %s' % slurm_output_dir)
 		os.mkdir(slurm_output_dir, 0755)
 	job_id = sbatch_submit(config, options, slurm_output_dir, pfcmd, commands, jid)
-	if options.fg == False:
+	if options.bg == True:
 		#running in the back ground
 		print('Your %s job has been submitted to slurm with job id %s' % (pf_type, job_id))
 		print('You can check your job status using squeue')

@@ -233,6 +233,9 @@ struct options {
     char    exclude[PATHSIZE_PLUS];       // pattern/list to exclude
 
     char    file_list[PATHSIZE_PLUS];
+    char    rate_limit_file[PATHSIZE_PLUS];
+    char    rate_limit_record_id[256];
+    int	    rate_limit;
     int     use_file_list;
     char    jid[128];
 
@@ -313,7 +316,7 @@ int  request_response(int type_cmd);
 int  request_input_queuesize();
 void send_command(int target_rank, int type_cmd);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
-void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
+void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, size_t *bytes_to_process);
 
 //worker utility functions
 void errsend(Lethality fatal, const char *error_text);
@@ -323,6 +326,7 @@ void errsend_fmt(Lethality fatal, const char *format, ...);
 int  stat_item(path_item* work_node, struct options& o);
 void get_stat_fs_info(const char *path, SrcDstFSType *fs);
 int  get_free_rank(struct worker_proc_status *proc_status, int start_range, int end_range);
+int get_free_rank_v2(struct worker_proc_status *proc_status, int start_range, int end_range, int *free_workers);
 int  processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc);
 
 //function definitions for manager
@@ -344,6 +348,10 @@ void update_chunk(path_item *buffer, int *buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
+void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct options& o,
+                                struct worker_proc_status *proc_status, work_buf_list  **workbuflist,
+                                work_buf_list  **workbuftail, int *workbufsize, size_t *bytes_to_process,
+                                int *free_worker_count);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_add_timing(int target_rank, char* repo_name, TimingData* timing);
 void send_worker_show_timing(int target_rank);
@@ -361,6 +369,9 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
 void enqueue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize, char *buffer, int buffer_size);
 void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
+
+//function for rate limiting
+double get_rate(char *rate_limit_file, char *rate_limit_record_id);
 
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)

@@ -22,7 +22,9 @@
 
 #include <syslog.h>
 #include <signal.h>
-
+#include <iostream>
+#include <fstream>
+#include <string>
 #include <pthread.h>            // manager_sig_handler()
 
 // EXITCMD, or ctl-C
@@ -1590,6 +1592,134 @@ int get_free_rank(struct worker_proc_status *proc_status, int start_range, int e
     return -1;
 }
 
+int get_free_rank_v2(struct worker_proc_status *proc_status, int start_range, int end_range, int *free_workers)
+{
+	int i, cursor;
+	int ret = 0;
+	cursor = 0;
+	for (i = start_range; i <= end_range; i++)
+	{
+		if (proc_status[i].inuse == 0)
+		{
+			free_workers[cursor] = i;
+			ret++;
+			cursor ++;
+		}
+	}
+
+	return ret;
+}
+
+char * break_up_buf(int break_size, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize)
+{
+	int i;
+	size_t copy_size, remain_size;
+	int size = (*workbuflist)->size;
+	char *work_buf = NULL;
+	char *remain_buf = NULL;
+	if (break_size == size) {
+		//we need to copy the buffer out and dequeue the workbuf
+		work_buf = (char *)malloc(size * sizeof(path_list) * sizeof(char));
+		memcpy(work_buf, (*workbuflist)->buf, size * sizeof(path_list) * sizeof(char));
+		dequeue_buf_list(workbuflist, workbuftail, workbufsize);
+	}
+	else {
+		copy_size = break_size * sizeof(path_item);
+		remain_size = (size - break_size) * sizeof(path_item);
+		work_buf = (char *)malloc(break_size * sizeof(path_list) * sizeof(char));
+		remain_buf = (char *)malloc((size - break_size) * sizeof(path_list) * sizeof(char));
+		//copy into new work buf to send to worker
+		memcpy(work_buf, (*workbuflist)->buf, copy_size);
+		//copy remaining into a new buffer, change buf ptr and update size
+		memcpy(remain_buf, (*workbuflist)->buf + copy_size, remain_size);
+		free((*workbuflist)->buf);
+		(*workbuflist)->buf = remain_buf;
+		(*workbuflist)->size = size - break_size;
+	}
+	return work_buf;
+}
+
+void send_buffer_list_v2(int target_rank, int command, char *work_buf, int chunk_cnt)
+{
+	//do not dequeue here beacuse we are only sending partial workbuflist
+	size_t work_size = sizeof(path_item) * chunk_cnt;
+	send_command(target_rank, command);
+
+	if (MPI_Send(&chunk_cnt, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+		fprintf(stderr, "Failed to send workbuflist size %d to rank %s\n", chunk_cnt, target_rank);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+
+	if (MPI_Send(work_buf, work_size, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS) {
+		fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+}
+
+void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct options& o, 
+				struct worker_proc_status *proc_status, work_buf_list  **workbuflist, 
+				work_buf_list  **workbuftail, int *workbufsize, size_t *bytes_to_process,
+				int *free_worker_count)
+{
+	int i, done, rank_cursor, target_rank;
+	path_item work_node;
+	size_t total_size;
+	
+	rank_cursor = 0;
+	target_rank = target_ranks[rank_cursor];
+	done = 0;
+	total_size = 0;
+	
+	while (done == 0) {
+		char *work_buf = NULL;
+		int size = (*workbuflist)->size;
+		size_t total_size = size * o.chunksize;
+		int target_rank = target_ranks[rank_cursor];
+		if (total_size <= *bytes_to_process) {
+			//we can send this one
+			send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
+			proc_status[target_rank].inuse = 1;
+			rank_cursor ++;
+			*free_worker_count --;
+			*bytes_to_process = *bytes_to_process - total_size;
+		}
+		else if (total_size > *bytes_to_process) {
+			if (o.chunksize >= *bytes_to_process && (size == 1)) {
+				//there is only a single chunk in this workbuflist and
+				//chunk size is greater than bytes_to_process,
+				//so we just send this workbuflist
+				send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
+				proc_status[target_rank].inuse = 1;
+			}
+			else
+			{
+				int break_size;
+				if (o.chunksize >= *bytes_to_process && (size > 1)) {
+					//single chunk is greater than bytes_to_process
+					break_size = 1;
+				}
+				else
+				{
+					break_size = size;
+					while (break_size > 1 && (((break_size - 1) * o.chunksize) > *bytes_to_process))
+						break_size --;
+				}
+				work_buf = break_up_buf(break_size, workbuflist, workbuftail, workbufsize);
+				//now we can send it 
+				send_buffer_list_v2(target_rank, COPYCMD, work_buf, break_size);
+				proc_status[target_rank].inuse = 1;
+				*bytes_to_process = 0;
+				rank_cursor ++;
+				*free_worker_count --;
+			}
+		}
+		if (rank_cursor == target_ranks_cnt
+                        || (*workbufsize <= 0)
+                        || (*bytes_to_process <= 0))
+                        done = 1;
+	}
+}
+
 //are all the ranks free?
 // return 1 for yes, 0 for no.
 int processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc) {
@@ -1914,3 +2044,54 @@ int check_temporary(PathPtr p_src, path_item* out_node)
 
    return check_ctm_match(src_to_hash, out_node->path);
 }
+
+/*
+ * obtain new max bandwidth for pftool. If rate limit file is not 
+ * available, 0 is returned. If record id is not found in the file
+ * then default bandwidth is returned
+ *
+ * IN - rate_limit_file: full path for rate limit file to read from 
+ *      rate_limit_record_id: unique id of the pftool job 
+ *
+ * OUT - new max bandwidth
+ */
+double get_rate(char *rate_limit_file, char *rate_limit_record_id)
+{
+  int fd;
+  double my_rate = 0;
+  double default_rate = 0;
+  std::string line;
+  std::string delim = "=";
+
+  std::ifstream rt_file(rate_limit_file);
+  if (rt_file.is_open()) {
+    //now look for our rate specified by rate_limit_record_id
+    while(getline(rt_file, line)) {
+      //check if this is default
+      auto pos = line.find("default_bw_GB/s");
+      if (pos != std::string::npos)
+      {
+        //this line is default bandwidth
+        pos = line.find(delim);
+        default_rate = stod(line.substr(pos+1));
+      }
+      else {
+        pos = line.find(delim);
+        if (pos != std::string::npos) {
+          std::string id = line.substr(0, pos);
+          if (!strcmp(id.c_str(), rate_limit_record_id)) {
+            //we found our record 
+            my_rate = stod(line.substr(pos+1));
+            break;
+          }
+        }
+      }
+    }
+    if (my_rate == 0)
+      my_rate = default_rate;
+  }
+
+  return my_rate;
+}
+
+

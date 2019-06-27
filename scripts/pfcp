@@ -17,15 +17,19 @@ def main():
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
   parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   parser.add_option("-t", dest="tryAttempts", default=1, type="int", help="Number of times to retry on non-fatal errors")
-  parser.add_option("-f", dest="fg", default=False, action="store_true", help="Set script to run in foreground")
+  parser.add_option("-b", dest="bg", default=False, action="store_true", help="Set script to run in foreground")
   (options, args) = parser.parse_args()
 
   config = parse_config()
   #check if slurm enabled
+  with_slurm = None
   try:
-    slurm = config.get("environment", "with_slurm")
+    if (config.get("environment", "with_slurm").lower() == 'true'):
+      with_slurm = True
+    elif (config.get("environment", "with_slurm").lower() == 'false'):
+      with_slurm = False
   except:
-    parser.error("Specify with_slurm: True/False")
+    parser.error("Specify with_slurm in pftool config file: True/False")
 
 
   if len(args) < 2:
@@ -156,7 +160,7 @@ def main():
 
   pfcmd = Commands()
 
-  if slurm == 'True':
+  if with_slurm == True:
     #running with slurm
     print('Running with slurm')
     run_with_slurm(pf_type, config, options, pfcmd, commands, jid)

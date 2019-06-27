@@ -204,10 +204,13 @@ int main(int argc, char *argv[]) {
         o.chunk_at  = (10ULL * 1024 * 1024 * 1024); // 10737418240
         o.chunksize = (10ULL * 1024 * 1024 * 1024);
         o.exclude[0] = '\0';
+	o.rate_limit = 0;
+        o.rate_limit_file[0] = '\0';
+	o.rate_limit_record_id[0] = '\0';
         o.max_readdir_ranks = MAXREADDIRRANKS;
         src_path[0] = '\0';
         dest_path[0] = '\0';
-
+   
         // marfs can't default these until we see the destination
         bool chunk_at_defaulted = true;
         bool chunk_sz_defaulted = true;
@@ -221,8 +224,15 @@ int main(int argc, char *argv[]) {
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orlPMnhvg")) != -1) {
+        while ((c = getopt(argc, argv, "L:R:p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:D:orlPMnhvg")) != -1) {
             switch(c) {
+	    case 'L':
+		//rate limit file path
+		strncpy(o.rate_limit_file, optarg, PATHSIZE_PLUS);
+		break;
+	    case 'R':
+		strncpy(o.rate_limit_record_id, optarg, 256);
+		break;
             case 'p':
                 //Get the source/beginning path
                 strncpy(src_path, optarg, PATHSIZE_PLUS);
@@ -389,7 +399,10 @@ int main(int argc, char *argv[]) {
            fprintf(stderr, "'-n' can't be used with '-w 2'\n");
            return -1;
         }
-
+	
+	if (o.rate_limit_file[0] != '\0' &&
+		o.rate_limit_record_id[0] != '\0')
+		o.rate_limit = 1;
 
         // '-g' allows controlled debugging.
         // Wait for someone to attach gdb, before proceeding.
@@ -774,6 +787,10 @@ int manager(int             rank,
     int         num_copied_files = 0;
     size_t      num_copied_bytes = 0;
     size_t      num_copied_bytes_prev = 0; // captured at previous timer
+    size_t      bytes_to_process = 0;
+    size_t      bytes_remain = 0;
+    double	current_bw = 0;
+    int *free_workers;
 
     work_buf_list* stat_buf_list         = NULL;
     work_buf_list* stat_buf_list_tail    = NULL;
@@ -805,7 +822,15 @@ int manager(int             rank,
     struct timeval       now;   // time-of-day when the timer expired
     struct timeval       prev;  // previous expiration
 
+    free_workers = (int *)malloc(nproc * sizeof(int));
+    memset(free_workers, 0, nproc * sizeof(int));
 
+    // read default bandwidth and estimate how much data(chunks)
+    // to dish out
+    current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+    if (current_bw != 0)
+      bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
+      
     // ...........................................................................
     // If we use 'errsend' functions anywhere before the MPI_Bcast(), we'll
     // deadlock because OUTPUT_PROC is waiting at the Bcast() below, like
@@ -1027,20 +1052,32 @@ int manager(int             rank,
                 PRINT_PROC_DEBUG("=============\n");
                 if (o.work_type == COPYWORK) {
                     for (i = 0; i < 3; i ++) {
-                        work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
-                        if (work_rank >= 0 && process_buf_list_size > 0) {
-                            proc_status[work_rank].inuse = 1;
-                            free_worker_count -= 1;
-                            send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
+			if (o.rate_limit == 1 && (current_bw != 0)) {
+			    int has_free = get_free_rank_v2(proc_status, START_PROC, nproc - 1, free_workers);
+			    if (has_free && (process_buf_list_size > 0) && bytes_remain > 0) {
+				send_worker_copy_path_v2(free_workers, has_free, o, proc_status,
+                                                                &process_buf_list, &process_buf_list_tail,
+                                                                &process_buf_list_size, &bytes_remain, &free_worker_count);
+			    }
+			    else
+				break;
+			}
+			else {
+                            work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
+                            if (work_rank >= 0 && process_buf_list_size > 0) {
+                                proc_status[work_rank].inuse = 1;
+                                free_worker_count -= 1;
+                                send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
+                            }
+                            else
+                                break;
                         }
-                        else
-                            break;
-                    }
+		    }
                 }
                 else if (o.work_type == COMPAREWORK) {
                     for (i = 0; i < 3; i ++) {
                         work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
-                        if (work_rank >= 0 && process_buf_list_size > 0) {
+                        if (work_rank >= 0 && process_buf_list_size > 0 && bytes_to_process > 0) {
                             proc_status[work_rank].inuse = 1;
                             free_worker_count -= 1;
                             send_worker_compare_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
@@ -1183,7 +1220,15 @@ int manager(int             rank,
                 size_t bytes0 = (num_copied_bytes - num_copied_bytes_prev);
                 float  bw0    = bytes0 / interval_elapsed; // (float)output_timeout;
                 float  bw_tot = num_copied_bytes / total_elapsed; // (float)(timer_count * output_timeout);
-
+	
+		//read bandwidth from rate limit file
+		current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+		if (current_bw != 0) {
+		  //calculate how many bytes to send
+		  bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
+                }
+		//clear free worker list
+		memset(free_workers, 0, sizeof(int) * nproc);
                 // human-readable representations
                 human_readable(files,     BUF_SIZE, num_copied_files);
                 // human_readable(files_ex,  BUF_SIZE, examined_file_count);
@@ -1218,17 +1263,17 @@ int manager(int             rank,
 
                 // log accumulated performance-statistics for marfs-internals
                 send_command(ACCUM_PROC, SHOWTIMINGCMD);
-
+		
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
 
                 // save current TOD, for accurate interval BW
                 prev = now;
-
                 // set timer for next interval
                 if (timer_settime(timer, 0, &itspec_new, &itspec_cur)) {
                     errsend_fmt(FATAL, "failed to set timer '%s'\n", strerror(errno));
                 }
+
             }
         }
         message_ready = 0;
