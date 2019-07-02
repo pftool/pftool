@@ -403,7 +403,7 @@ int main(int argc, char *argv[]) {
 	if (o.rate_limit_file[0] != '\0' &&
 		o.rate_limit_record_id[0] != '\0')
 		o.rate_limit = 1;
-
+	printf("rate_limit %d\n", o.rate_limit);
         // '-g' allows controlled debugging.
         // Wait for someone to attach gdb, before proceeding.
         // You could do something like this:
@@ -635,9 +635,11 @@ int main(int argc, char *argv[]) {
     // take on the role appropriate to our rank.
     if (run) {
         if (rank == MANAGER_PROC) {
+	    printf("manager run\n");
             ret_val = manager(rank, o, nproc, input_queue_head, input_queue_tail, input_queue_count, dest_path);
         }
         else {
+		printf("worker run\n");
             worker(rank, o);
         }
     }
@@ -1065,6 +1067,7 @@ int manager(int             rank,
 			else {
                             work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                             if (work_rank >= 0 && process_buf_list_size > 0) {
+				printf("manager send regular\n");
                                 proc_status[work_rank].inuse = 1;
                                 free_worker_count -= 1;
                                 send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);

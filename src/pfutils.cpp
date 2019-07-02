@@ -2068,12 +2068,12 @@ double get_rate(char *rate_limit_file, char *rate_limit_record_id)
     //now look for our rate specified by rate_limit_record_id
     while(getline(rt_file, line)) {
       //check if this is default
-      auto pos = line.find("default_bw_GB/s");
+      int pos = line.find("default_bw_GB/s");
       if (pos != std::string::npos)
       {
         //this line is default bandwidth
         pos = line.find(delim);
-        default_rate = stod(line.substr(pos+1));
+        default_rate = strtod(line.substr(pos+1).c_str(), NULL);
       }
       else {
         pos = line.find(delim);
@@ -2081,7 +2081,7 @@ double get_rate(char *rate_limit_file, char *rate_limit_record_id)
           std::string id = line.substr(0, pos);
           if (!strcmp(id.c_str(), rate_limit_record_id)) {
             //we found our record 
-            my_rate = stod(line.substr(pos+1));
+            my_rate = strtod(line.substr(pos+1).c_str(), NULL);
             break;
           }
         }
