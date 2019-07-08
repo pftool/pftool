@@ -789,8 +789,8 @@ int manager(int             rank,
     int         num_copied_files = 0;
     size_t      num_copied_bytes = 0;
     size_t      num_copied_bytes_prev = 0; // captured at previous timer
-    size_t      bytes_to_process = 0;
-    size_t      bytes_remain = 0;
+    long long int      bytes_to_process = 0;
+    long long int      bytes_remain = 0;
     double	current_bw = 0;
     int *free_workers;
 
@@ -815,7 +815,7 @@ int manager(int             rank,
     // poll.  However, that will give us not-very-perfect intervals, so we
     // also mark the TOD each time we detect the expiration.  That lets us
     // compute incremental BW more accurately.
-    static const size_t  output_timeout = 5; // secs per expiration
+    static const size_t  output_timeout = 2; // secs per expiration
     timer_t              timer;
     struct sigevent      event;
     struct itimerspec    itspec_new;
@@ -829,10 +829,13 @@ int manager(int             rank,
 
     // read default bandwidth and estimate how much data(chunks)
     // to dish out
-    current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
-    if (current_bw != 0)
-      bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
-      
+    if (o.rate_limit == 1) {
+      current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+      if (current_bw != 0)
+        bytes_to_process = bytes_remain = current_bw * output_timeout * 1LL * 1024 * 1024 * 1024;
+      printf("chunk size %llu, bytes_to_process %zu\n", o.chunksize, bytes_remain);
+    }
+
     // ...........................................................................
     // If we use 'errsend' functions anywhere before the MPI_Bcast(), we'll
     // deadlock because OUTPUT_PROC is waiting at the Bcast() below, like
@@ -1048,6 +1051,7 @@ int manager(int             rank,
             // Otherwise, we can be preoccupied with CHNKCMD msgs, for a big copy
             // NOTE: We're assuming the #ifdef TAPE is obsolete
             if (free_worker_count && process_buf_list_size) {
+		//get chunk_size
                 for (i = 0; i < nproc; i++) {
                     PRINT_PROC_DEBUG("Rank %d, Status %d\n", i, proc_status.inuse[i]);
                 }
@@ -1055,11 +1059,13 @@ int manager(int             rank,
                 if (o.work_type == COPYWORK) {
                     for (i = 0; i < 3; i ++) {
 			if (o.rate_limit == 1 && (current_bw != 0)) {
+			    //printf("free worker count before send %d\n", free_worker_count);
 			    int has_free = get_free_rank_v2(proc_status, START_PROC, nproc - 1, free_workers);
 			    if (has_free && (process_buf_list_size > 0) && bytes_remain > 0) {
-				send_worker_copy_path_v2(free_workers, has_free, o, proc_status,
+				send_worker_copy_path_v2(free_workers, has_free, proc_status,
                                                                 &process_buf_list, &process_buf_list_tail,
                                                                 &process_buf_list_size, &bytes_remain, &free_worker_count);
+				//printf("free worker count after send %d\n", free_worker_count);
 			    }
 			    else
 				break;
@@ -1067,7 +1073,7 @@ int manager(int             rank,
 			else {
                             work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                             if (work_rank >= 0 && process_buf_list_size > 0) {
-				printf("manager send regular\n");
+				printf("regular send?\n");
                                 proc_status[work_rank].inuse = 1;
                                 free_worker_count -= 1;
                                 send_worker_copy_path(work_rank, &process_buf_list, &process_buf_list_tail, &process_buf_list_size);
@@ -1185,7 +1191,6 @@ int manager(int             rank,
                 break;
             }
         }
-
         // for the "low-verbosity" output, we just periodically report
         // cumulative stats.  process_stat_buffer() only counts entire
         // files as "files examined", but copy_file() sees each chunk as a
@@ -1195,7 +1200,6 @@ int manager(int             rank,
         // is the total size of data to be moved, so that shows what is
         // left to be done.
         if (! o.verbose) {
-
             if (timer_gettime(timer, &itspec_cur)) {
                 errsend_fmt(FATAL, "failed to set timer '%s'\n", strerror(errno));
             }
@@ -1224,12 +1228,23 @@ int manager(int             rank,
                 float  bw0    = bytes0 / interval_elapsed; // (float)output_timeout;
                 float  bw_tot = num_copied_bytes / total_elapsed; // (float)(timer_count * output_timeout);
 	
-		//read bandwidth from rate limit file
-		current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
-		if (current_bw != 0) {
-		  //calculate how many bytes to send
-		  bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
-                }
+		if (o.rate_limit == 1) {
+			printf("rate check\n");
+			if (bytes_remain < 0 && (current_bw != 0)) {
+				//we sent more than we should, need to wait
+				itspec_new.it_value.tv_sec = ceil(((bytes_to_process + (-bytes_remain)) / (current_bw * 1LL * 1024 * 1024 * 1024)) - output_timeout);
+				bytes_remain = 0;
+				printf("Sent more bytes than should, need to wait\n");
+			}
+			else {
+				current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+				if (current_bw != 0) {
+					bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
+				}
+				itspec_new.it_value.tv_sec = output_timeout;
+				printf("does not needt to wait\n");
+			}
+		}
 		//clear free worker list
 		memset(free_workers, 0, sizeof(int) * nproc);
                 // human-readable representations

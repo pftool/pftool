@@ -1639,6 +1639,12 @@ char * break_up_buf(int break_size, work_buf_list **workbuflist, work_buf_list *
 	return work_buf;
 }
 
+size_t get_chunk_size(work_buf_list **workbuflist)
+{
+	path_item *item = (path_item *)((*workbuflist)->buf);
+	return item->chksz;
+}
+
 void send_buffer_list_v2(int target_rank, int command, char *work_buf, int chunk_cnt)
 {
 	//do not dequeue here beacuse we are only sending partial workbuflist
@@ -1656,9 +1662,9 @@ void send_buffer_list_v2(int target_rank, int command, char *work_buf, int chunk
 	}
 }
 
-void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct options& o, 
+void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, 
 				struct worker_proc_status *proc_status, work_buf_list  **workbuflist, 
-				work_buf_list  **workbuftail, int *workbufsize, size_t *bytes_to_process,
+				work_buf_list  **workbuftail, int *workbufsize, long long int *bytes_to_process,
 				int *free_worker_count)
 {
 	int i, done, rank_cursor, target_rank;
@@ -1671,46 +1677,54 @@ void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct op
 	total_size = 0;
 	
 	while (done == 0) {
+		size_t chunk_size = get_chunk_size(workbuflist);
+		printf("chunksize %zu\n", chunk_size);
 		char *work_buf = NULL;
 		int size = (*workbuflist)->size;
-		size_t total_size = size * o.chunksize;
+		size_t total_size = size * chunk_size;
 		int target_rank = target_ranks[rank_cursor];
 		if (total_size <= *bytes_to_process) {
 			//we can send this one
-			send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
+			printf("Sending entire workbuflist to rank %d\n", target_rank);
 			proc_status[target_rank].inuse = 1;
 			rank_cursor ++;
-			*free_worker_count --;
+			*free_worker_count = *free_worker_count - 1;
+			send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
 			*bytes_to_process = *bytes_to_process - total_size;
 		}
 		else if (total_size > *bytes_to_process) {
-			if (o.chunksize >= *bytes_to_process && (size == 1)) {
+			if (chunk_size >= *bytes_to_process && (size == 1)) {
 				//there is only a single chunk in this workbuflist and
 				//chunk size is greater than bytes_to_process,
 				//so we just send this workbuflist
-				send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
+				printf("Only 1 chunk and greater than bytes_to_process, sending entire workbuflist to rank %d\n", target_rank);
 				proc_status[target_rank].inuse = 1;
+				rank_cursor ++;
+				*free_worker_count = *free_worker_count - 1;
+				send_buffer_list(target_rank, COPYCMD, workbuflist, workbuftail, workbufsize);
+				*bytes_to_process = *bytes_to_process - total_size;
 			}
 			else
 			{
 				int break_size;
-				if (o.chunksize >= *bytes_to_process && (size > 1)) {
+				if (chunk_size >= *bytes_to_process && (size > 1)) {
 					//single chunk is greater than bytes_to_process
 					break_size = 1;
 				}
 				else
 				{
 					break_size = size;
-					while (break_size > 1 && (((break_size - 1) * o.chunksize) > *bytes_to_process))
+					while (break_size > 1 && (((break_size - 1) * chunk_size) > *bytes_to_process))
 						break_size --;
 				}
+				printf("Need to break workbuflist, break size %d\n", break_size);
 				work_buf = break_up_buf(break_size, workbuflist, workbuftail, workbufsize);
 				//now we can send it 
-				send_buffer_list_v2(target_rank, COPYCMD, work_buf, break_size);
 				proc_status[target_rank].inuse = 1;
-				*bytes_to_process = 0;
 				rank_cursor ++;
-				*free_worker_count --;
+				*free_worker_count = *free_worker_count - 1;
+				send_buffer_list_v2(target_rank, COPYCMD, work_buf, break_size);
+				*bytes_to_process = *bytes_to_process - (break_size * chunk_size);
 			}
 		}
 		if (rank_cursor == target_ranks_cnt
@@ -1718,6 +1732,7 @@ void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct op
                         || (*bytes_to_process <= 0))
                         done = 1;
 	}
+	printf("bytes remain %lld\n", *bytes_to_process);
 }
 
 //are all the ranks free?
@@ -2057,18 +2072,20 @@ int check_temporary(PathPtr p_src, path_item* out_node)
  */
 double get_rate(char *rate_limit_file, char *rate_limit_record_id)
 {
-  int fd;
   double my_rate = 0;
   double default_rate = 0;
   std::string line;
   std::string delim = "=";
 
-  std::ifstream rt_file(rate_limit_file);
-  if (rt_file.is_open()) {
+  std::ifstream fd;
+  fd.open(rate_limit_file);
+  printf("file path %s\n", rate_limit_file);
+  if (fd.is_open()) {
     //now look for our rate specified by rate_limit_record_id
-    while(getline(rt_file, line)) {
+    while(getline(fd, line)) {
+      printf("line %s\n", line.c_str());
       //check if this is default
-      int pos = line.find("default_bw_GB/s");
+      int pos = line.find("default_bw");
       if (pos != std::string::npos)
       {
         //this line is default bandwidth
@@ -2090,6 +2107,8 @@ double get_rate(char *rate_limit_file, char *rate_limit_record_id)
     if (my_rate == 0)
       my_rate = default_rate;
   }
+
+  fd.close();
 
   return my_rate;
 }

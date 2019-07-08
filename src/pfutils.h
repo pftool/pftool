@@ -348,9 +348,9 @@ void update_chunk(path_item *buffer, int *buffer_count);
 void send_worker_queue_count(int target_rank, int queue_count);
 void send_worker_readdir(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_copy_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
-void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt, struct options& o,
+void send_worker_copy_path_v2(int *target_ranks, int target_ranks_cnt,
                                 struct worker_proc_status *proc_status, work_buf_list  **workbuflist,
-                                work_buf_list  **workbuftail, int *workbufsize, size_t *bytes_to_process,
+                                work_buf_list  **workbuftail, int *workbufsize, long long int *bytes_to_process,
                                 int *free_worker_count);
 void send_worker_compare_path(int target_rank, work_buf_list  **workbuflist, work_buf_list  **workbuftail, int *workbufsize);
 void send_worker_add_timing(int target_rank, char* repo_name, TimingData* timing);
@@ -372,7 +372,7 @@ void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, 
 
 //function for rate limiting
 double get_rate(char *rate_limit_file, char *rate_limit_record_id);
-
+size_t get_chunk_size(work_buf_list **workbuflist);
 // functions with signatures that involve C++ Path sub-classes, etc
 // (Path subclasses are also used internally by other util-functions.)
 #include "Path.h"
