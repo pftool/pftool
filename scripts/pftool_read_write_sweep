@@ -133,7 +133,7 @@ for WORKERS in `seq 1 8`; do
                 case $ACTION in
                     (write)
                         SRC=/dev/shm/$FNAME
-                        DEST=$MNT/$NAMESPACE/jti/$FNAME
+                        DEST=$MNT/$NAMESPACE/$FNAME
 
                         for H in $HOSTS; do
                             ssh $H rm -f $SRC
@@ -142,7 +142,7 @@ for WORKERS in `seq 1 8`; do
                         ;;
 
                     (read)
-                        SRC=$MNT/$NAMESPACE/jti/$FNAME
+                        SRC=$MNT/$NAMESPACE/$FNAME
                         DEST=/dev/null/$FNAME
                         ;;
                 esac
