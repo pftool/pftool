@@ -13,8 +13,8 @@ ROOT_PATH = lambda *args: os.path.join(ROOT, *args)
 checks if ptool is in the environment and uses that, otherwise uses ../bin/pftool
 """
 pftool=os.getenv('PFTOOL', ROOT_PATH("..","bin","pftool"))
-procs_per_node_default = 1
-nodes_per_job_default = 16
+procs_per_node_default = 3
+nodes_per_job_default = 2
 
 class Work:
   COPY = 0
@@ -202,7 +202,7 @@ def busy():
 *******************************************************************
 """
 
-def get_job_status(squeue_path, job_id):
+def get_job_status(squeue_path, sacct_path, job_id):
         args = []
         args.append(squeue_path)
         args.append('-j')
@@ -213,8 +213,19 @@ def get_job_status(squeue_path, job_id):
                 tokens = splits[1].split()
                 return tokens[4]
         else:
-                return None
-
+		#we did not find job from squeue, try sacct
+		del args[:]
+		args.append(sacct_path)
+		args.append('-X')
+		args.append('-j')
+		args.append(job_id)
+		sacct_out = subprocess.check_output(args)
+		splits = filter(None, sacct_out.split('\n'))
+		if len(splits) > 2:
+			tokens = splits[2].split()
+			return tokens[5]
+		else:
+			return None
 
 def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	try:
@@ -229,9 +240,7 @@ def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 		print('nodes_per_job is not specified in pftool config file, using default value %d' % nodes_per_job_default)
 		nodes_per_job = nodes_per_job_default
 
-	print('procs_per_node value %s' % procs_per_node)
-	print('nodes_per_job value %s' % nodes_per_job)
-
+	mpi_procs = (int(procs_per_node)) * (int(nodes_per_job))
 	#get rate limit file path
 	try:
 		rt_path = config.get('environment', 'rate_limit_file')
@@ -254,20 +263,22 @@ def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	pfcmd_str = ''
 	for i in range(0, len(pfcmd.commands)):
 		pfcmd_str = pfcmd_str + pfcmd.commands[i] + ' '
-
-	print(options.debug)
 	
 	if options.debug:
 		print(pfcmd_str)
 
+	#check if root
+	root = getpass.getuser()
+
 	lines = []
 	lines.append('#!/usr/bin/env bash\n')
-	lines.append('#SBATCH --job-name={}'.format(job_name))
-	lines.append('#SBATCH --output={}/{}.out\n'.format(output_path, jid))
-	lines.append('#SBATCH --nodes={}\n'.format(nodes_per_job))
+	lines.append('#SBATCH --job-name={}\n'.format(job_name))
+	lines.append('#SBATCH --output={}/{}_%j.out\n'.format(output_path, job_name))
 	lines.append('#SBATCH --ntasks-per-node={}\n'.format(procs_per_node))
+	lines.append('#SBATCH --nodes={}\n'.format(nodes_per_job))
 	lines.append('#SBATCH --time=0\n') #for interactive job, no time limit
-	lines.append('mpirun {}'.format(pfcmd_str))
+	lines.append('mpirun --oversubscribe --allow-run-as-root {}\n'.format(pfcmd_str))
+
 
 	job_script_path = output_path + '/job_script.sh'
 	fd = open(job_script_path, 'w+')
@@ -288,7 +299,6 @@ def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 		sbatch_return = subprocess.check_output(args, stderr=subprocess.STDOUT)
 	except Exception, e:
 		sbatch_return = str(e.output)
-	print(sbatch_return)
 	os.unlink(job_script_path)
 	words = sbatch_return.split(' ')
 	if ('failed' in words) or ('fail' in words) or ('error' in words):
@@ -298,7 +308,7 @@ def sbatch_submit(config, options, output_path, pfcmd, commands, jid):
 	job_id = None
 	for i in range(0, len(words)):
 		if words[i] == 'job':
-			job_id = words[i+1]
+			job_id = words[i+1].rstrip()
 	print('Your slurm job_id %s' % job_id)
 	return job_id
 
@@ -320,14 +330,18 @@ def read_file(file_path, prev_size, read_size):
 def fg_output(pf_type, config, slurm_output_dir, job_id, jid):
 	slurm_path = config.get('environment', 'slurm_exe_dir')
 	squeue_path = slurm_path + '/squeue'
-	output_file = slurm_output_dir + '/{}.out'.format(jid)
+	sacct_path = slurm_path + '/sacct'
+	output_file = slurm_output_dir + '/INT_{}_{}.out'.format(jid, job_id)
 	
+	print("output file path: %s" % output_file)
+
 	running = 0
 	while running == 0:
 		time.sleep(2)
-		status = get_job_status(squeue_path, job_id)
+		status = get_job_status(squeue_path, sacct_path, job_id)
 		if status == None:
-			continue
+			#did not find job in either squeue or sacct
+			running = -1
 		elif status == 'R' or status == 'RUNNING':
 			print('your %s job is running' % pf_type)
 			running = 1
@@ -351,8 +365,8 @@ def fg_output(pf_type, config, slurm_output_dir, job_id, jid):
 		#update output 5 times
 		time.sleep(5)
 		interval_cnt = interval_cnt + 1
-		if ((interval_cnt % 10) == 0):
-			status = get_job_status(squeue_path, job_id)
+		if ((interval_cnt % 5) == 0):
+			status = get_job_status(squeue_path, sacct_path, job_id)
 			if status == None or status == 'F' or status == 'Failed' or \
 				status == 'CD' or status == 'COMPLETED' or \
 				status == 'CA' or status == 'CANCELLED' or \
@@ -392,7 +406,6 @@ def run_with_slurm(pf_type, config, options, pfcmd, commands, jid):
 	user_home_dir = os.environ['SHARED_HOME']
 	#check if output dir exists
 	slurm_output_dir = user_home_dir + '/.pftool_output'
-	print('slurm_output_dir %s' % slurm_output_dir)
 	if os.path.isdir(slurm_output_dir) == False:
 		#we must create output directory
 		print('Making slurm output directory at %s' % slurm_output_dir)
@@ -402,8 +415,8 @@ def run_with_slurm(pf_type, config, options, pfcmd, commands, jid):
 		#running in the back ground
 		print('Your %s job has been submitted to slurm with job id %s' % (pf_type, job_id))
 		print('You can check your job status using squeue')
-		print('You can also check job progress by reading your job\'output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
-		print('You must delete the slurm output file at %s' % (slurm_output_dir+('/{}.out').format(job_id)))
+		print('You can also check job progress by reading your job\'s output file at %s' % (slurm_output_dir+('/INT_{}_{}.out').format(jid, job_id)))
+		print('After job completion, you must delete the slurm output file at %s' % (slurm_output_dir+('/INT_{}_{}.out').format(jid, job_id)))
 	else:
 		fg_output(pf_type, config, slurm_output_dir, job_id, jid)
 

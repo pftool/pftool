@@ -28,7 +28,7 @@
 #include "pftool.h"
 #include "ctm.h"
 #include "Path.h"
-
+#include <string.h>
 #include <map>
 #include <string>
 #include <vector>
@@ -823,14 +823,19 @@ int manager(int             rank,
     int                  timer_count = 0; // timer expirations
     struct timeval       now;   // time-of-day when the timer expired
     struct timeval       prev;  // previous expiration
+    double (*get_rate_func)(char *, char *);
 
+    if (strstr(o.rate_limit_record_id, "INT"))
+       get_rate_func = get_default_rate;
+    else
+       get_rate_func = get_rate;
     free_workers = (int *)malloc(nproc * sizeof(int));
     memset(free_workers, 0, nproc * sizeof(int));
 
     // read default bandwidth and estimate how much data(chunks)
     // to dish out
     if (o.rate_limit == 1) {
-      current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+      current_bw = get_rate_func(o.rate_limit_file, o.rate_limit_record_id);
       if (current_bw != 0)
         bytes_to_process = bytes_remain = current_bw * output_timeout * 1LL * 1024 * 1024 * 1024;
       printf("chunk size %llu, bytes_to_process %zu\n", o.chunksize, bytes_remain);
@@ -1237,7 +1242,7 @@ int manager(int             rank,
 				printf("Sent more bytes than should, need to wait\n");
 			}
 			else {
-				current_bw = get_rate(o.rate_limit_file, o.rate_limit_record_id);
+				current_bw = get_rate_func(o.rate_limit_file, o.rate_limit_record_id);
 				if (current_bw != 0) {
 					bytes_to_process = bytes_remain = current_bw * output_timeout * 1ULL * 1024 * 1024 * 1024;
 				}

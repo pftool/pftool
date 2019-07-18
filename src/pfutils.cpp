@@ -2060,6 +2060,29 @@ int check_temporary(PathPtr p_src, path_item* out_node)
    return check_ctm_match(src_to_hash, out_node->path);
 }
 
+
+double get_default_rate(char *rate_limit_file, char *rate_limit_record_id)
+{
+	double rate = 0;
+	std::ifstream fd;
+	std::string line;
+	std::string delim = "=";
+
+	fd.open(rate_limit_file);
+	if (fd.is_open()) {
+		while(getline(fd, line)) {
+			int pos = line.find("default_bw");
+			if (pos != std::string::npos) {
+				pos = line.find(delim);
+				rate = strtod(line.substr(pos+1).c_str(), NULL);
+				break;
+			}
+		}
+	}
+
+	fd.close();
+	return rate;
+}
 /*
  * obtain new max bandwidth for pftool. If rate limit file is not 
  * available, 0 is returned. If record id is not found in the file
@@ -2081,6 +2104,7 @@ double get_rate(char *rate_limit_file, char *rate_limit_record_id)
   fd.open(rate_limit_file);
   printf("file path %s\n", rate_limit_file);
   if (fd.is_open()) {
+
     //now look for our rate specified by rate_limit_record_id
     while(getline(fd, line)) {
       printf("line %s\n", line.c_str());

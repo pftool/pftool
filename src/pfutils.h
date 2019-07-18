@@ -371,6 +371,7 @@ void dequeue_buf_list(work_buf_list **workbuflist, work_buf_list **workbuftail, 
 void delete_buf_list (work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
 //function for rate limiting
+double get_default_rate(char *rate_limit_file, char *rate_limit_record_id);
 double get_rate(char *rate_limit_file, char *rate_limit_record_id);
 size_t get_chunk_size(work_buf_list **workbuflist);
 // functions with signatures that involve C++ Path sub-classes, etc

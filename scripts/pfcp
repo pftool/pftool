@@ -162,7 +162,7 @@ def main():
 
   if with_slurm == True:
     #running with slurm
-    print('Running with slurm')
+    print('Running with slurm\npfcp job name %s' % jid)
     run_with_slurm(pf_type, config, options, pfcmd, commands, jid)
 
   if threaded:								# running in threaded mode on a single node
