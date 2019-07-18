@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# ---------------------------------------------------------------------------
+# This does a simple parameter-sweep for pftool read/write, using different
+# numbers of data-movers (on a single host), exercising both MC and RDMA
+# repos.  If pftool is invoked with '-l', (and erasureUtils was built with
+# --enable-syslog, and MarFS repos or namespaces specify timing_data), then
+# we'll dump timing data to syslog, allowing us to begin analyzing dynamic
+# performance.
+#
+# focused on realistic (non-cached) throughput:
+#    - never read/write the same (campaign) file twice.
+#    - for write-tests, read from a sparse file in /dev/shm
+#    - for read-tests, write to pftool's /dev/null
+#
+#
+# NOTE: redirect the output into a file, so you can run
+#   pftool_read_write_sweep.post_proc on the results.
+#
+# ---------------------------------------------------------------------------
+
+
+
+# --- find MarFS mount-point, and check that fuse is up
+MNT=`marfs_config -t mnt_top`
+stat $MNT > /dev/null 2>&1
+if (( $? )); then
+    echo "need fuse-mount at '$MNT'"
+    exit 1
+else
+    echo "Found fuse-mount: $MNT"
+fi
+
+# --- generate list of MPI hosts, based on HOST_COUNT
+HOST_COUNT=2
+
+DASH_H=
+COMMA=
+for ((i=0; i<HOST_COUNT; ++i)); do
+    DASH_H+="${COMMA}marfs-fta00$((i+1))"
+    COMMA=","
+done
+echo "-H $DASH_H"
+
+HOSTS=`echo "$DASH_H" | sed 's/,/ /g'`
+for H in $HOSTS; do
+    echo "  HOST: $H"
+done
+
+
+# NS_LIST="rdma.timing mc.timing"
+NS_LIST="rdma mc"
+
+# --- validate namespace-list against the MarFS configuration
+NS_ERRS=0
+for NAMESPACE in $NS_LIST; do
+    if [[ `marfs_config -n $NAMESPACE 2>&1` =~ 'not found' ]]; then
+        echo "marfs configuration is missing namespace '$NAMESPACE'"
+        NS_ERRS=1
+    fi
+done
+if (( NS_ERRS )); then
+    exit 1
+fi
+
+
+
+
+# # SIZE=128G
+# SIZE=64G
+
+# 3 runs for each set of parameters
+REPS=3
+
+PFTOOL=`which pftool`
+echo "Using pftool = $PFTOOL"
+
+
+
+# When someone hits ctl-C, don't just skip to the next run.  That would be irritating.
+function handler {
+    echo "quitting ..."
+    exit
+}
+trap handler INT 
+
+
+
+# TBD:
+#
+# # warm-up.  The first read from a given cap-unit seems to be slow, throwing
+# # off the benchmarks.  We do a short transfer to each, just to force
+# # ZFS/disks to wake up.
+#
+# SOME_REPO=`marfs_config -r | head -n 1`
+# N_CAPS=`marfs_config -r $SOME_REPO | grep num_cap | awk '{print $2}'`
+# HOST=`marfs_config -r $SOME_REPO | grep host | grep -v host_ | awk '{print $2}'`
+#
+# for C in `seq 1 $N_CAPS`; do
+#   HOST1=`echo $HOST | sed -e 's/cap%d/cap$C/'`
+#   HOST2=`echo $HOST | sed -e 's|/[a-z_%]*$|/rdma_test%d|'`
+#   libneTest write $HOST2 ...
+
+
+
+for WORKERS in `seq 1 8`; do
+
+    for NAMESPACE in $NS_LIST; do
+
+        if [ "$NAMESPACE" == "rdma" ]; then
+            if (( WORKERS >= 4 )); then
+                SIZE=256G
+            else
+                SIZE=128G
+            fi
+        else
+            SIZE=64G
+        fi
+
+
+        for ACTION in write read; do
+
+            echo
+            echo
+            for I in `seq 1 $REPS`; do
+
+                NP=$((3+WORKERS))
+                TIMESTAMP=`date +"%F_%T"`
+                JOBID=`date +"${ACTION}_${NAMESPACE}_x${WORKERS}_n${I}__${TIMESTAMP}"`
+                FNAME=foo.sparse.$SIZE.$I
+
+                # --- define and prepare source/destination
+                case $ACTION in
+                    (write)
+                        SRC=/dev/shm/$FNAME
+                        DEST=$MNT/$NAMESPACE/jti/$FNAME
+
+                        for H in $HOSTS; do
+                            ssh $H rm -f $SRC
+                            ssh $H truncate -s $SIZE $SRC
+                        done
+                        ;;
+
+                    (read)
+                        SRC=$MNT/$NAMESPACE/jti/$FNAME
+                        DEST=/dev/null/$FNAME
+                        ;;
+                esac
+
+
+                # --- do one run with the given set of parameters
+
+                # COMMAND="mpirun --oversubscribe --allow-run-as-root -x MARFSCONFIGRC --map-by node -np $NP -H localhost $PFTOOL -r -p $SRC -c $DEST -w 0 -l -j $JOBID"
+                COMMAND="mpirun --oversubscribe --allow-run-as-root -x MARFSCONFIGRC --map-by node -np $NP -H $DASH_H $PFTOOL -r -p $SRC -c $DEST -w 0  -j $JOBID"
+
+
+                echo
+                echo "--- [$I] x$WORKERS (${HOST_COUNT}FTA) $ACTION $NAMESPACE $SRC -> $DEST"
+                echo $COMMAND
+
+                # eval $COMMAND | grep FOOTER | grep Rate: | awk '{print $(NF-1), $NF}'
+                # eval $COMMAND | grep FOOTER
+                eval $COMMAND
+
+            done
+        done
+    done
+done
+

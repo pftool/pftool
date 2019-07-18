@@ -1,0 +1,37 @@
+#!/bin/bash
+
+
+# redirect the output of this into some file (e.g.foo.dat)
+# then run gnuplot commands something like this:
+#
+#   set title "pftool parameter-sweep ..."
+#   set xlabel "pftool data-moving ranks (i.e. '-np' - 3)"
+#   set ylabel "MB/s"
+#   plot [0.5:8.5][] for [IDX=0:3] 'foo.dat' i IDX u 2:3:4:5 w errorbars title columnheader(1)
+
+
+
+if (( $# != 1 )); then
+    echo "Usage: $0 <filename>"
+    echo
+    echo "   where <filename> contains output from pftool runs executed by pftool_read_write_sweep"
+    exit -1
+fi
+FNAME=$1
+
+cat $FNAME \
+    | sed 's/_n/ n/' \
+    | awk '/HEADER   ==/{name=$4} /Data Rate/{printf("%-50s %s\n", name, $5)}' \
+    | sed 's/_x/ /' \
+    | awk '($1!=prev) { if (prev) { printf("%s %d %f %d %d\n", name, np, sum/count, min, max); }
+                        name=$1; np=$2; sum=$3;
+                        min=sum; max=sum; count=1; prev=$1;
+                        next; }
+           { sum+=$3; count+=1; if ($3>max){max=$3}; if ($3<min){min=$3} }
+           END { printf("%s %d %f %d %d\n", name, np, sum/count, min, max); }' \
+    | column -t \
+    | sort \
+    | awk '($1!=prev) { if (prev) {printf("\n\n")}; printf("%s\n", $1); prev=$1; }
+           {print}'
+
+
