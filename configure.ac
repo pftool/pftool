@@ -88,15 +88,15 @@ AS_IF([test x$enable_CTM == xxattrs],
       [AC_MSG_ERROR([Usage: --enable-CTM=@<:@ {xattrs|files|no| }@:>@ ]) ])
 
 
-### AM_PROG_CC_C_O
-AC_PROG_CXX_C_O
-#works with 2.6 and above
-#AC_PROG_CC_C99
-
-m4_pattern_allow([AM_PROG_AR])
-m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
-AC_PROG_LIBTOOL
-AC_CONFIG_MACRO_DIR([m4])
+# ### AM_PROG_CC_C_O
+# AC_PROG_CXX_C_O
+# #works with 2.6 and above
+# #AC_PROG_CC_C99
+# 
+# m4_pattern_allow([AM_PROG_AR])
+# m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
+# AC_PROG_LIBTOOL
+# AC_CONFIG_MACRO_DIR([m4])
 
 
 # checks for header files.
@@ -106,6 +106,12 @@ AS_IF([test x$enable_s3 == xyes],
 )
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
+)
+AS_IF([test x$enable_s3 == xyes  ||  test x$enable_marfs == xyes], [
+  PKG_CHECK_MODULES(AWSXML, libxml-2.0)
+  AC_SUBST(AWSXML_CFLAGS)
+  AC_SUBST(AWSCML_LIBS)
+  ]
 )
 
 # # check for adequate mpi support
