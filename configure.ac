@@ -88,17 +88,6 @@ AS_IF([test x$enable_CTM == xxattrs],
       [AC_MSG_ERROR([Usage: --enable-CTM=@<:@ {xattrs|files|no| }@:>@ ]) ])
 
 
-# ### AM_PROG_CC_C_O
-# AC_PROG_CXX_C_O
-# #works with 2.6 and above
-# #AC_PROG_CC_C99
-# 
-# m4_pattern_allow([AM_PROG_AR])
-# m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
-# AC_PROG_LIBTOOL
-# AC_CONFIG_MACRO_DIR([m4])
-
-
 # checks for header files.
 AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
 AS_IF([test x$enable_s3 == xyes],
