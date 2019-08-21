@@ -53,11 +53,11 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
-__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags)
+__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
-__top_builddir__bin_pftool_LDFLAGS  = $(generic_ldflags) $(supportlib_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags)
+__top_builddir__bin_pftool_LDFLAGS  = $(generic_ldflags) $(supportlib_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags) @AWSXML_LIBS@
 
 
 
