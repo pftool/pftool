@@ -79,7 +79,7 @@ int populateCTA(CTM *ctmptr, long numchunks, size_t chunksize) {
 	if((axist = getxattr(ctmptr->chnkfname, CTA_CHNKNUM_XATTR, (void *)&anumchunks, sizeof(long))) < 0) {
 	  int syserr = errno;						// preserve errno
 
-	  if(syserr == ENOATTR) {					// no xattr for chnknum exists for file
+	  if(syserr == ENODATA) {					// no xattr for chnknum exists for file
 	    anumchunks = numchunks;					// use the parameters passed in
 	    achunksize = chunksize;
 	  }
@@ -192,15 +192,15 @@ int foundCTA(const char *transfilename) {
 
 									// testing for number of chunks xattr (and making sure file exists)
 	if((rc=getxattr(transfilename, CTA_CHNKNUM_XATTR, nullbuf, 0)) <= 0) {
-	  if(!rc || errno == ENOENT || errno == ENOATTR || errno == ENOTSUP) return(FALSE);
+	  if(!rc || errno == ENOENT || errno == ENODATA || errno == ENOTSUP) return(FALSE);
 	}
 									// testing for chunk size xattr
 	if((rc=getxattr(transfilename, CTA_CHNKSZ_XATTR, nullbuf, 0)) <= 0) {
-	  if(!rc || errno == ENOATTR) return(FALSE);
+	  if(!rc || errno == ENODATA) return(FALSE);
 	}
 									// testing for chunk flags xattr
 	if((rc=getxattr(transfilename, CTA_CHNKFLAGS_XATTR, nullbuf, 0)) <= 0) {
-	  if(!rc || errno == ENOATTR) return(FALSE);
+	  if(!rc || errno == ENODATA) return(FALSE);
 	}
 	return(TRUE);
 }
