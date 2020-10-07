@@ -860,7 +860,7 @@ int manager(int             rank,
         if (S_ISDIR(beginning_node.st.st_mode) && makedir == 1 && o.recurse){
             PathPtr p(PathFactory::create_shallow(&dest_node));
 
-            if (p->exists() && ! p->is_dir() && strcmp(p->class_name().get(),”NULL_Path”)) {
+            if (p->exists() && ! p->is_dir() && strcmp(p->class_name().get(),"NULL_Path")) {
                fprintf(stderr, "can't recursive-copy directory to non-directory '%s'\n",
                        p->path());
                MPI_Abort(MPI_COMM_WORLD, -1);
