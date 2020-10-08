@@ -436,7 +436,7 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
        free((void*)path_slice);
 
 
-    if ((rename_flag == 1) && (src_node->packable == 0)) {
+    if ((rename_flag == 1) && (src_node->packable == 0) && strcmp(dest_node->path,"/dev/null")) {
        //need to create temporary file name
 
        // assure there is room
@@ -531,7 +531,7 @@ int copy_file(PathPtr       p_src,
 
         ////        rc = symlink(link_path, dest_file->path);
         ////        if (rc < 0)
-        if (! p_dest->symlink(link_path)) {
+        if (! p_dest->symlink(link_path) && strcmp(p_dest->class_name().get(),"NULL_Path")) {
            errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s", p_dest->path(), link_path);
            return -1;
         }
