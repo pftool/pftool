@@ -970,11 +970,17 @@ int update_stats(PathPtr      p_src,
 
     // if running as root, always update <dest_file> owner  (without following links)
     // non-root user can also attempt this, by setting "preserve" (with -o)
-    if (0 == geteuid() || o.preserve) {
-       if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
-          errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
-                      p_dest->path(), p_dest->strerror());
-       }
+    if (0 == geteuid()) {
+        if (! p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid)) {
+            errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
+                        p_dest->path(), p_dest->strerror());
+        }
+    }
+    else if (o.preserve) {
+    	if (! p_dest->lchown(geteuid(), p_src->st().st_gid)) {
+            errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership %s: %s\n",
+                        p_dest->path(), p_dest->strerror());
+        }
     }
 
     // ignore symlink destinations
