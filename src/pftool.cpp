@@ -2028,6 +2028,23 @@ void worker_readdir(int         rank,
                     errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n", 
                                 p_dir->class_name().get(), p_dir->path());
                 }
+                
+                // if running as root, always update destination dir with original ownership
+                // non-root user can also attempt this, by setting "preserve" (with -o)
+                PRINT_IO_DEBUG("Creating dir (%s) for input dir (%s) with perms (%d) and gid (%d)\n", 
+                               p_dir->path(), p_work->path(), p_work->node().st.st_mode, p_work->node().st.st_gid);
+                if (geteuid() == 0) {
+                    if (! p_dir->lchown(p_work->node().st.st_uid, p_work->node().st.st_gid)) {
+                         errsend_fmt(NONFATAL, "update_stats -- Failed to chown dir %s: %s\n",
+                                    p_dir->path(), p_dir->strerror());
+                    }
+                }
+                else if (o.preserve) {
+                    if (! p_dir->lchown(geteuid(), p_work->node().st.st_gid)) {
+                        errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership %s: %s\n",
+                                    p_dir->path(), p_dir->strerror());
+                    }
+                }
             }
             strncpy(path, p_work->path(), PATHSIZE_PLUS);
 
