@@ -447,7 +447,12 @@ void get_output_path(path_item*        out_node, // fill in out_node.path
        remain -= DATE_STRING_MAX +1;
 
        strcat(out_node->path, "+");
-       strcat(out_node->path, src_node->timestamp);
+
+       // construct temp-file pathname
+       time_t mtime = src_node->st.st_mtime;
+       char timestamp[DATE_STRING_MAX];
+       epoch_to_string(timestamp, DATE_STRING_MAX, &mtime);
+       strcat(out_node->path, timestamp);
     }
 
     out_node->path[PATHSIZE_PLUS -1] = 0;
@@ -1012,7 +1017,7 @@ int update_stats(PathPtr      p_src,
                    p_dest->path(), p_dest->strerror());
     }
    
-    if(!p_src->get_packable()) {
+    if(!p_src->get_packable() && p_src->st_size >= o.chunk_at) {
        const char* plus_sign = strrchr((const char*)p_dest->path(), '+');
        if (plus_sign) {
           size_t  p_dest_orig_len = plus_sign - p_dest->path();
@@ -1916,7 +1921,7 @@ int check_temporary(PathPtr p_src, path_item* out_node)
       return rc;
 
    snprintf(src_to_hash, PATHSIZE_PLUS, "%s+%s", p_src->path(), src_mtime_str);
-   // src_to_hash[PATHSIZE_PLUS -1] = 0; /* no need for this */
+    src_to_hash[PATHSIZE_PLUS -1] = 0; /* no need for this */
 
    return check_ctm_match(src_to_hash, out_node->path);
 }

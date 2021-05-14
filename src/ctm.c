@@ -597,7 +597,7 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 			ret = -1;                // errno is set
 
 		//write out temporary file's timestamp stored in p_src
-		else if(write_field(fd, p_src->get_timestamp(), DATE_STRING_MAX) < 0)
+		else if(write_field(fd, src_mtime, DATE_STRING_MAX) < 0)
 			ret = -1;                // errno is set
 
 		if (fsync(fd) < 0)

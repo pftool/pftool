@@ -2196,11 +2196,11 @@ int maybe_pre_process(int                   pre_process,
       char  timestamp_plus[DATE_STRING_MAX +1];
       char* timestamp = &timestamp_plus[1];
       timestamp_plus[0] = '+';
+      time_t mtime = p_work->mtime();
 
-      strncpy(timestamp, p_work->get_timestamp(), DATE_STRING_MAX);
-      if (timestamp[DATE_STRING_MAX -1]) {
-         errsend_fmt(FATAL, "unexpected timestamp value\n");
-      }
+      // construct source mtime stamp
+      epoch_to_string(timestamp, DATE_STRING_MAX, &mtime);
+      timestamp[DATE_STRING_MAX - 1] = '\0';
 
       // initializations ...
       PathPtr p_temp(p_out->path_append(timestamp_plus));
@@ -2215,7 +2215,7 @@ int maybe_pre_process(int                   pre_process,
                         p_temp->path(), strerror(errno));
 
          // CTM is obsolete
-         /// printf("purging CTM\n");
+         /// printf("purging CTM for path: %s\n", p_out->path());
          purgeCTM(p_out->path());
       }
 
@@ -2591,13 +2591,15 @@ void process_stat_buffer(path_item*      path_buffer,
                    }
                    else if (dest_exists == 3) {
                       // src-file mis-match w/ CTM
+		      PathPtr p_temp(p_out->path_append(timestamp_plus));
                       if (o.verbose >= 1) {
-                         PathPtr p_temp(p_out->path_append(timestamp_plus));
                          output_fmt(1,
                                     "INFO  DATASTAT -- Removing old temp-file "
                                     "with mismatching src-hash: %s\n",
                                     p_temp->path());
                       }
+		      purgeCTM(p_out->path());
+		      p_temp->unlink();
                       do_unlink   = 1;
                       pre_process = 2; // we'll write to temp-file
                    }
