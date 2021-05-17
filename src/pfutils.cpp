@@ -1017,7 +1017,7 @@ int update_stats(PathPtr      p_src,
                    p_dest->path(), p_dest->strerror());
     }
    
-    if(!p_src->get_packable() && p_src->st_size >= o.chunk_at) {
+    if(!p_src->get_packable() && p_src->st().st_size >= o.chunk_at) {
        const char* plus_sign = strrchr((const char*)p_dest->path(), '+');
        if (plus_sign) {
           size_t  p_dest_orig_len = plus_sign - p_dest->path();
