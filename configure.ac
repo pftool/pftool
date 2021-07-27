@@ -30,6 +30,10 @@ AC_ARG_ENABLE(marfs,
    AS_HELP_STRING([  --enable-marfs], [enable marfs support]))
 AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
 
+AC_ARG_ENABLE(old_marfs,
+   AS_HELP_STRING([  --enable-old_marfs], [enable old_marfs support]))
+AM_CONDITIONAL([OLD_MARFS], [test x$enable_old_marfs = xyes])
+
 AC_ARG_ENABLE(gprof,
    AS_HELP_STRING([  --enable-gprof], [enable run-time profiling with gprof]))
 AM_CONDITIONAL([GPROF], [test x$enable_gprof = xyes])
@@ -94,9 +98,12 @@ AS_IF([test x$enable_s3 == xyes],
   [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
 )
 AS_IF([test x$enable_marfs == xyes],
+  [AC_CHECK_HEADERS([marfs.h])]
+)
+AS_IF([test x$enable_old_marfs == xyes],
   [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
 )
-AS_IF([test x$enable_s3 == xyes  ||  test x$enable_marfs == xyes], [
+AS_IF([test x$enable_s3 == xyes  ||  test x$enable_old_marfs == xyes], [
   PKG_CHECK_MODULES(AWSXML, libxml-2.0)
   AC_SUBST(AWSXML_CFLAGS)
   AC_SUBST(AWSCML_LIBS)
@@ -106,7 +113,7 @@ AS_IF([test x$enable_s3 == xyes  ||  test x$enable_marfs == xyes], [
 # # check for adequate mpi support
 # AS_IF([test x$enable_threads != xyes],
 # [AC_MSG_CHECKING([if $CXX can compile MPI applications])])
-# 
+#
 # AS_IF([test x$enable_threads != xyes],
 # [AC_LINK_IFELSE([
 #     AC_LANG_PROGRAM(
@@ -130,6 +137,12 @@ AC_CHECK_LIB([rt], [timer_settime])
 # NOTE: each test *prepends* its library to LIBS, so test for the
 #       depended-on libs before the libs that depend on them.
 AS_IF([test x"$enable_marfs" == xyes],
+   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
+   AC_CHECK_LIB([isal], [ec_encode_data])
+   AC_CHECK_LIB([marfs], [marfs_init])
+  ])
+
+AS_IF([test x"$enable_old_marfs" == xyes],
   [AC_CHECK_LIB([crypto], [MD5_Init])
    AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
@@ -167,7 +180,7 @@ AC_CONFIG_FILES([Makefile
 
 AC_OUTPUT
 
-# let the user know the configuration 
+# let the user know the configuration
 
 cat << EOF
 
