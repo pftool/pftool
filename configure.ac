@@ -130,7 +130,7 @@ AC_CHECK_LIB([mpi], [MPI_Abort],
              [AC_MSG_ERROR([$CXX cannot compile MPI applications. Cannot continue.])] )
 # ])
 
-AC_CHECK_LIB([crypto], [MD5_Final])
+AC_CHECK_LIB([crypto], [EVP_DigestFinal])
 AC_CHECK_LIB([rt], [timer_settime])
 
 # checks for libraries.
@@ -143,7 +143,7 @@ AS_IF([test x"$enable_marfs" == xyes],
   ])
 
 AS_IF([test x"$enable_old_marfs" == xyes],
-  [AC_CHECK_LIB([crypto], [MD5_Init])
+  [AC_CHECK_LIB([crypto], [EVP_DigestInit_ex])
    AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])

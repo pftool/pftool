@@ -11,44 +11,45 @@
 *DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY OWNED RIGHTS.
 */
 
-
 //
 // Defines for the Digital Signature implementation
 //
 
-#ifndef	__SIG_H
+#ifndef __SIG_H
 #define __SIG_H
 
 #include <stdint.h>
 
-#if defined(__APPLE__)					// need to test an apple build ... cds 03/2018
-#  define COMMON_DIGEST_FOR_OPENSSL
-#  include <CommonCrypto/CommonDigest.h>
-#  define SHA1 CC_SHA1
+#if defined(__APPLE__) // need to test an apple build ... cds 03/2018
+#define COMMON_DIGEST_FOR_OPENSSL
+#include <CommonCrypto/CommonDigest.h>
+#define SHA1 CC_SHA1
 
-typedef MD5_CTX SigCTX;					// If we are on a mac, then only use MD5
+typedef MD5_CTX SigCTX; // If we are on a mac, then only use MD5
 
-#  define SIG_DIGEST_LENGTH	(MD5_DIGEST_LENGTH)
+#define SIG_DIGEST_LENGTH (MD5_DIGEST_LENGTH)
 
-#  define SigInit(C)		( MD5_Init(C) )
-#  define SigUpdate(C,D,L)	( MD5_Update(C,D,L) )
-#  define SigFinal(D,C)		( MD5_Final(D,C) )
+#define SigInit(C) (MD5_Init(&C))
+#define SigUpdate(C, D, L) (MD5_Update(&C, D, L))
+#define SigFinal(D, C) (MD5_Final(D, &C))
 
-#else 							// Default to MD5
+#else // Default to MD5
 
-#  include <openssl/md5.h>
+#include <openssl/evp.h>
 
-typedef MD5_CTX SigCTX;
+typedef EVP_MD_CTX SigCTX;
 
-#  define SIG_DIGEST_LENGTH	(MD5_DIGEST_LENGTH)
+#define new_SigCTX() (EVP_MD_CTX_new())
 
-#  define SigInit(C)		( MD5_Init(C) )
-#  define SigUpdate(C,D,L)	( MD5_Update(C,D,L) )
-#  define SigFinal(D,C)		( MD5_Final(D,C) )
+#define SIG_DIGEST_LENGTH (EVP_MD_size(EVP_md5()))
+
+#define SigInit(C) (EVP_DigestInit_ex(C, EVP_md5(), NULL))
+#define SigUpdate(C, D, L) (EVP_DigestUpdate(C, D, L))
+#define SigFinal(D, C) (EVP_DigestFinal(C, D, NULL))
 
 #endif // Signature Implenetation
 
-#define SIG_COMPUTE_CHUNK	512			// could be bigger! - cds 03/2018
+#define SIG_COMPUTE_CHUNK 512 // could be bigger! - cds 03/2018
 
 // Function Declarations
 unsigned char *signature(const uint8_t *buf, const size_t buflen);
