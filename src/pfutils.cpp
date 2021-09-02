@@ -1534,10 +1534,6 @@ int stat_item(path_item *work_node, struct options &o)
             work_node->ftype = MARFSFILE;
             got_type = true;
         }
-        else
-        {
-            return -1;
-        }
     }
 #endif
 

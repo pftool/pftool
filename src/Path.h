@@ -772,6 +772,7 @@ public:
    {
       _rc = rc;
       _errno = err_no;
+      return 0;
    }
 
    // like POSIX access().  Return true if accessible in given mode
@@ -793,7 +794,7 @@ public:
    // This allows MARFS_Path to support N-to-1, for pftool.
    virtual bool open(int flags, mode_t mode, size_t offset, size_t length)
    {
-      open(flags, mode); // default is to ignore <offset> and <length>
+      return open(flags, mode); // default is to ignore <offset> and <length>
    }
 
    // read/write to/from caller's buffer
@@ -1139,15 +1140,13 @@ public:
       if (d > 0)
       {
          strncpy(path, d->d_name, size);
-         return true;
       }
-      else if (d == 0) // EOF
-         return true;
       else if (d < 0)
       {
          _errno = errno;
          return bool(_errno == 0);
       }
+      return true;
    }
 
    virtual ssize_t write(char *buf, size_t count, off_t offset)
@@ -1296,7 +1295,7 @@ public:
    // reading with bs=10G has poor load-balancing for small-ish files.
    virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size)
    {
-#if defined(MARFS) || defined(OLD_MARFS)
+#ifdef OLD_MARFS
       return ((1024 * 1024 * 1024) - MARFS_REC_UNI_SIZE); // M_R_U_S == 2943
 #else
       return (1024 * 1024 * 1024);
@@ -1928,9 +1927,9 @@ public:
 
 #include <linux/limits.h>
 
-extern marfs_fhandle packedFh;
+static marfs_fhandle packedFh = NULL;
 
-extern marfs_ctxt ctxt;
+static marfs_ctxt ctxt = NULL;
 
 class MARFS_Path : public Path
 {
@@ -2000,7 +1999,7 @@ public:
 
       if (dh)
       {
-         marfs_close(dh);
+         marfs_closedir(dh);
       }
    }
 
@@ -2009,10 +2008,10 @@ public:
       off_t offset;
       size_t size;
 
-      if (marfs_chunkbounds(fh, 0, offset, size))
+      if (marfs_chunkbounds(fh, 0, &offset, &size))
       {
          _rc = -1;
-         _erno = errno;
+         _errno = errno;
          return -1;
       }
 
@@ -2052,7 +2051,7 @@ public:
          return false;
       }
 
-      if (_rc = marfs_extend(handle, src->st().st_size) || _rc = marfs_release(handle))
+      if ((_rc = marfs_extend(handle, src->st().st_size)) || (_rc = marfs_release(handle)))
       {
          _errno = errno;
          marfs_close(handle);
@@ -2274,7 +2273,7 @@ public:
    // see comments at Path::rename()
    virtual bool rename(const char *new_path)
    {
-      if (_rc = marfs_rename(ctxt, path(), newpath))
+      if (_rc = marfs_rename(ctxt, path(), new_path))
       {
          _errno = errno;
       }
@@ -2337,6 +2336,10 @@ public:
    // TBD: See opendir()
    virtual bool readdir(char *path, size_t size)
    {
+      if (size)
+      {
+         path[0] = 0;
+      }
       struct dirent *d = marfs_readdir(dh);
       unset(DID_STAT);
       if (d > 0)
@@ -2398,12 +2401,13 @@ public:
    // marfs_readlink(), unlike POSIX readlink(), does currently add final '\0'
    virtual ssize_t readlink(char *buf, size_t bufsiz)
    {
-      if (_rc = marfs_readlink(cctxt, path(), buf, bufsiz))
+      ssize_t count = marfs_readlink(ctxt, path(), buf, bufsiz);
+      if (-1 == count)
       {
+         _rc = -1; // we need an _rc_ssize
          _errno = errno;
       }
-      unset(DID_STAT);
-      return (_rc == 0);
+      return count;
    }
 
    virtual bool symlink(const char *link_name)
@@ -2416,7 +2420,7 @@ public:
       return (_rc == 0);
    }
 
-   int lstat(char *path, struct stat *buf)
+   static int lstat(char *path, struct stat *buf)
    {
       return marfs_lstat(ctxt, path, buf);
    }
@@ -2449,9 +2453,9 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
 
 int marfs_readdir_wrapper(marfs_dirp_t *dir, const char *path, MarFS_DirHandle *ffi);
 
-extern MarFS_FileHandle packedFh;
-extern bool packedFhInitialized;
-extern bool packedFhInUse;
+extern MarFS_FileHandle packed_FileHandle;
+extern bool packed_FileHandle_Initialized;
+extern bool packed_FileHandle_InUse;
 
 extern std::vector<path_item> packedPaths;
 
@@ -2512,9 +2516,9 @@ protected:
       memset(&fh, 0, sizeof(MarFS_FileHandle));
       memset(&dh, 0, sizeof(MarFS_DirHandle));
 
-      if (!packedFhInitialized)
+      if (!packed_FileHandle_Initialized)
       {
-         memset(&packedFh, 0, sizeof(MarFS_FileHandle));
+         memset(&packed_FileHandle, 0, sizeof(MarFS_FileHandle));
       }
 
       unset(DID_STAT);
@@ -2907,9 +2911,9 @@ public:
       // if offset is zero we will try to open the file in packed mode. if we
       // get an error we will revert to regular mode
       rc = ENOTPACKABLE;
-      if (!packedFhInUse && 0 == _open_offset)
+      if (!packed_FileHandle_InUse && 0 == _open_offset)
       {
-         rc = marfs_open_packed(marPath, &packedFh, flags, _open_size);
+         rc = marfs_open_packed(marPath, &packed_FileHandle, flags, _open_size);
          if (EFHFULL == rc)
          {
             // clear up the file handle
@@ -2938,13 +2942,13 @@ public:
          fprintf(stderr, "marfs_open_packed failed\n");
          fflush(stderr);
          _rc = rc;
-         set_err_string(errno, &packedFh.os.iob);
+         set_err_string(errno, &packed_FileHandle.os.iob);
          return false;
       }
       else
       {
-         packedFhInitialized = true;
-         packedFhInUse = true;
+         packed_FileHandle_Initialized = true;
+         packed_FileHandle_InUse = true;
          usePacked = true;
          _open_offset = 0;
          _open_size = 0;
@@ -3017,8 +3021,8 @@ public:
 
       if (usePacked)
       {
-         whichFh = &packedFh;
-         packedFhInUse = false;
+         whichFh = &packed_FileHandle;
+         packed_FileHandle_InUse = false;
          usePacked = false;
          packed = 1;
       }
@@ -3079,20 +3083,20 @@ public:
       size_t packedPathsCount;
 
       //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
-      if (packedFhInitialized)
+      if (packed_FileHandle_Initialized)
       {
-         rc = marfs_release_fh(&packedFh);
-         packedFhInitialized = false;
+         rc = marfs_release_fh(&packed_FileHandle);
+         packed_FileHandle_Initialized = false;
       }
 
       //send time info back to manager
-      if (packedFh.repo_name[0])
-         OLD_MARFS_Path::send_timing_data(&packedFh);
+      if (packed_FileHandle.repo_name[0])
+         OLD_MARFS_Path::send_timing_data(&packed_FileHandle);
 
       // wipe the static filehandle we've been using to track across
       // "open"/"close", in order to allow us to write multiple files
       // through it.
-      memset(&packedFh, 0, sizeof(MarFS_FileHandle));
+      memset(&packed_FileHandle, 0, sizeof(MarFS_FileHandle));
 
       if (0 != rc)
       {
@@ -3241,7 +3245,7 @@ public:
 
       if (usePacked)
       {
-         whichFh = &packedFh;
+         whichFh = &packed_FileHandle;
          // we need to correct the offset to account for previous files in the
          // object
          offset = whichFh->os.written - whichFh->write_status.sys_writes;
@@ -3437,7 +3441,7 @@ public:
 #endif
 
 #ifdef MARFS
-      ctxt = marfs_init(MARFS_CONFIG_PATH, MARFS_PFTOOL);
+      ctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_PFTOOL);
       packedFh = NULL;
 #endif
 

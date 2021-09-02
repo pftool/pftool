@@ -1379,7 +1379,7 @@ int manager(int rank,
     if (o.work_type == LSWORK)
     {
         human_readable(human_val, BUF_SIZE, examined_byte_count);
-        sprintf(message, "INFO  FOOTER   Total Data Examined:        %10sB\n", human_val);
+        sprintf(message, "INFO  FOOTER   Total Data Examined:    %10sB\n", human_val);
         write_output(message, 1);
     }
 
@@ -1415,7 +1415,7 @@ int manager(int rank,
             write_output(message, 1);
 
             human_readable(human_val, BUF_SIZE, num_copied_bytes);
-            sprintf(message, "INFO  FOOTER   Total Data Different:       %10sB\n", human_val);
+            sprintf(message, "INFO  FOOTER   Total Data Different:   %10sB\n", human_val);
             write_output(message, 1);
         }
     }

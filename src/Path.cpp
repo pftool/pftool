@@ -520,9 +520,9 @@ int marfs_readdir_wrapper(marfs_dirp_t *dir, const char *path, MarFS_DirHandle *
    }
 }
 
-bool packedFhInitialized = false;
-bool packedFhInUse = false;
-MarFS_FileHandle packedFh;
+bool packed_FileHandle_Initialized = false;
+bool packed_FileHandle_InUse = false;
+MarFS_FileHandle packed_FileHandle;
 
 std::vector<path_item> packedPaths;
 
