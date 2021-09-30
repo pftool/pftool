@@ -29,9 +29,21 @@ typedef MD5_CTX SigCTX; // If we are on a mac, then only use MD5
 
 #define SIG_DIGEST_LENGTH (MD5_DIGEST_LENGTH)
 
-#define SigInit(C) (MD5_Init(&C))
-#define SigUpdate(C, D, L) (MD5_Update(&C, D, L))
-#define SigFinal(D, C) (MD5_Final(D, &C))
+#define SigInit(C) (MD5_Init(C))
+#define SigUpdate(C, D, L) (MD5_Update(C, D, L))
+#define SigFinal(D, C) (MD5_Final(D, C))
+
+#elseif USE_DEPRECATED_CRYPTO // Use libcrypto's deprecated interface
+
+#include <openssl/md5.h>
+
+typedef MD5_CTX SigCTX;
+
+#define SIG_DIGEST_LENGTH (MD5_DIGEST_LENGTH)
+
+#define SigInit(C) (MD5_Init(C))
+#define SigUpdate(C,D,L) (MD5_Update(C,D,L))
+#define SigFinal(D,C) (MD5_Final(D,C))
 
 #else // Default to MD5
 

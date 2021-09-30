@@ -130,8 +130,12 @@ AC_CHECK_LIB([mpi], [MPI_Abort],
              [AC_MSG_ERROR([$CXX cannot compile MPI applications. Cannot continue.])] )
 # ])
 
-AC_CHECK_LIB([crypto], [EVP_DigestFinal])
+AC_CHECK_LIB([crypto], [EVP_DigestFinal], [],
+             [AC_CHECK_LIB([crypto], [MD5_Final], [AC_DEFINE([USE_DEPRECATED_CRYPTO], [1], [use deprecated libcrypto interface])],
+                           [AC_ERROR([could not find libcrypto])])])
+
 AC_CHECK_LIB([rt], [timer_settime])
+
 
 # checks for libraries.
 # NOTE: each test *prepends* its library to LIBS, so test for the
@@ -143,8 +147,7 @@ AS_IF([test x"$enable_marfs" == xyes],
   ])
 
 AS_IF([test x"$enable_old_marfs" == xyes],
-  [AC_CHECK_LIB([crypto], [EVP_DigestInit_ex])
-   AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
+  [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
    AC_CHECK_LIB([curl], [curl_easy_cleanup])
    AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
    AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
@@ -160,6 +163,7 @@ AS_IF([test x"$enable_old_marfs" == xyes],
    AC_CHECK_LIB([marfs], [mc_put], [],
                 [AC_CHECK_LIB([marfs], [marfs_open], [],
                               [AC_ERROR([could not find libmarfs])])])
+   #AC_CHECK_LIB([crypto], [EVP_DigestInit_ex])
   ])
 
 # checks for typedefs, structures, and compiler characteristics.

@@ -25,8 +25,9 @@
 unsigned char *signature(const uint8_t *buf, const size_t buflen)
 {
     int rc;
-#if defined(__APPLE__)
-    SigCTX c; // signature context structure
+#if defined(__APPLE__) || defined(USE_DEPRECATED_CRYPTO)
+    SigCTX ctx; // signature context structure
+    SigCTX *c = &ctx;
 #else
     SigCTX *c = new_SigCTX();
 #endif

@@ -22,7 +22,6 @@ __top_builddir__bin_pftool_SOURCES = \
   debug.h \
   cta.c ctf.c ctm.c ctm.h \
   hashtbl.c hashtbl.h hashdataCTM.c hashdataCTM.h\
-  marfs.c marfs.h \
   str.c str.h \
   sig.c sig.h \
   pfutils.cpp pfutils.h \
@@ -40,6 +39,7 @@ if S3
 endif
 
 if MARFS
+  __top_builddir__bin_pftool_SOURCES += marfs.c marfs.h
   marfs_cflags=-DMARFS
   marfs_ldflags=-lisal
 endif
