@@ -130,9 +130,10 @@ AC_CHECK_LIB([mpi], [MPI_Abort],
              [AC_MSG_ERROR([$CXX cannot compile MPI applications. Cannot continue.])] )
 # ])
 
-AC_CHECK_LIB([crypto], [EVP_DigestFinal], [],
-             [AC_CHECK_LIB([crypto], [MD5_Final], [AC_DEFINE([USE_DEPRECATED_CRYPTO], [1], [use deprecated libcrypto interface])],
-                           [AC_ERROR([could not find libcrypto])])])
+AC_CHECK_LIB([crypto], [EVP_MD_CTX_new], [], [
+   AC_DEFINE([USE_DEPRECATED_CRYPTO], [1], [use deprecated libcrypto interface])
+   AC_CHECK_LIB([crypto], [MD5_Init], [], [AC_ERROR([could not find libcrypto])])
+])
 
 AC_CHECK_LIB([rt], [timer_settime])
 

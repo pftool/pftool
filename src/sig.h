@@ -15,6 +15,7 @@
 // Defines for the Digital Signature implementation
 //
 
+#include <config.h>
 #ifndef __SIG_H
 #define __SIG_H
 
@@ -33,7 +34,7 @@ typedef MD5_CTX SigCTX; // If we are on a mac, then only use MD5
 #define SigUpdate(C, D, L) (MD5_Update(C, D, L))
 #define SigFinal(D, C) (MD5_Final(D, C))
 
-#elseif USE_DEPRECATED_CRYPTO // Use libcrypto's deprecated interface
+#elif defined(USE_DEPRECATED_CRYPTO) // Use libcrypto's deprecated interface
 
 #include <openssl/md5.h>
 
