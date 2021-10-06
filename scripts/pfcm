@@ -60,8 +60,8 @@ def main():
 
   base_dest_name = os.path.dirname(dest)
   if base_dest_name and not os.path.exists(base_dest_name):
-   parser.error("%s - No such file or directory"%(dest)) 
-  
+   parser.error("%s - No such file or directory"%(dest))
+
   #for i in src:
   #  if not os.path.exists(i):
   #    parser.error("cannot stat '%s': No such file or directory"%(i))
@@ -140,7 +140,8 @@ def main():
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by","node")
     # Export marfs config env var to all procs
-    pfcmd.add("-x","MARFSCONFIGRC")
+    if os.environ["MARFSCONFIGRC"]:
+        pfcmd.add("-x","MARFSCONFIGRC")
     random.shuffle(host_list)
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
@@ -151,7 +152,7 @@ def main():
 
   host = gethostname()
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  
+
   if logging:
     write_log("[pfcm] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
     write_log("[pfcm] [%s] CMD %s"%(jid, pfcmd))
@@ -163,7 +164,7 @@ def main():
     if logging:
       write_log("[pfcm] [%s] PFCM failed."%(jid), LOG_ERR)
 
-  
+
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   if logging:
     write_log("[pfcm] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))

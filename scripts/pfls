@@ -90,7 +90,7 @@ def main():
       host_list = map(lambda x: x[0].lower(), filter(lambda x: x[1] == "ON", config.items("active_nodes")))
     except:
       parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
-      
+
     pfcmd.add(mpigo)
     mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
     pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
@@ -103,20 +103,21 @@ def main():
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by","node")
     # Export marfs config env var to all procs
-    pfcmd.add("-x","MARFSCONFIGRC")
+    if os.environ["MARFSCONFIGRC"]:
+        pfcmd.add("-x","MARFSCONFIGRC")
     random.shuffle(host_list)
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
     pfcmd.add(pftool)
-    
+
 
   pfcmd.add(*commands.commands)
 
   host = gethostname()
 
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  
+
   if logging:
     write_log("[pfls] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
     write_log("[pfls] [%s] CMD %s"%(jid, pfcmd))
@@ -128,7 +129,7 @@ def main():
     if logging:
       write_log("[pfls] [%s] PFLS failed."%(jid), LOG_ERR)
 
-  
+
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   if logging:
     write_log("[pfls] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
