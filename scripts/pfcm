@@ -140,7 +140,7 @@ def main():
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by","node")
     # Export marfs config env var to all procs
-    if os.environ["MARFSCONFIGRC"]:
+    if "MARFSCONFIGRC" in os.environ:
         pfcmd.add("-x","MARFSCONFIGRC")
     random.shuffle(host_list)
     if "all" not in host_list:
