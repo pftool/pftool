@@ -908,11 +908,20 @@ int manager(int rank,
     //setup paths
     strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
     get_base_path(base_path, &beginning_node, wildcard);
+
+    // fail if pftool is called on special files
+    rc = stat_item(&beginning_node, o);
+    if(!S_ISREG(beginning_node.st.st_mode) && !S_ISDIR(beginning_node.st.st_mode) && !S_ISLNK(beginning_node.st.st_mode))
+    {
+        fprintf(stderr, "%s is a special file\n", beginning_node.path);
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
     if (o.work_type != LSWORK)
     {
 
         //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
-        rc = stat_item(&beginning_node, o);
+        //// rc = stat_item(&beginning_node, o); // moved above to before special file checking
         get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
         ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
@@ -2259,6 +2268,11 @@ void worker_readdir(int rank,
                             break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
+                        }
+
+                        if(!S_ISREG(p_new->mode()) && !S_ISDIR(p_new->mode()) && !S_ISLNK(p_new->mode()))
+                        {
+                            continue;
                         }
 
                         workbuffer[buffer_count] = p_new->node();
