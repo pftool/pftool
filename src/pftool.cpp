@@ -32,6 +32,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 using namespace std;
 
 // ACCUM_PROC accumulates MarFS timing data across tasks, for periodic reporting via syslog
@@ -2410,6 +2411,21 @@ int maybe_pre_process(int pre_process,
     return 0;
 }
 
+/**
+ * This function is a helper for the sorting functionality within
+ * process_stat_buffer(). Primarily sorts based on mtime and secondarily on
+ * file size.
+ *
+ * @param a    the first path_item to compare
+ * @param b    the second path_item to compare
+ */
+bool compare(const path_item a, const path_item b){
+    if(a.st.st_mtime == b.st.st_mtime){
+        return a.st.st_size < b.st.st_size;
+    }
+    return a.st.st_mtime < b.st.st_mtime;
+}
+
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
 // that have been reset to NONE are being built into path_buffers and sent
@@ -2547,6 +2563,9 @@ void process_stat_buffer(path_item *path_buffer,
     {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
     }
+
+    //sort path_buffer by mtime
+    std::sort(path_buffer, path_buffer + *stat_count, compare);
 
     out_position = 0;
     for (i = 0; i < *stat_count; i++)

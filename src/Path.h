@@ -2549,6 +2549,7 @@ protected:
    {
       _rc = rc;
       set_err_string(err_no, NULL);
+      return 0;
    }
 
 public:
@@ -3206,6 +3207,7 @@ public:
          set_err_string(errno, NULL);
          return bool(_errno == 0);
       }
+      return true;
    }
 
    // We've added some special handling to support restart of an N:1 pftool
