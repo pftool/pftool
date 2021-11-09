@@ -938,11 +938,30 @@ int manager(int rank,
             }
 
             // use the permissions of the source, filtering out other mode things
-            if ((!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO))) && (p->get_errno() != EEXIST))
+            if (!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
             {
-                fprintf(stderr, "couldn't create directory '%s': %s\n",
-                        p->path(), p->strerror());
-                MPI_Abort(MPI_COMM_WORLD, -1);
+                if(p->get_errno() != EEXIST)
+                {
+                    fprintf(stderr, "couldn't create directory '%s': %s\n",
+                            p->path(), p->strerror());
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+                else if(!p->is_dir())
+                {
+                    if(!p->unlink())
+                    {
+                        fprintf(stderr, "couldn't unlink directory '%s' before attempting to recreate: %s\n",
+                                p->path(), p->strerror());
+                        MPI_Abort(MPI_COMM_WORLD, -1);
+                    }
+
+                    if(!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
+                    {
+                        fprintf(stderr, "couldn't create directory '%s' after recreation attempt: %s\n",
+                                p->path(), p->strerror());
+                        MPI_Abort(MPI_COMM_WORLD, -1);
+                    }
+                }
             }
 
             // TBD: Remove this.  This is just for now, because most of
@@ -2195,10 +2214,27 @@ void worker_readdir(int rank,
             {
                 get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o, 0);
                 PathPtr p_dir(PathFactory::create_shallow(&mkdir_node));
-                if (!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)) && (p_dir->get_errno() != EEXIST))
+                if (!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
                 {
-                    errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n",
-                                p_dir->class_name().get(), p_dir->path());
+                    if(p_dir->get_errno() != EEXIST)
+                    {
+                        errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n",
+                                    p_dir->class_name().get(), p_dir->path());
+                    }
+                    else if(!p_dir->is_dir())
+                    {
+                        if(!p_dir->unlink())
+                        {
+                            errsend_fmt(FATAL, "Failed to unlink (%s) '%s' before attempting to remake\n",
+                                        p_dir->class_name().get(), p_dir->path());
+                        }
+
+                        if(!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
+                        {
+                            errsend_fmt(FATAL, "Failed to mkdir (%s) '%s' after remake attempt\n",
+                                        p_dir->class_name().get(), p_dir->path());
+                        }
+                    }
                 }
 
                 // if running as root, always update destination dir with original ownership
