@@ -32,6 +32,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 using namespace std;
 
 // ACCUM_PROC accumulates MarFS timing data across tasks, for periodic reporting via syslog
@@ -907,11 +908,20 @@ int manager(int rank,
     //setup paths
     strncpy(beginning_node.path, input_queue_head->data.path, PATHSIZE_PLUS);
     get_base_path(base_path, &beginning_node, wildcard);
+
+    // fail if pftool is called on special files
+    rc = stat_item(&beginning_node, o);
+    if(!S_ISREG(beginning_node.st.st_mode) && !S_ISDIR(beginning_node.st.st_mode) && !S_ISLNK(beginning_node.st.st_mode))
+    {
+        fprintf(stderr, "%s is a special file\n", beginning_node.path);
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
     if (o.work_type != LSWORK)
     {
 
         //need to stat_item sooner, we're doing a mkdir we shouldn't be doing, here.
-        rc = stat_item(&beginning_node, o);
+        //// rc = stat_item(&beginning_node, o); // moved above to before special file checking
         get_dest_path(&dest_node, dest_path, &beginning_node, makedir, input_queue_count, o);
         ////            rc = stat_item(&dest_node, o); // now done in get_dest_path, via Factory
 
@@ -928,11 +938,30 @@ int manager(int rank,
             }
 
             // use the permissions of the source, filtering out other mode things
-            if ((!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO))) && (p->get_errno() != EEXIST))
+            if (!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
             {
-                fprintf(stderr, "couldn't create directory '%s': %s\n",
-                        p->path(), p->strerror());
-                MPI_Abort(MPI_COMM_WORLD, -1);
+                if(p->get_errno() != EEXIST)
+                {
+                    fprintf(stderr, "couldn't create directory '%s': %s\n",
+                            p->path(), p->strerror());
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+                else if(!p->is_dir())
+                {
+                    if(!p->unlink())
+                    {
+                        fprintf(stderr, "couldn't unlink directory '%s' before attempting to recreate: %s\n",
+                                p->path(), p->strerror());
+                        MPI_Abort(MPI_COMM_WORLD, -1);
+                    }
+
+                    if(!p->mkdir(beginning_node.st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
+                    {
+                        fprintf(stderr, "couldn't create directory '%s' after recreation attempt: %s\n",
+                                p->path(), p->strerror());
+                        MPI_Abort(MPI_COMM_WORLD, -1);
+                    }
+                }
             }
 
             // TBD: Remove this.  This is just for now, because most of
@@ -2185,10 +2214,27 @@ void worker_readdir(int rank,
             {
                 get_output_path(&mkdir_node, base_path, &p_work->node(), dest_node, o, 0);
                 PathPtr p_dir(PathFactory::create_shallow(&mkdir_node));
-                if (!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)) && (p_dir->get_errno() != EEXIST))
+                if (!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
                 {
-                    errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n",
-                                p_dir->class_name().get(), p_dir->path());
+                    if(p_dir->get_errno() != EEXIST)
+                    {
+                        errsend_fmt(FATAL, "Failed to mkdir (%s) '%s'\n",
+                                    p_dir->class_name().get(), p_dir->path());
+                    }
+                    else if(!p_dir->is_dir())
+                    {
+                        if(!p_dir->unlink())
+                        {
+                            errsend_fmt(FATAL, "Failed to unlink (%s) '%s' before attempting to remake\n",
+                                        p_dir->class_name().get(), p_dir->path());
+                        }
+
+                        if(!p_dir->mkdir(p_work->node().st.st_mode & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)))
+                        {
+                            errsend_fmt(FATAL, "Failed to mkdir (%s) '%s' after remake attempt\n",
+                                        p_dir->class_name().get(), p_dir->path());
+                        }
+                    }
                 }
 
                 // if running as root, always update destination dir with original ownership
@@ -2258,6 +2304,11 @@ void worker_readdir(int rank,
                             break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
+                        }
+
+                        if(!S_ISREG(p_new->mode()) && !S_ISDIR(p_new->mode()) && !S_ISLNK(p_new->mode()))
+                        {
+                            continue;
                         }
 
                         workbuffer[buffer_count] = p_new->node();
@@ -2410,6 +2461,21 @@ int maybe_pre_process(int pre_process,
     return 0;
 }
 
+/**
+ * This function is a helper for the sorting functionality within
+ * process_stat_buffer(). Primarily sorts based on mtime and secondarily on
+ * file size.
+ *
+ * @param a    the first path_item to compare
+ * @param b    the second path_item to compare
+ */
+bool compare(const path_item a, const path_item b){
+    if(a.st.st_mtime == b.st.st_mtime){
+        return a.st.st_size < b.st.st_size;
+    }
+    return a.st.st_mtime < b.st.st_mtime;
+}
+
 // This routine sometimes sets ftype = NONE.  In the FUSE_CHUNKER case, the
 // routine later checks for ftype==NONE.  In other cases, these path_items
 // that have been reset to NONE are being built into path_buffers and sent
@@ -2547,6 +2613,9 @@ void process_stat_buffer(path_item *path_buffer,
     {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);
     }
+
+    //sort path_buffer by mtime
+    std::sort(path_buffer, path_buffer + *stat_count, compare);
 
     out_position = 0;
     for (i = 0; i < *stat_count; i++)
