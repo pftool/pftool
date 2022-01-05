@@ -97,7 +97,8 @@ def main():
                 "please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
 
         try:
-            host_list = [x[0].lower() for x in [x for x in config.items("active_nodes") if x[1] == "ON"]]
+            host_list = map(lambda x: x[0].lower(), filter(
+                lambda x: x[1] == "ON", config.items("active_nodes")))
         except:
             parser.error(
                 "please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
@@ -127,7 +128,7 @@ def main():
 
     host = gethostname()
 
-    print("Launched %s from host %s at: %s" % (sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    print "Launched %s from host %s at: %s" % (sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
 
     if logging:
         write_log("[pfls] [%s] Begin Date: %s" % (
@@ -136,11 +137,11 @@ def main():
 
     status = subprocess.call(pfcmd.commands)
     if(status != 0):
-        print("ERROR: %s failed" % sys.argv[0])
+        print "ERROR: %s failed" % sys.argv[0]
         if logging:
             write_log("[pfls] [%s] PFLS failed." % (jid), LOG_ERR)
 
-    print("Job finished at: %s" % (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    print "Job finished at: %s" % (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
     if logging:
         write_log("[pfls] [%s] Job End at: %s" % (
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
