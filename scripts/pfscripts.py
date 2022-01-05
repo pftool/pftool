@@ -11,15 +11,14 @@ import socket
 
 
 class PF:
-    def __init__(self):
-        ROOT = os.path.abspath(os.path.dirname(__file__))
-        self.ROOT = ROOT.split("/")[:-1]
-        self.ROOT = "/".join(self.ROOT)
-        self.BIN = os.path.join(self.ROOT, "bin")
-        # Check environment to override pftool path
-        self.PFTOOL = os.getenv('PFTOOL', os.path.join(self.BIN, "pftool"))
-        self.CONFIG = os.getenv('PFTOOL_CONFIG', os.path.join(
-            self.ROOT, "etc", "pftool.cfg"))
+    ROOT = os.path.abspath(os.path.dirname(__file__))
+    ROOT = ROOT.split("/")[:-1]
+    ROOT = "/".join(ROOT)
+    BIN = os.path.join(ROOT, "bin")
+    # Check environment to override pftool path
+    PFTOOL = os.getenv('PFTOOL', os.path.join(BIN, "pftool"))
+    CONFIG = os.getenv('PFTOOL_CONFIG', os.path.join(
+        ROOT, "etc", "pftool.cfg"))
 
 
 class Work:
@@ -61,6 +60,7 @@ def get_jid():
 
 
 def parse_config(options_path=PF.CONFIG):
+    print(options_path)
     config = configparser.ConfigParser()
     config.read(options_path)
     return config

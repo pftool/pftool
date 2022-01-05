@@ -1,50 +1,24 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import os.path
 import sys
-import pwd
-import grp
 import subprocess
 import random
+import time
+import argparse
+import syslog
+from socket import gethostname
 from optparse import OptionParser
-from pfscripts import *
+import pfscripts as pfs
 
+def build_command(arg_parser):
+    pass
 
-def main():
-    parser = OptionParser()
-    parser.usage = "%prog [options] sourcePath destinationPath"
-    parser.description = "%prog -- copy file(s) from sourcePath to destinationPath in parallel"
-    parser.add_option("-R", dest="recurse", default=False,
-                      action="store_true", help="copy directories recursively")
-    parser.add_option("-v", dest="verbose", default=False,
-                      action="store_true", help="verbose result output")
-    parser.add_option("-F", dest="different", default=True, action="store_false",
-                      help="copy all files even if they do not appear to have changed")
-    parser.add_option("-g", dest="debug", default=None, action="store_true",
-                      help="development only. Allows for gdb to attach")
-    parser.add_option("-p", dest="preserve", default=False, action="store_true",
-                      help="consider user/group ownership when comparing files to copy")
-    parser.add_option("-x", dest="synSize", default=None, metavar="SIZE",
-                      help="development only. Option may be used for future feature")
-    parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN",
-                      help="development only. Option may be used for future feature")
-    parser.add_option("-e", dest="exclude", default=None,
-                      metavar="PATTERN", help="exclude pattern")
-    parser.add_option("-t", dest="tryAttempts", default=1, type="int",
-                      help="Number of times to retry on non-fatal errors")
+def main(args):
+    config = pfs.parse_config()
 
-    (options, args) = parser.parse_args()
-
-    config = parse_config()
-
-    if len(args) < 2:
-        parser.error(
-            "Specify the source and destination file/dir information.")
-
-    jid = get_jid()
-    src = args[:-1]
-    dest = args[-1]
-    commands = Commands()
-    commands.add("-w", Work.COPY)
+    jid = pfs.get_jid()
+    commands = pfs.Commands()
+    commands.add("-w", pfs.Work.COPY)
     commands.add("-j", jid)
 
     logging = False
@@ -58,36 +32,39 @@ def main():
         logging = True
         commands.add("-l")
 
-    if 0 >= options.tryAttempts:
-        parser.error("try attempts must be 1 or greater for pftool to run.")
+    if args.try_attempts < 1:
+        sys.exit("Try attempts must 1 or more")
 
-    if 1 < options.tryAttempts and not options.different:
-        parser.error("try attempts must be 1 if copy all files is set")
+    # TODO
+    # This code looks not useful. Inquire later, chuck for now
+    # if 1 < args.try_attempts and not args.different:
+    #     sys.exit()
+    #     parser.error("try attempts must be 1 if copy all files is set")
 
-    if options.preserve:				# consider uid/gid for file comparisons
+    if args.preserve:
         commands.add("-o")
-    if options.verbose:				# add verbose flag to PFTOOL command line
+    if args.verbose:
         commands.add("-v")
-    if options.synSize is not None:		# add synthetic data size to PFTOOL command line
+    if args.syn_size is not None:
         commands.add("-x")
-        commands.add(parser.values.synSize)
-    if options.synPattern is not None:		# add synthetic pattern to PFTOOL command line
+        commands.add(args.syn_size)
+    if args.syn_pattern is not None:
         commands.add("-X")
-        commands.add(parser.values.synPattern)
-    if options.debug is not None:			# add debug flag to PFTOOL command line
+        commands.add(args.syn_pattern)
+    if args.debug is not None:
         commands.add("-g")
 
-    base_name = os.path.dirname(src[0])
-    if options.recurse:				# add recursive flag to PFTOOL command line
+    base_name = os.path.dirname(args.source_path[0])
+    if args.recursive:
         commands.add("-r")
-        for i in src:
+        for i in args.source_path:
             if os.path.dirname(i) != base_name:
                 parser.error(
                     "All sources for a recursive copy must be contained within the same directory.")
 
-    base_dest_name = os.path.dirname(dest)
+    base_dest_name = os.path.dirname(args.dest_path)
     if base_dest_name and not os.path.exists(base_dest_name):
-        parser.error("%s - No such file or directory" % (dest))
+        parser.error("%s - No such file or directory" % (args.dest_path))
 
     # for i in src:
     #  if not os.path.exists(i):
@@ -107,18 +84,18 @@ def main():
         pass
 
     # parse additional options
-    if options.different:
+    if args.different:
         commands.add("-n")
 
-    if options.exclude is not None:
+    if args.exclude is not None:
         commands.add("-e")
-        commands.add(parser.values.exclude)
+        commands.add(args.exclude)
 
     try:
         t = config.get("environment", "parallel_dest")
         if t.lower() == "true":
             commands.add("-P")
-            dest_dir = os.path.dirname(dest)
+            dest_dir = os.path.dirname(args.dest_path)
             if dest_dir == "":
                 dest_dir = "."
             dest_fstype = subprocess.Popen(
@@ -131,9 +108,9 @@ def main():
 #  The updates below expand relative paths to avoid hitting bugs with odd src/dst paths.  /var/lib/perceus/vnfs is likely safe to remove from *any* path...
     src_full = []
     dest_full = []
-    for i in src:
+    for i in args.source_path:
         src_full.append(os.path.realpath(i))
-    dest_full.append(os.path.realpath(dest))
+    dest_full.append(os.path.realpath(args.dest_path))
 
     src_fixed = []
     dest_fixed = []
@@ -149,8 +126,10 @@ def main():
             dest_fixed.append(j)
 
     commands.add("-c", *dest_fixed)
-    if options.synSize:							# src_fixed has the last '/' shaved off, which is important for synthetic data sources
-        commands.add("-p", *src)
+    # src_fixed has the last '/' shaved off,
+    # which is important for synthetic data sources
+    if args.syn_size:
+        commands.add("-p", *args.source_path)
     else:
         commands.add("-p", *src_fixed)
 
@@ -158,35 +137,40 @@ def main():
     try:
         t = config.get("environment", "threaded")
     except:
-        parser.error(
-            "please specify whether the program is threaded or not in the environment section of the config file (e.g. threaded: True)")
+        sys.exit("Specify threading in config (ex 'threaded: True')")
 
     if t.lower() == "true":
         threaded = True
 
-    pfcmd = Commands()
+    pfcmd = pfs.Commands()
 
-    if threaded:								# running in threaded mode on a single node
+    if threaded:
+        # running in threaded mode on a single node
         # get the maximum # of threads
         num_procs = config.get("num_procs", "pfcp")
         # build threaded command
-        pfcmd.add(pftool)
+        pfcmd.add(pfs.PF.PFTOOL)
         pfcmd.add("-nthread", num_procs)
-    else:									# use MPI and potentially multiple nodes
+    else:
+        # use MPI and potentially multiple nodes
         # determine which hosts to run on
         # read job control variables - if any
-        host_list, procs = get_nodeallocation()
-        if len(host_list) == 0:						# no job control variables - use configured values in config file
+        host_list, procs = pfs.get_nodeallocation()
+        # no job control variables - use configured values in config file
+        if len(host_list) == 0:
             try:
-                host_list = [x[0].lower() for x in [x for x in config.items("active_nodes") if x[1] == "ON"]]
+                host_list = [x[0].lower() for x in [x for x in config.items(
+                    "active_nodes") if x[1] == "ON"]]
             except:
-                parser.error(
-                    "please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
+                sys.exit(
+                    "Need at least one node in config " +
+                    "file set to on (e.g. localhost: ON)")
+
             procs = int(config.get("num_procs", "pfcp"))
 
         up_host = []
         for host in host_list:
-            if is_ssh_running(host):
+            if pfs.is_ssh_running(host):
                 up_host.append(host)
 
         host_list = up_host
@@ -196,30 +180,30 @@ def main():
             try:
                 min_procs = int(config.get("num_procs", "min_per_node"))
             except:
-                parser.error(
-                    "please specify a minmum number of processes to run on each mpi host (e.g. min_per_node: 2)")
+                sys.exit("Specify min_per_node in config (e.g. min_per_node: 2)")
+
             host_cnt = len(host_list)
             test_procs = min_procs * host_cnt
-            if test_procs > procs:						# if configured for greater minimum procs -> use that number
+            # if configured for greater minimum procs -> use that number
+            if test_procs > procs:
                 procs = test_procs
 
-        num_procs = str(procs)						# make sure number pf processes is assigned
+        num_procs = str(procs)  # make sure number pf processes is assigned
 
         # build mpi command
         try:
             mpigo = config.get("environment", "mpirun")
         except:
-            parser.error(
-                "please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
+            sys.exit("specify mpirun in config file")
 
         pfcmd.add(mpigo)
         # should return the MPI installation root
-        mpiroot = os.path.dirname(os.path.dirname(findexec(mpigo)))
+        mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(mpigo)))
         # this is a fix for "orted: command not found" issue
         pfcmd.add("-prefix", mpiroot)
 
         # Add darshan logging support if its available (this must be called after adding mpigo)
-        add_darshan(config, pfcmd)
+        pfs.add_darshan(config, pfcmd)
 
         # Add in the dangerous flags that are necessary for running in production
         pfcmd.add("--oversubscribe")
@@ -231,23 +215,24 @@ def main():
         if "all" not in host_list:
             pfcmd.add("-host", ",".join(host_list))
         pfcmd.add("-n", num_procs)
-        pfcmd.add(pftool)
+        pfcmd.add(pfs.PF.PFTOOL)
 
-        # add PFTOOL arguments
+    # add PFTOOL arguments
     pfcmd.add(*commands.commands)
 
     host = gethostname()
-    print("Launched %s from host %s at: %s" % (sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    print("Launched %s from host %s at: %s" % (
+        sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
     if logging:
-        write_log("[pfcp] [%s] Begin Date: %s" % (
+        pfs.write_log("[pfcp] [%s] Begin Date: %s" % (
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-        write_log("[pfcp] [%s] CMD %s" % (jid, pfcmd))
+        pfs.write_log("[pfcp] [%s] CMD %s" % (jid, pfcmd))
 
-    if options.debug:
-        print(pfcmd.commands)						# print the command out used to run PFTOOL
+    if args.debug:
+        print(pfcmd.commands)
 
-    for i in range(0, options.tryAttempts):
+    for i in range(0, args.try_attempts):
         status = subprocess.call(pfcmd.commands)
         # if we got nonfatal errors we can continue
         if 1 != status:
@@ -256,15 +241,109 @@ def main():
     if(status != 0):
         print("ERROR: %s failed" % sys.argv[0])
         if logging:
-            write_log("[pfcp] [%s] PFCP failed." % (jid), LOG_ERR)
+            pfs.write_log("[pfcp] [%s] PFCP failed." % (jid), syslog.LOG_ERR)
 
-    print("Job finished at: %s" % (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    print("Job finished at: %s" %
+          (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
     if logging:
-        write_log("[pfcp] [%s] Job End at: %s" % (
+        pfs.write_log("[pfcp] [%s] Job End at: %s" % (
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
     sys.exit(status)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        'pfcp',
+        usage="pfcp [options] source_path dest_path",
+        description="copy file(s) from source_path to dest_path in parallel"
+    )
+
+    parser.add_argument(
+        'source_path',
+        help='Path to source file(s)',
+    )
+
+    parser.add_argument(
+        'dest_path',
+        help='Path to destination',
+    )
+
+    parser.add_argument(
+        '-R',
+        '--recursive',
+        action='store_true',
+        help='Recursive action',
+        default=False
+    )
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='Verbose output',
+        default=False
+    )
+
+    parser.add_argument(
+        '-F',
+        '--different',
+        action='store_true',
+        help='Copy all files even if they do not appear to have changed',
+        default=True
+    )
+
+    parser.add_argument(
+        # development only
+        '-g',
+        '--debug',
+        action='store_true',
+        help='Allows for gdb to attach',
+        default=False
+    )
+
+    parser.add_argument(
+        '-p',
+        '--preserve',
+        action='store_true',
+        help='Consider user/group ownership when comparing files to copy',
+        default=False
+    )
+
+    parser.add_argument(
+        '-x',
+        '--syn_size',
+        metavar="SIZE",
+        help='development only. Option may be used for future feature',
+        default=None
+    )
+
+    parser.add_argument(
+        '-X',
+        '--syn_pattern',
+        metavar="PATTERN",
+        help='development only. Option may be used for future feature',
+        default=None
+    )
+
+    parser.add_argument(
+        '-e',
+        '--exclude',
+        action='store_true',
+        help='Exclude pattern',
+        default=None
+    )
+
+    parser.add_argument(
+        '-t',
+        '--try_attempts',
+        type=int,
+        help='Number of times to retry on non-fatal errors',
+        default=1
+    )
+
+    if len(sys.argv) < 2:
+        parser.print_usage()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    main(args)
