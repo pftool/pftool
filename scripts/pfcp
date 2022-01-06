@@ -5,44 +5,48 @@ import subprocess
 import random
 import time
 import argparse
+import argparse.ArgumentTypeError as ArgError
 import syslog
 from socket import gethostname
-from optparse import OptionParser
 import pfscripts as pfs
 
-def build_command(arg_parser):
-    pass
 
-def main(args):
+def validate_args(parser):
+    args = parser.parse_args()
     args.source_path = args.paths[:-1]
     args.dest_path = args.paths[-1]
-    config = pfs.parse_config()
 
+    try:
+        if args.try_attempts < 1:
+            raise ArgError("Try attempts must be 1 or greater")
+        base_name = os.path.dirname(args.source_path[0])
+        if args.recursive:
+            for i in args.source_path:
+                if os.path.dirname(i) != base_name:
+                    raise ArgError(
+                        "All sources for a recursive copy must be" +
+                        " contained within the same directory.")
+        base_dest_name = os.path.dirname(args.dest_path)
+        if base_dest_name and not os.path.exists(base_dest_name):
+            raise ArgError(f"{args.dest_path} - No such file or directory")
+    except ArgError:
+        parser.print_usage()
+
+    return args
+
+
+def main(args):
+    config = pfs.parse_config()
     jid = pfs.get_jid()
     commands = pfs.Commands()
     commands.add("-w", pfs.Work.COPY)
     commands.add("-j", jid)
+    logging = config.getboolean("environment", "logging")
 
-    logging = False
-    try:
-        l = config.get("environment", "logging")
-    except:
-        parser.error(
-            "please specify whether logging should be enabled (e.g. logging: True)")
-
-    if l.lower() == "true":
-        logging = True
+    if logging:
         commands.add("-l")
-
-    if args.try_attempts < 1:
-        sys.exit("Try attempts must 1 or more")
-
-    # TODO
-    # This code looks not useful. Inquire later, chuck for now
-    # if 1 < args.try_attempts and not args.different:
-    #     sys.exit()
-    #     parser.error("try attempts must be 1 if copy all files is set")
-
+    if args.recursive:
+        commands.add("-r")
     if args.preserve:
         commands.add("-o")
     if args.verbose:
@@ -56,25 +60,13 @@ def main(args):
     if args.debug:
         commands.add("-g")
 
-    base_name = os.path.dirname(args.source_path[0])
-    if args.recursive:
-        commands.add("-r")
-        for i in args.source_path:
-            if os.path.dirname(i) != base_name:
-                parser.error(
-                    "All sources for a recursive copy must be contained within the same directory.")
-
-    base_dest_name = os.path.dirname(args.dest_path)
-    if base_dest_name and not os.path.exists(base_dest_name):
-        parser.error("%s - No such file or directory" % (args.dest_path))
-
     # for i in src:
     #  if not os.path.exists(i):
     #    parser.error("cannot stat '%s': No such file or directory"%(i))
     try:
         writesize = config.get("options", "writesize")
         commands.add("-s", writesize)
-    except:
+    except BaseException:
         pass
 
     try:
@@ -82,7 +74,7 @@ def main(args):
         chunksize = config.get("options", "chunksize")
         commands.add("-C", chunk_at)
         commands.add("-S", chunksize)
-    except:
+    except BaseException:
         pass
 
     # parse additional options
@@ -94,20 +86,25 @@ def main(args):
         commands.add(args.exclude)
 
     try:
-        t = config.get("environment", "parallel_dest")
-        if t.lower() == "true":
+        parallel_dest = config.getboolean("environment", "parallel_dest")
+        if parallel_dest:
             commands.add("-P")
             dest_dir = os.path.dirname(args.dest_path)
             if dest_dir == "":
                 dest_dir = "."
+            c = f"df -TP {dest_dir} | grep -v Filesystem" + \
+                " | awk -F ' ' '{print $2}'"
             dest_fstype = subprocess.Popen(
-                "df -TP " + dest_dir + " | grep -v Filesystem | awk -F ' ' '{print $2}'", stdout=subprocess.PIPE, shell=True).stdout.read()
-            # specify the filesystem type for the destination on parallel transfers. In may make a difference! - cds 6/2014
+                c, stdout=subprocess.PIPE, shell=True).stdout.read()
+            # specify the filesystem type for the destination on parallel
+            # transfers. In may make a difference! - cds 6/2014
             commands.add("-t", dest_fstype.rstrip())
-    except:
+    except BaseException:
         pass
 
-#  The updates below expand relative paths to avoid hitting bugs with odd src/dst paths.  /var/lib/perceus/vnfs is likely safe to remove from *any* path...
+    # The updates below expand relative paths to avoid hitting bugs with odd
+    # src/dst paths.  /var/lib/perceus/vnfs is likely safe
+    # to remove from *any* path...
     src_full = []
     dest_full = []
     for i in args.source_path:
@@ -135,96 +132,76 @@ def main(args):
     else:
         commands.add("-p", *src_fixed)
 
-    threaded = False
-    try:
-        t = config.get("environment", "threaded")
-    except:
-        sys.exit("Specify threading in config (ex 'threaded: True')")
-
-    if t.lower() == "true":
-        threaded = True
-
     pfcmd = pfs.Commands()
-    # TODO threaded no longer works rip this out
-    if threaded:
-        # running in threaded mode on a single node
-        # get the maximum # of threads
-        num_procs = config.get("num_procs", "pfcp")
-        # build threaded command
-        pfcmd.add(pfs.PF.PFTOOL)
-        pfcmd.add("-nthread", num_procs)
-    else:
-        # use MPI and potentially multiple nodes
-        # determine which hosts to run on
-        # read job control variables - if any
-        host_list, procs = pfs.get_nodeallocation()
-        # no job control variables - use configured values in config file
-        if len(host_list) == 0:
-            try:
-                host_list = [x[0].lower() for x in [x for x in config.items(
-                    "active_nodes") if x[1] == "ON"]]
-            except:
-                sys.exit(
-                    "Need at least one node in config " +
-                    "file set to on (e.g. localhost: ON)")
-
-            procs = int(config.get("num_procs", "pfcp"))
-
-        up_host = []
-        for host in host_list:
-            if pfs.is_ssh_running(host):
-                up_host.append(host)
-
-        host_list = up_host
-
-        # chance are that host_list came from job control variables ...
-        if "all" not in host_list:
-            try:
-                min_procs = int(config.get("num_procs", "min_per_node"))
-            except:
-                sys.exit("Specify min_per_node in config (e.g. min_per_node: 2)")
-
-            host_cnt = len(host_list)
-            test_procs = min_procs * host_cnt
-            # if configured for greater minimum procs -> use that number
-            if test_procs > procs:
-                procs = test_procs
-
-        num_procs = str(procs)  # make sure number pf processes is assigned
-
-        # build mpi command
+    # use MPI and potentially multiple nodes
+    # determine which hosts to run on
+    # read job control variables - if any
+    host_list, procs = pfs.get_nodeallocation()
+    # no job control variables - use configured values in config file
+    if len(host_list) == 0:
         try:
-            mpigo = config.get("environment", "mpirun")
-        except:
-            sys.exit("specify mpirun in config file")
+            host_list = [x[0].lower() for x in [x for x in config.items(
+                "active_nodes") if x[1] == "ON"]]
+        except BaseException:
+            sys.exit(
+                "Need at least one node in config " +
+                "file set to on (e.g. localhost: ON)")
 
-        pfcmd.add(mpigo)
-        # should return the MPI installation root
-        mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(mpigo)))
-        # this is a fix for "orted: command not found" issue
-        pfcmd.add("-prefix", mpiroot)
+        procs = int(config.get("num_procs", "pfcp"))
 
-        # Add darshan logging support if its available (this must be called after adding mpigo)
-        pfs.add_darshan(config, pfcmd)
+    up_host = []
+    for host in host_list:
+        if pfs.is_ssh_running(host):
+            up_host.append(host)
 
-        # Add in the dangerous flags that are necessary for running in production
-        pfcmd.add("--oversubscribe")
-        pfcmd.add("--allow-run-as-root")
-        pfcmd.add("--map-by", "node")
-        # Export marfs config env var to all procs
-        pfcmd.add("-x", "MARFSCONFIGRC")
-        random.shuffle(host_list)
-        if "all" not in host_list:
-            pfcmd.add("-host", ",".join(host_list))
-        pfcmd.add("-n", num_procs)
-        pfcmd.add(pfs.PF.PFTOOL)
+    host_list = up_host
+
+    # chance are that host_list came from job control variables ...
+    if "all" not in host_list:
+        try:
+            min_procs = int(config.get("num_procs", "min_per_node"))
+        except BaseException:
+            sys.exit("Specify min_per_node in config (e.g. min_per_node: 2)")
+
+        host_cnt = len(host_list)
+        test_procs = min_procs * host_cnt
+        # if configured for greater minimum procs -> use that number
+        if test_procs > procs:
+            procs = test_procs
+
+    num_procs = str(procs)  # make sure number pf processes is assigned
+    mpigo = config.get("environment", "mpirun")
+    # build mpi command
+    pfcmd.add(mpigo)
+    # should return the MPI installation root
+    mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(mpigo)))
+    # this is a fix for "orted: command not found" issue
+    pfcmd.add("-prefix", mpiroot)
+
+    # Add darshan logging support if its available
+    # (this must be called after adding mpigo)
+    pfs.add_darshan(config, pfcmd)
+
+    # Add in the dangerous flags that are necessary for running in production
+    pfcmd.add("--oversubscribe")
+    pfcmd.add("--allow-run-as-root")
+    pfcmd.add("--map-by", "node")
+    # Export marfs config env var to all procs
+    pfcmd.add("-x", "MARFSCONFIGRC")
+    random.shuffle(host_list)
+    if "all" not in host_list:
+        pfcmd.add("-host", ",".join(host_list))
+    pfcmd.add("-n", num_procs)
+    pfcmd.add(pfs.PF.PFTOOL)
 
     # add PFTOOL arguments
     pfcmd.add(*commands.commands)
     # TODO remove these when fixed
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
-        sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+        sys.argv[0],
+        host,
+        time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
     if logging:
         pfs.write_log("[pfcp] [%s] Begin Date: %s" % (
@@ -237,7 +214,7 @@ def main(args):
     for i in range(0, args.try_attempts):
         status = subprocess.call(pfcmd.commands)
         # if we got nonfatal errors we can continue
-        if 1 != status:
+        if status != 1:
             break
 
     if(status != 0):
@@ -308,6 +285,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        # development only
         '-x',
         '--syn_size',
         metavar="SIZE",
@@ -316,6 +294,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        # development only
         '-X',
         '--syn_pattern',
         metavar="PATTERN",
@@ -326,7 +305,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '-e',
         '--exclude',
-        action='store_true',
+        type=str,
         help='Exclude pattern',
         default=None
     )
@@ -343,5 +322,5 @@ if __name__ == "__main__":
         parser.print_usage()
         sys.exit(1)
 
-    args = parser.parse_args()
+    args = validate_args(parser)
     main(args)

@@ -58,11 +58,24 @@ def get_jid():
     jid = user+time_id+hostname
     return jid
 
+def validate_config(config):
+    # We should validate all required values right away
+    # TODO think more on this. Do we have to validate anything
+    # right away except maybe MPI?
+    try:
+        logging = config.getboolean("environment", "logging")
+    except:
+        sys.exit("Logging not set in config file (e.g. logging: True)")
+    try:
+        mpigo = config.get("environment", "mpirun")
+    except:
+        sys.exit("specify mpirun in config file")
 
 def parse_config(options_path=PF.CONFIG):
     print(options_path)
     config = configparser.ConfigParser()
     config.read(options_path)
+    validate_config(config)
     return config
 
 
