@@ -5,7 +5,7 @@ import subprocess
 import random
 import time
 import argparse
-import argparse.ArgumentTypeError as ArgError
+from argparse import ArgumentTypeError as ArgError
 import syslog
 from socket import gethostname
 import pfscripts as pfs
@@ -15,24 +15,33 @@ def validate_args(parser):
     args = parser.parse_args()
     args.source_path = args.paths[:-1]
     args.dest_path = args.paths[-1]
-
+    error = None
     try:
         if args.try_attempts < 1:
-            raise ArgError("Try attempts must be 1 or greater")
+            error = "try_attempts must be 1 or greater"
+            raise ArgError
         base_name = os.path.dirname(args.source_path[0])
         if args.recursive:
             for i in args.source_path:
                 if os.path.dirname(i) != base_name:
-                    raise ArgError(
-                        "All sources for a recursive copy must be" +
-                        " contained within the same directory.")
-        base_dest_name = os.path.dirname(args.dest_path)
+                    error = "All sources for a recursive copy must be" + \
+                        " contained within the same directory."
+                    raise ArgError
+        if args.dest_path.split()[-1] == "/":
+            base_dest_name = os.path.dirname(args.dest_path)
+        else:
+            base_dest_name = args.dest_path
         if base_dest_name and not os.path.exists(base_dest_name):
-            raise ArgError(f"{args.dest_path} - No such file or directory")
+            error = f"{args.dest_path} - No such file or directory"
+            raise ArgError
+        return error
     except ArgError:
-        parser.print_usage()
+        print("ERROR:")
+        print(error)
+        parser.print_help()
+        sys.exit(1)
 
-    return args
+    
 
 
 def main(args):
@@ -60,9 +69,9 @@ def main(args):
     if args.debug:
         commands.add("-g")
 
-    # for i in src:
-    #  if not os.path.exists(i):
-    #    parser.error("cannot stat '%s': No such file or directory"%(i))
+    for i in args.source_path:
+        if not os.path.exists(i):
+            sys.exit(f"cannot stat '{i}': No such file or directory")
     try:
         writesize = config.get("options", "writesize")
         commands.add("-s", writesize)
@@ -323,4 +332,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     args = validate_args(parser)
-    main(args)
+    if args:
+        main(args)
