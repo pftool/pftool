@@ -14,6 +14,8 @@ def build_command(arg_parser):
     pass
 
 def main(args):
+    args.source_path = args.paths[:-1]
+    args.dest_path = args.paths[-1]
     config = pfs.parse_config()
 
     jid = pfs.get_jid()
@@ -51,7 +53,7 @@ def main(args):
     if args.syn_pattern is not None:
         commands.add("-X")
         commands.add(args.syn_pattern)
-    if args.debug is not None:
+    if args.debug:
         commands.add("-g")
 
     base_name = os.path.dirname(args.source_path[0])
@@ -143,7 +145,7 @@ def main(args):
         threaded = True
 
     pfcmd = pfs.Commands()
-
+    # TODO threaded no longer works rip this out
     if threaded:
         # running in threaded mode on a single node
         # get the maximum # of threads
@@ -219,7 +221,7 @@ def main(args):
 
     # add PFTOOL arguments
     pfcmd.add(*commands.commands)
-
+    # TODO remove these when fixed
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
@@ -260,13 +262,9 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        'source_path',
-        help='Path to source file(s)',
-    )
-
-    parser.add_argument(
-        'dest_path',
-        help='Path to destination',
+        'paths',
+        nargs='*',
+        help=argparse.SUPPRESS
     )
 
     parser.add_argument(
