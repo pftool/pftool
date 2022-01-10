@@ -127,7 +127,7 @@ def main(parser):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         'pfcm',
-        usage="pfcm [options] source_path",
+        usage="pfcm [options] sourcePath destinationPath",
         description="compare file(s) from sourcePath to destinationPath in parallel"
     )
 
