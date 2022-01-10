@@ -47,6 +47,7 @@ def write_log(message, priority=syslog.LOG_ERR | syslog.LOG_USER):
     syslog.syslog(priority, message)
     syslog.closelog()
 
+
 def get_fixed_source(source):
     """
     Some input sources might need perceus things removed
@@ -62,6 +63,7 @@ def get_fixed_source(source):
             src_fixed.append(i)
     return src_fixed
 
+
 def get_fixed_dest(dest):
     dest_fixed = []
     dest_full = []
@@ -72,6 +74,7 @@ def get_fixed_dest(dest):
         else:
             dest_fixed.append(j)
     return dest_fixed
+
 
 def get_jid():
     user = getpass.getuser()
@@ -84,24 +87,11 @@ def get_jid():
     jid = user+time_id+hostname
     return jid
 
-def validate_config(config):
-    # We should validate all required values right away
-    # TODO think more on this. Do we have to validate anything
-    # right away except maybe MPI?
-    try:
-        logging = config.getboolean("environment", "logging")
-    except:
-        sys.exit("Logging not set in config file (e.g. logging: True)")
-    try:
-        mpigo = config.get("environment", "mpirun")
-    except:
-        sys.exit("specify mpirun in config file")
 
 def parse_config(options_path=PF.CONFIG):
     print(options_path)
     config = configparser.ConfigParser()
     config.read(options_path)
-    validate_config(config)
     return config
 
 
@@ -112,7 +102,6 @@ def findexec(executable, path=None):
     os.environ['PATH']).  Returns the complete filename or None if not
     found
     """
-
     if executable[0] == os.pathsep and os.access(executable, os.X_OK):
         return executable
 
@@ -288,7 +277,7 @@ class Config:
                 try:
                     nodes = config.items("active_nodes")
                     nodelist = [x[0].lower() for x in
-                    [x for x in nodes if x[1] == "ON"]]
+                                [x for x in nodes if x[1] == "ON"]]
                     # Without a WLM allocation we need to check if our hosts
                     # are reachable through ssh
                     up_host = []
@@ -311,12 +300,10 @@ class Config:
                     sys.exit(
                         "Need at least one node in config " +
                         "file set to on (e.g. localhost: ON)")
-            
-
-            
         except configparser.NoOptionError as e:
             print(e)
             sys.exit("Config read error. Missing a value.")
+
 
 def busy():
     print("""
