@@ -34,7 +34,7 @@ def validate_args(parser):
         if base_dest_name and not os.path.exists(base_dest_name):
             error = f"{args.dest_path} - No such file or directory"
             raise ArgError
-        return error
+        return args
     except ArgError:
         print("ERROR:")
         print(error)
@@ -42,9 +42,13 @@ def validate_args(parser):
         sys.exit(1)
 
 
-def main(args):
+def main(parser):
     # TODO update config to use config object
-    config = pfs.Config()
+    args = validate_args(parser)
+    if not args:
+        parser.print_help()
+        sys.exit(1)
+    config = pfs.Config(parser.prog)
     jid = pfs.get_jid()
     commands = pfs.Commands()
     commands.add("-w", pfs.Work.COPY)
@@ -265,6 +269,5 @@ if __name__ == "__main__":
         parser.print_usage()
         sys.exit(1)
 
-    args = validate_args(parser)
-    if args:
-        main(args)
+    
+    main(parser)

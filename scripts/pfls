@@ -5,10 +5,10 @@ import subprocess
 import random
 import argparse
 from optparse import OptionParser
-from pfscripts import *
+import pfscripts as pfs
 
 
-def main():
+def main(args):
     parser = OptionParser()
     parser.usage = "%prog [options] sourcePath"
     parser.description = "%prog --  list file(s) based on sourcePath in parallel"
@@ -21,20 +21,24 @@ def main():
                       metavar="PATTERN", help="exclude pattern")
     (options, args) = parser.parse_args()
 
-    config = parse_config()
+    config = pfs.Config
 
-    jid = get_jid()
+    jid = pfs.get_jid()
     src = args
-    commands = Commands()
-    commands.add("-w", Work.LS)
+    commands = pfs.Commands()
+    commands.add("-w", pfs.Work.LS)
     commands.add("-j", jid)
 
-    logging = False
-    try:
-        l = config.get("environment", "logging")
-    except:
-        parser.error(
-            "please specify whether logging should be enabled (e.g. logging: True)")
+    # TODO start here
+    # We should check if source_path is a single item or a list of items. 
+    # A single item can be listed or do a recursive walk.
+    # If we have a list of files we have
+
+    # TODO yeesh this thought experiment gets out of hand fast. Just going
+    # to lob arguments at pftool best I can
+
+    if config.logging:
+        commands.add("-l")
 
     if options.exclude is not None:
         commands.add("-e")
@@ -47,6 +51,7 @@ def main():
     if options.verbose:
         commands.add("-v")
 
+    # drop -i until we can make it make sense on command line
     if options.input_list:
         commands.add("-i", options.input_list)
     elif src:
@@ -174,6 +179,14 @@ if __name__ == "__main__":
         action='store_true',
         help='Verbose output',
         default=False
+    )
+
+    parser.add_argument(
+        '-e',
+        '--exclude',
+        type=str,
+        help='Exclude pattern',
+        default=None
     )
 
     if len(sys.argv) < 2:
