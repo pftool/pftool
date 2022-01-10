@@ -27,6 +27,7 @@ def validate_args(parser):
             base_dest_name = os.path.dirname(args.dest_path)
         else:
             base_dest_name = args.dest_path
+        print(os.path.exists(base_dest_name))
         if base_dest_name and not os.path.exists(base_dest_name):
             error = f"{args.dest_path} - No such file or directory"
             raise ArgError
@@ -43,7 +44,7 @@ def main(parser):
     if not args:
         parser.print_help()
         sys.exit(1)
-    config = pfs.Config
+    config = pfs.Config(parser.prog)
     jid = pfs.get_jid()
     commands = pfs.Commands()
     commands.add("-w", pfs.Work.COMPARE)
@@ -97,7 +98,7 @@ def main(parser):
     pfcmd.add(pfs.PF.PFTOOL)
 
     pfcmd.add(*commands.commands)
-
+    print(pfcmd)
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0], host, time.strftime(
@@ -125,13 +126,13 @@ def main(parser):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        'pfls',
-        usage="pfls [options] source_path",
-        description="List file(s) from source_path in parallel"
+        'pfcm',
+        usage="pfcm [options] source_path",
+        description="compare file(s) from sourcePath to destinationPath in parallel"
     )
 
     parser.add_argument(
-        'source_path',
+        'paths',
         nargs='*',
         help=argparse.SUPPRESS
     )

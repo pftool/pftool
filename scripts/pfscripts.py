@@ -71,6 +71,7 @@ def get_fixed_dest(dest):
             dest_fixed.append(j.split('rootfs', 1)[-1])
         else:
             dest_fixed.append(j)
+    return dest_fixed
 
 def get_jid():
     user = getpass.getuser()
@@ -205,7 +206,7 @@ def get_nodeallocation():
         nodelist = None
         numprocs = None
     # SLURM was a no-go try MOAB
-    if not len(nodelist):
+    if not nodelist:
         try:
             moab_nodes = os.environ['PBS_NODEFILE']
             if not os.path.exists(moab_nodes):
@@ -262,7 +263,7 @@ def add_darshan(pfconfig, mpicmd):
 class Config:
     def __init__(self, prog_name):
         config = configparser.ConfigParser()
-        config.read(options_path=PF.CONFIG)
+        config.read(PF.CONFIG)
         try:
             self.config_procs = int(config.get("num_procs", prog_name))
             self.min_per_node = int(config.get("num_procs", "min_per_node"))
@@ -299,13 +300,14 @@ class Config:
                     # pftool requires 4 processes minimum
                     if calc_procs < 4:
                         calc_procs = 4
-                    procs = (calc_procs, self.config_procs, self.total_procs)
+                    procs = (calc_procs, self.config_procs)
                     procs = max(procs)
                     # don't know why we're shuffling this but I'm leaving it in
                     random.shuffle(up_host)
                     self.node_list = up_host
                     self.total_procs = procs
-                except BaseException:
+                except BaseException as e:
+                    print(e)
                     sys.exit(
                         "Need at least one node in config " +
                         "file set to on (e.g. localhost: ON)")

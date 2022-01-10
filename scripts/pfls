@@ -14,7 +14,7 @@ def main(parser):
     if not args:
         parser.print_help()
         sys.exit(1)
-    config = pfs.Config
+    config = pfs.Config(parser.prog)
     jid = pfs.get_jid()
     commands = pfs.Commands()
     commands.add("-w", pfs.Work.LS)
@@ -34,7 +34,7 @@ def main(parser):
     # if options.input_list:
     #     commands.add("-i", options.input_list)
 
-    if args.recurse:
+    if args.recursive:
         commands.add("-r")
 
     src_fixed = pfs.get_fixed_source(args.source_path)
