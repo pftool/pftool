@@ -4,6 +4,7 @@ import os
 import sys
 import getpass
 import re
+import random
 from socket import gethostname
 import syslog
 import configparser
@@ -300,6 +301,8 @@ class Config:
                         calc_procs = 4
                     procs = (calc_procs, self.config_procs, self.total_procs)
                     procs = max(procs)
+                    # don't know why we're shuffling this but I'm leaving it in
+                    random.shuffle(up_host)
                     self.node_list = up_host
                     self.total_procs = procs
                 except BaseException:

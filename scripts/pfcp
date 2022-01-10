@@ -2,7 +2,6 @@
 import os.path
 import sys
 import subprocess
-import random
 import time
 import argparse
 from argparse import ArgumentTypeError as ArgError
@@ -116,17 +115,15 @@ def main(parser):
     # use MPI and potentially multiple nodes
     # determine which hosts to run on
     # read job control variables - if any
-
-    mpigo = config.get("environment", "mpirun")
     # build mpi command
-    pfcmd.add(mpigo)
+    pfcmd.add(config.mpirun)
     # should return the MPI installation root
-    mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(mpigo)))
+    mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(config.mpirun)))
     # this is a fix for "orted: command not found" issue
     pfcmd.add("-prefix", mpiroot)
 
     # Add darshan logging support if its available
-    # (this must be called after adding mpigo)
+    # (this must be called after adding mpi)
     pfs.add_darshan(config, pfcmd)
 
     # Add in the dangerous flags that are necessary for running in production
@@ -135,7 +132,6 @@ def main(parser):
     pfcmd.add("--map-by", "node")
     # Export marfs config env var to all procs
     pfcmd.add("-x", "MARFSCONFIGRC")
-    random.shuffle(config.node_list)
     if "all" not in config.node_list:
         pfcmd.add("-host", ",".join(config.node_list))
     pfcmd.add("-n", str(config.total_procs))
@@ -143,7 +139,6 @@ def main(parser):
 
     # add PFTOOL arguments
     pfcmd.add(*commands.commands)
-    # TODO remove these when fixed
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0],
