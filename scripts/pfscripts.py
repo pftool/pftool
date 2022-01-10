@@ -285,13 +285,30 @@ class Config:
                 # get hosts from node list in pftool.cfg
                 try:
                     nodes = config.items("active_nodes")
-                    self.nodelist = [x[0].lower() for x in
+                    nodelist = [x[0].lower() for x in
                     [x for x in nodes if x[1] == "ON"]]
-                    self.total_procs = self.config_procs
+                    # Without a WLM allocation we need to check if our hosts
+                    # are reachable through ssh
+                    up_host = []
+                    for host in nodelist:
+                        if is_ssh_running(host):
+                            up_host.append(host)
+                    # We want to meet the minimum per node for processes
+                    calc_procs = self.min_per_node * len(up_host)
+                    # pftool requires 4 processes minimum
+                    if calc_procs < 4:
+                        calc_procs = 4
+                    procs = (calc_procs, self.config_procs, self.total_procs)
+                    procs = max(procs)
+                    self.node_list = up_host
+                    self.total_procs = procs
                 except BaseException:
                     sys.exit(
                         "Need at least one node in config " +
                         "file set to on (e.g. localhost: ON)")
+            
+
+            
         except configparser.NoOptionError as e:
             print(e)
             sys.exit("Config read error. Missing a value.")

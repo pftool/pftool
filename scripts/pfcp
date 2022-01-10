@@ -113,23 +113,6 @@ def main(args):
     # determine which hosts to run on
     # read job control variables - if any
 
-    up_host = []
-    for host in config.node_list:
-        if pfs.is_ssh_running(host):
-            up_host.append(host)
-
-    host_list = up_host
-
-    # chance are that host_list came from job control variables ...
-    if "all" not in host_list:
-
-        host_cnt = len(config.node_list)
-        test_procs = config.min_per_node * host_cnt
-        # if configured for greater minimum procs -> use that number
-        if test_procs > procs:
-            procs = test_procs
-
-    num_procs = str(procs)  # make sure number pf processes is assigned
     mpigo = config.get("environment", "mpirun")
     # build mpi command
     pfcmd.add(mpigo)
@@ -148,10 +131,10 @@ def main(args):
     pfcmd.add("--map-by", "node")
     # Export marfs config env var to all procs
     pfcmd.add("-x", "MARFSCONFIGRC")
-    random.shuffle(host_list)
-    if "all" not in host_list:
-        pfcmd.add("-host", ",".join(host_list))
-    pfcmd.add("-n", num_procs)
+    random.shuffle(config.node_list)
+    if "all" not in config.node_list:
+        pfcmd.add("-host", ",".join(config.node_list))
+    pfcmd.add("-n", str(config.total_procs))
     pfcmd.add(pfs.PF.PFTOOL)
 
     # add PFTOOL arguments
@@ -163,7 +146,7 @@ def main(args):
         host,
         time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
-    if logging:
+    if config.logging:
         pfs.write_log("[pfcp] [%s] Begin Date: %s" % (
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
         pfs.write_log("[pfcp] [%s] CMD %s" % (jid, pfcmd))
@@ -179,12 +162,12 @@ def main(args):
 
     if status != 0:
         print("ERROR: %s failed" % sys.argv[0])
-        if logging:
+        if config.logging:
             pfs.write_log("[pfcp] [%s] PFCP failed." % (jid), syslog.LOG_ERR)
 
     print("Job finished at: %s" %
           (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-    if logging:
+    if config.logging:
         pfs.write_log("[pfcp] [%s] Job End at: %s" % (
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
