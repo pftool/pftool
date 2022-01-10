@@ -2,15 +2,18 @@
 import os.path
 import sys
 import subprocess
-import argparse
-import pfscripts as pfs
-from socket import gethostname
 import time
+import argparse
 import syslog
+from socket import gethostname
+import pfscripts as pfs
 
 
-def main(args):
+def main(parser):
     args = parser.parse_args()
+    if not args:
+        parser.print_help()
+        sys.exit(1)
     config = pfs.Config
     jid = pfs.get_jid()
     commands = pfs.Commands()
