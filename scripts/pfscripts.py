@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import time
 import os
+import sys
 import getpass
 import re
 from socket import gethostname
 import syslog
-
 import configparser
 import socket
 
@@ -46,6 +46,30 @@ def write_log(message, priority=syslog.LOG_ERR | syslog.LOG_USER):
     syslog.syslog(priority, message)
     syslog.closelog()
 
+def get_fixed_source(source):
+    """
+    Some input sources might need perceus things removed
+    """
+    src_full = []
+    for i in source:
+        src_full.append(os.path.realpath(i))
+    src_fixed = []
+    for i in src_full:
+        if i.find("/var/lib/perceus/vnfs") != "-1":
+            src_fixed.append(i.split('rootfs', 1)[-1])
+        else:
+            src_fixed.append(i)
+    return src_fixed
+
+def get_fixed_dest(dest):
+    dest_fixed = []
+    dest_full = []
+    dest_full.append(os.path.realpath(dest))
+    for j in dest_full:
+        if j.find("/var/lib/perceus/vnfs") != "-1":
+            dest_fixed.append(j.split('rootfs', 1)[-1])
+        else:
+            dest_fixed.append(j)
 
 def get_jid():
     user = getpass.getuser()
@@ -177,8 +201,8 @@ def get_nodeallocation():
         # compute processors/processes for the job
         numprocs = len(nodelist) * int(slurm_ppn)
     except KeyError:
-        nodelist = []
-        numprocs = 0
+        nodelist = None
+        numprocs = None
     # SLURM was a no-go try MOAB
     if not len(nodelist):
         try:
@@ -199,8 +223,8 @@ def get_nodeallocation():
                 n_line = n_fd.readline()
             n_fd.close()
         except KeyError:
-            nodelist = []
-            numprocs = 0
+            nodelist = None
+            numprocs = None
 
     return(nodelist, numprocs)
 
@@ -233,6 +257,44 @@ def add_darshan(pfconfig, mpicmd):
     except BaseException:
         pass
 
+
+class Config:
+    def __init__(self, prog_name):
+        config = configparser.ConfigParser()
+        config.read(options_path=PF.CONFIG)
+        try:
+            self.config_procs = int(config.get("num_procs", prog_name))
+            self.min_per_node = int(config.get("num_procs", "min_per_node"))
+            self.logging = config.getboolean("environment", "logging")
+            self.mpirun = config.get("environment", "mpirun")
+            self.parallel_dest = config.getboolean(
+                "environment", "parallel_dest")
+            self.darshan_lib = config.get("environment", "darshanlib")
+            # at some point write size chunk_at and chunk_size were optional
+            # that is no longer the case
+            self.write_size = config.get("options", "writesize")
+            self.chunk_at = config.get("options", "chunk_at")
+            self.chunk_size = config.get("options", "chunksize")
+            # Prefer getting a nodelist from a WLM manager like SLURM
+            # Fall back on the nodes set to ON in pftool.cfg
+            nodelist, total_procs = get_nodeallocation()
+            if nodelist and total_procs:
+                self.nodelist = nodelist
+                self.total_procs = total_procs
+            else:
+                # get hosts from node list in pftool.cfg
+                try:
+                    nodes = config.items("active_nodes")
+                    self.nodelist = [x[0].lower() for x in
+                    [x for x in nodes if x[1] == "ON"]]
+                    self.total_procs = self.config_procs
+                except BaseException:
+                    sys.exit(
+                        "Need at least one node in config " +
+                        "file set to on (e.g. localhost: ON)")
+        except configparser.NoOptionError as e:
+            print(e)
+            sys.exit("Config read error. Missing a value.")
 
 def busy():
     print("""

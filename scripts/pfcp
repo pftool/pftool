@@ -41,18 +41,16 @@ def validate_args(parser):
         parser.print_help()
         sys.exit(1)
 
-    
-
 
 def main(args):
-    config = pfs.parse_config()
+    # TODO update config to use config object
+    config = pfs.Config()
     jid = pfs.get_jid()
     commands = pfs.Commands()
     commands.add("-w", pfs.Work.COPY)
     commands.add("-j", jid)
-    logging = config.getboolean("environment", "logging")
 
-    if logging:
+    if config.logging:
         commands.add("-l")
     if args.recursive:
         commands.add("-r")
@@ -72,19 +70,10 @@ def main(args):
     for i in args.source_path:
         if not os.path.exists(i):
             sys.exit(f"cannot stat '{i}': No such file or directory")
-    try:
-        writesize = config.get("options", "writesize")
-        commands.add("-s", writesize)
-    except BaseException:
-        pass
 
-    try:
-        chunk_at = config.get("options", "chunk_at")
-        chunksize = config.get("options", "chunksize")
-        commands.add("-C", chunk_at)
-        commands.add("-S", chunksize)
-    except BaseException:
-        pass
+    commands.add("-s", config.write_size)
+    commands.add("-C", config.chunk_at)
+    commands.add("-S", config.chunk_size)
 
     # parse additional options
     if args.different:
@@ -95,8 +84,7 @@ def main(args):
         commands.add(args.exclude)
 
     try:
-        parallel_dest = config.getboolean("environment", "parallel_dest")
-        if parallel_dest:
+        if config.parallel_dest:
             commands.add("-P")
             dest_dir = os.path.dirname(args.dest_path)
             if dest_dir == "":
@@ -110,32 +98,11 @@ def main(args):
             commands.add("-t", dest_fstype.rstrip())
     except BaseException:
         pass
-
-    # The updates below expand relative paths to avoid hitting bugs with odd
-    # src/dst paths.  /var/lib/perceus/vnfs is likely safe
-    # to remove from *any* path...
-    src_full = []
-    dest_full = []
-    for i in args.source_path:
-        src_full.append(os.path.realpath(i))
-    dest_full.append(os.path.realpath(args.dest_path))
-
-    src_fixed = []
-    dest_fixed = []
-    for i in src_full:
-        if i.find("/var/lib/perceus/vnfs") != "-1":
-            src_fixed.append(i.split('rootfs', 1)[-1])
-        else:
-            src_fixed.append(i)
-    for j in dest_full:
-        if j.find("/var/lib/perceus/vnfs") != "-1":
-            dest_fixed.append(j.split('rootfs', 1)[-1])
-        else:
-            dest_fixed.append(j)
-
-    commands.add("-c", *dest_fixed)
     # src_fixed has the last '/' shaved off,
     # which is important for synthetic data sources
+    src_fixed = pfs.get_fixed_source(args.source_path)
+    dest_fixed = pfs.get_fixed_dest(args.dest_path)
+    commands.add("-c", *dest_fixed)
     if args.syn_size:
         commands.add("-p", *args.source_path)
     else:
@@ -145,21 +112,9 @@ def main(args):
     # use MPI and potentially multiple nodes
     # determine which hosts to run on
     # read job control variables - if any
-    host_list, procs = pfs.get_nodeallocation()
-    # no job control variables - use configured values in config file
-    if len(host_list) == 0:
-        try:
-            host_list = [x[0].lower() for x in [x for x in config.items(
-                "active_nodes") if x[1] == "ON"]]
-        except BaseException:
-            sys.exit(
-                "Need at least one node in config " +
-                "file set to on (e.g. localhost: ON)")
-
-        procs = int(config.get("num_procs", "pfcp"))
 
     up_host = []
-    for host in host_list:
+    for host in config.node_list:
         if pfs.is_ssh_running(host):
             up_host.append(host)
 
@@ -167,13 +122,9 @@ def main(args):
 
     # chance are that host_list came from job control variables ...
     if "all" not in host_list:
-        try:
-            min_procs = int(config.get("num_procs", "min_per_node"))
-        except BaseException:
-            sys.exit("Specify min_per_node in config (e.g. min_per_node: 2)")
 
-        host_cnt = len(host_list)
-        test_procs = min_procs * host_cnt
+        host_cnt = len(config.node_list)
+        test_procs = config.min_per_node * host_cnt
         # if configured for greater minimum procs -> use that number
         if test_procs > procs:
             procs = test_procs
@@ -226,7 +177,7 @@ def main(args):
         if status != 1:
             break
 
-    if(status != 0):
+    if status != 0:
         print("ERROR: %s failed" % sys.argv[0])
         if logging:
             pfs.write_log("[pfcp] [%s] PFCP failed." % (jid), syslog.LOG_ERR)
