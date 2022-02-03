@@ -1,140 +1,131 @@
-#!/usr/bin/env python
-import os.path, sys, pwd, grp, subprocess, random
-from optparse import OptionParser
-from pfscripts import *
-
-def main():
-  parser = OptionParser()
-  parser.usage = "%prog [options] sourcePath"
-  parser.description = "%prog --  list file(s) based on sourcePath in parallel"
-  parser.add_option("-R", dest="recurse", default=False, action="store_true", help="list directories recursively")
-  parser.add_option("-v", dest="verbose", default=False, action="store_true", help="verbose result output")
-  parser.add_option("-i", dest="input_list", help="input file list")
-  parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
-  (options, args) = parser.parse_args()
-
-  config = parse_config()
+#!/usr/bin/env python3
+import os.path
+import sys
+import subprocess
+import time
+import argparse
+import syslog
+from socket import gethostname
+import pfscripts as pfs
 
 
-  jid = get_jid()
-  src = args
-  commands = Commands()
-  commands.add("-w", Work.LS)
-  commands.add("-j", jid)
+def main(parser):
+    args = parser.parse_args()
+    if not args:
+        parser.print_help()
+        sys.exit(1)
+    config = pfs.Config(parser.prog)
+    jid = pfs.get_jid()
+    commands = pfs.Commands()
+    commands.add("-w", pfs.Work.LS)
+    commands.add("-j", jid)
 
-  logging = False
-  try:
-    l = config.get("environment", "logging")
-  except:
-    parser.error("please specify whether logging should be enabled (e.g. logging: True)")
+    if config.logging:
+        commands.add("-l")
 
-  if options.exclude is not None:
-      commands.add("-e")
-      commands.add(parser.values.exclude)
+    if args.exclude is not None:
+        commands.add("-e")
+        commands.add(parser.values.exclude)
 
-  if l.lower() == "true":
-    logging = True
-    commands.add("-l")
+    if args.verbose:
+        commands.add("-v")
 
-  if options.verbose:
-    commands.add("-v");
+    # drop -i until we can make it make sense on command line
+    # if options.input_list:
+    #     commands.add("-i", options.input_list)
 
-  if options.input_list:
-    commands.add ("-i", options.input_list)
-  elif src:
-    base_name = os.path.dirname(src[0])
-    if options.recurse:
-      commands.add("-r")
+    if args.recursive:
+        commands.add("-r")
 
-#    commands.add("-p", *src)
-#    print "src before = %s"%(src)
-    src_full = []
-    for i in src:
-      src_full.append(os.path.realpath(i))
-    src_fixed = []
-    for i in src_full:
-      if i.find("/var/lib/perceus/vnfs") != "-1":
-        src_fixed.append(i.split('rootfs', 1)[-1])
-      else:
-        src_fixed.append(i)
-#     print "src_full after = %s"%(src_full)
-#     print "src_fixed after = %s"%(src_fixed)
+    src_fixed = pfs.get_fixed_source(args.source_path)
     commands.add("-p", *src_fixed)
 
-  else:
-    parser.error("please include a source path or input list")
+    pfcmd = pfs.Commands()
+    pfcmd.add(config.mpirun)
+    # should return the MPI installation root
+    mpiroot = os.path.dirname(os.path.dirname(pfs.findexec(config.mpirun)))
+    # this is a fix for "orted: command not found" issue
+    pfcmd.add("-prefix", mpiroot)
 
-  threaded = False
-  try:
-    t = config.get("environment", "threaded")
-  except:
-    parser.error("please specify whether the program is threaded or not in the environment section of the config file (e.g. threaded: True)")
-
-  if t.lower() == "true":
-    threaded = True
-
-  pfcmd = Commands()
-  num_procs = config.get("num_procs", "pfls")
-
-
-  if threaded:
-    pfcmd.add(pftool)
-    pfcmd.add("-nthread", num_procs)
-  else:
-    try:
-      mpigo = config.get("environment", "mpirun")
-    except:
-      parser.error("please specify the mpirun path in the environment section of the config file (e.g. mpirun: /path/to/mpirun)")
-
-    try:
-      host_list = map(lambda x: x[0].lower(), filter(lambda x: x[1] == "ON", config.items("active_nodes")))
-    except:
-      parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
-      
-    pfcmd.add(mpigo)
-    mpiroot= os.path.dirname(os.path.dirname(findexec(mpigo)))		# should return the MPI installation root
-    pfcmd.add("-prefix", mpiroot)					# this is a fix for "orted: command not found" issue
-
-    # Add darshan logging support if its available (this must be called after adding mpigo)
-    add_darshan(config, pfcmd)
+    # Add darshan logging support if it is available
+    # (this must be called after adding mpi)
+    pfs.add_darshan(config, pfcmd)
 
     # Add in the dangerous flags that are necessary for running in production
     pfcmd.add("--oversubscribe")
     pfcmd.add("--allow-run-as-root")
-    pfcmd.add("--map-by","node")
+    pfcmd.add("--map-by", "node")
     # Export marfs config env var to all procs
-    pfcmd.add("-x","MARFSCONFIGRC")
-    random.shuffle(host_list)
-    if "all" not in host_list:
-        pfcmd.add("-host", ",".join(host_list))
-    pfcmd.add("-n", num_procs)
-    pfcmd.add(pftool)
-    
+    pfcmd.add("-x", "MARFSCONFIGRC")
+    if "all" not in config.node_list:
+        pfcmd.add("-host", ",".join(config.node_list))
+    pfcmd.add("-n", str(config.total_procs))
+    pfcmd.add(pfs.PF.PFTOOL)
+    pfcmd.add(*commands.commands)
+    host = gethostname()
+    print("Launched %s from host %s at: %s" % (
+        sys.argv[0], host, time.strftime(
+            "%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
-  pfcmd.add(*commands.commands)
+    if config.logging:
+        pfs.write_log("[pfls] [%s] Begin Date: %s" % (
+            jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+        pfs.write_log("[pfls] [%s] CMD %s" % (jid, pfcmd))
 
-  host = gethostname()
+    status = subprocess.call(pfcmd.commands)
+    if(status != 0):
+        print("ERROR: %s failed" % sys.argv[0])
+        if config.logging:
+            pfs.write_log("[pfls] [%s] PFLS failed." % (jid), syslog.LOG_ERR)
 
-  print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  
-  if logging:
-    write_log("[pfls] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-    write_log("[pfls] [%s] CMD %s"%(jid, pfcmd))
+    print("Job finished at: %s" %
+          (time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
+    if config.logging:
+        pfs.write_log("[pfls] [%s] Job End at: %s" % (
+            jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
 
-
-  status = subprocess.call(pfcmd.commands)
-  if(status != 0):
-    print "ERROR: %s failed"%sys.argv[0]
-    if logging:
-      write_log("[pfls] [%s] PFLS failed."%(jid), LOG_ERR)
-
-  
-  print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  if logging:
-    write_log("[pfls] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
-
-  sys.exit(status)
+    sys.exit(status)
 
 
 if __name__ == "__main__":
-  main()
+
+    parser = argparse.ArgumentParser(
+        'pfls',
+        usage="pfls [options] source_path",
+        description="List file(s) from source_path in parallel"
+    )
+
+    parser.add_argument(
+        'source_path',
+        nargs='*',
+        help=argparse.SUPPRESS
+    )
+
+    parser.add_argument(
+        '-R',
+        '--recursive',
+        action='store_true',
+        help='Recursive action',
+        default=False
+    )
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='Verbose output',
+        default=False
+    )
+
+    parser.add_argument(
+        '-e',
+        '--exclude',
+        type=str,
+        help='Exclude pattern',
+        default=None
+    )
+
+    if len(sys.argv) < 2:
+        parser.print_usage()
+        sys.exit(1)
+
+    main(parser)
