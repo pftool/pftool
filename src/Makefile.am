@@ -26,7 +26,7 @@ __top_builddir__bin_pftool_SOURCES = \
   sig.c sig.h \
   pfutils.cpp pfutils.h \
   pftool.cpp pftool.h \
-  Path.cpp Path.h 
+  Path.cpp Path.h
 
 if SYNDATA
   __top_builddir__bin_pftool_SOURCES += syndata.c syndata.h Path-syndata.h
@@ -39,7 +39,13 @@ if S3
 endif
 
 if MARFS
+  __top_builddir__bin_pftool_SOURCES += marfs.c marfs.h
   marfs_cflags=-DMARFS
+  marfs_ldflags=-lisal
+endif
+
+if OLD_MARFS
+  marfs_cflags=-DOLD_MARFS
   marfs_ldflags=-lisal
 install-exec-local:
 	chmod u+s $(bindir)/pftool

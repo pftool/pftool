@@ -16,7 +16,7 @@ def main():
   parser.add_option("-X", dest="synPattern", default=None, metavar="PATTERN", help="development only. Option may be used for future feature")
   parser.add_option("-e", dest="exclude", default=None, metavar="PATTERN", help="exclude pattern")
   parser.add_option("-t", dest="tryAttempts", default=1, type="int", help="Number of times to retry on non-fatal errors")
-  
+
   (options, args) = parser.parse_args()
 
   config = parse_config()
@@ -69,8 +69,8 @@ def main():
 
   base_dest_name = os.path.dirname(dest)
   if base_dest_name and not os.path.exists(base_dest_name):
-   parser.error("%s - No such file or directory"%(dest)) 
-  
+   parser.error("%s - No such file or directory"%(dest))
+
   #for i in src:
   #  if not os.path.exists(i):
   #    parser.error("cannot stat '%s': No such file or directory"%(i))
@@ -91,7 +91,7 @@ def main():
   #parse additional options
   if options.different:
     commands.add("-n")
-    
+
   if options.exclude is not None:
       commands.add("-e")
       commands.add(parser.values.exclude)
@@ -161,14 +161,14 @@ def main():
       except:
         parser.error("please specify at least 1 host in active_nodes section of the config file (e.g. localhost: ON)")
       procs = int(config.get("num_procs", "pfcp"))
-    
+
     up_host = []
     for host in host_list:
       if is_ssh_running(host):
         up_host.append(host)
 
     host_list = up_host
-  
+
     if "all" not in host_list:						# chance are that host_list came from job control variables ...
       try:
         min_procs = int(config.get("num_procs", "min_per_node"))
@@ -199,19 +199,20 @@ def main():
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by","node")
     # Export marfs config env var to all procs
-    pfcmd.add("-x","MARFSCONFIGRC")
+    if "MARFSCONFIGRC" in os.environ:
+        pfcmd.add("-x","MARFSCONFIGRC")
     random.shuffle(host_list)
     if "all" not in host_list:
         pfcmd.add("-host", ",".join(host_list))
     pfcmd.add("-n", num_procs)
     pfcmd.add(pftool)
-    
+
 	# add PFTOOL arguments
   pfcmd.add(*commands.commands)
 
   host = gethostname()
   print "Launched %s from host %s at: %s"%(sys.argv[0], host, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
-  
+
   if logging:
     write_log("[pfcp] [%s] Begin Date: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
     write_log("[pfcp] [%s] CMD %s"%(jid, pfcmd))
@@ -231,7 +232,7 @@ def main():
     if logging:
       write_log("[pfcp] [%s] PFCP failed."%(jid), LOG_ERR)
 
-  
+
   print "Job finished at: %s"%(time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime()))
   if logging:
     write_log("[pfcp] [%s] Job End at: %s"%(jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
