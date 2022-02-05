@@ -39,9 +39,7 @@ if S3
 endif
 
 if MARFS
-  __top_builddir__bin_pftool_SOURCES += marfs.c marfs.h
   marfs_cflags=-DMARFS
-  marfs_ldflags=-lisal
 endif
 
 if OLD_MARFS

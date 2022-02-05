@@ -90,7 +90,7 @@
 #endif
 
 #ifdef MARFS
-#include "marfs.h"
+#include <marfs.h>
 #endif
 
 #ifdef OLD_MARFS
@@ -1951,7 +1951,7 @@ protected:
    {
       _errno = 0;
 
-      _rc = marfs_lstat(ctxt, path(), &_item->st);
+      _rc = marfs_stat(ctxt, path(), &_item->st, AT_SYMLINK_NOFOLLOW);
 
       if (_rc)
       {
@@ -2066,7 +2066,7 @@ public:
    // single-threaded reconciliation of all these details, after close().
    virtual bool post_process(PathPtr src)
    {
-      marfs_fhandle handle = marfs_open(ctxt, path(), MARFS_WRITE);
+      marfs_fhandle handle = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
       if (handle == NULL)
       {
          _rc = -1;
@@ -2090,7 +2090,7 @@ public:
 
    virtual bool lchown(uid_t owner, gid_t group)
    {
-      if (_rc = marfs_lchown(ctxt, path(), owner, group))
+      if (_rc = marfs_chown(ctxt, path(), owner, group, AT_SYMLINK_NOFOLLOW))
       {
          _errno = errno;
       }
@@ -2100,7 +2100,7 @@ public:
 
    virtual bool chmod(mode_t mode)
    {
-      if (_rc = marfs_chmod(ctxt, path(), mode))
+      if (_rc = marfs_chmod(ctxt, path(), mode, AT_SYMLINK_NOFOLLOW))
       {
          _errno = errno;
       }
@@ -2134,7 +2134,7 @@ public:
 
    virtual bool access(int mode)
    {
-      if (_rc = marfs_faccess(ctxt, path(), mode, 0))
+      if (_rc = marfs_access(ctxt, path(), mode, 0))
       {
          _errno = errno;
       }
@@ -2145,7 +2145,7 @@ public:
    // path must not be relative
    virtual bool faccessat(int mode, int flags)
    {
-      if (_rc = marfs_faccess(ctxt, path(), mode, flags))
+      if (_rc = marfs_access(ctxt, path(), mode, flags))
       {
          _errno = errno;
       }
@@ -2177,7 +2177,7 @@ public:
       if (flags & O_CONCURRENT_WRITE)
       {
          // should only ever have O_CONCURRENT_WRITE and O_WRONLY
-         fh = marfs_open(ctxt, path(), MARFS_WRITE);
+         fh = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
          _parallel = true;
       }
       else if (flags & O_CREAT && !exists())
@@ -2203,11 +2203,11 @@ public:
          functionality (O_CREAT is ignored if the file already exists). Maybe
          this should disappear and the !exists() condition should be removed
          above.*/
-         fh = marfs_open(ctxt, path(), MARFS_WRITE);
+         fh = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
       }
       else
       {
-         fh = marfs_open(ctxt, path(), MARFS_READ);
+         fh = marfs_open(ctxt, NULL, path(), MARFS_READ);
       }
 
       if (!fh)
@@ -2422,7 +2422,7 @@ public:
 
    static int lstat(char *path, struct stat *buf)
    {
-      return marfs_lstat(ctxt, path, buf);
+      return marfs_stat(ctxt, path, buf, AT_SYMLINK_NOFOLLOW);
    }
 };
 
@@ -3443,8 +3443,15 @@ public:
 #endif
 
 #ifdef MARFS
-      ctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_PFTOOL);
+      ctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_BATCH, 0);
       packedFh = NULL;
+      size_t ctaglen = 8 + strlen( opts->jid );
+      char* ctagstr = (char*)malloc( sizeof(char) * ctaglen );
+      if ( ctagstr ) {
+         snprintf( ctagstr, ctaglen, "Pftool-%s", opts->jid );
+         marfs_setctag( ctxt, ctagstr );
+         free( ctagstr );
+      }
 #endif
 
       _flags |= INIT;

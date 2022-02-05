@@ -53,6 +53,7 @@ AC_CONFIG_HEADER([config.h])
 
 
 
+
 # change defaults, instead of "-g -O2"
 : ${CFLAGS="-g "} ${CXXFLAGS="-g"}
 
@@ -129,6 +130,8 @@ AC_CHECK_LIB([mpi], [MPI_Abort],
              [],
              [AC_MSG_ERROR([$CXX cannot compile MPI applications. Cannot continue.])] )
 # ])
+AC_CHECK_HEADERS([mpi.h])
+
 
 AC_CHECK_LIB([crypto], [EVP_MD_CTX_new], [], [
    AC_DEFINE([USE_DEPRECATED_CRYPTO], [1], [use deprecated libcrypto interface])
@@ -142,10 +145,7 @@ AC_CHECK_LIB([rt], [timer_settime])
 # NOTE: each test *prepends* its library to LIBS, so test for the
 #       depended-on libs before the libs that depend on them.
 AS_IF([test x"$enable_marfs" == xyes],
-   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
-   AC_CHECK_LIB([isal], [ec_encode_data])
-   AC_CHECK_LIB([marfs], [marfs_init])
-  ])
+   [AC_CHECK_LIB([marfs], [marfs_init])])
 
 AS_IF([test x"$enable_old_marfs" == xyes],
   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
