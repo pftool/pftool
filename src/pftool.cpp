@@ -2395,7 +2395,8 @@ int maybe_pre_process(int pre_process,
                       int do_unlink,
                       const struct options &o,
                       PathPtr &p_work,
-                      PathPtr &p_out)
+                      PathPtr &p_out,
+                      ssize_t* chunk_size)
 {
 
     if (o.work_type != COPYWORK)
@@ -2412,8 +2413,8 @@ int maybe_pre_process(int pre_process,
             errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
                         p_out->path(), p_out->strerror());
         }
-        if (!p_out->pre_process(p_work))
-            return -1;
+        //if (!p_out->pre_process(p_work))
+        //    return -1;
     }
 
     else if (pre_process == 2)
@@ -2456,6 +2457,22 @@ int maybe_pre_process(int pre_process,
                         p_out->path(), p_work->path(), strerror(errno));
             return -1;
         }
+
+        // possibly update chunk size value
+        if ( chunk_size  &&  *chunk_size < 1 ) {
+            ssize_t chnksztmp = p_temp->chunksize(p_work->st().st_size, o.chunksize);
+            if ( chnksztmp < 1 ){
+                errsend_fmt(NONFATAL, "failed to identify chunk size value for %s, %s: %s\n",
+                            p_out->path(), p_work->path(), strerror(errno));
+                if (do_unlink) { p_temp->unlink(); } // possibly repeat the unlink of our temp file
+                return -1;
+            }
+            *chunk_size = chnksztmp;
+        }
+    }
+    else if ( pre_process == 0  &&  chunk_size  &&  *chunk_size < 1 ) {
+       // worker is creating this file, so don't bother to chunk
+       *chunk_size = o.chunksize;
     }
 
     return 0;
@@ -2594,7 +2611,7 @@ void process_stat_buffer(path_item *path_buffer,
 
     //chunks
     //place_holder for current chunk_size
-    size_t chunk_size = 0;
+    ssize_t chunk_size = 0;
     size_t chunk_at = 0;
     size_t num_bytes_seen = 0;
 
@@ -2792,7 +2809,7 @@ void process_stat_buffer(path_item *path_buffer,
                     if (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))
                     {
                         do_unlink = 1;
-                        pre_process = 1;
+                        //pre_process = 1;
                     }
                     else
                     {
@@ -2883,9 +2900,9 @@ void process_stat_buffer(path_item *path_buffer,
                     // (dest_exists == 0)
                     // (non-temp) destination doesn't exist, and no CTM.
 
-                    if (work_node.st.st_size <= p_out->chunk_at(o.chunk_at))
-                        pre_process = 1;
-                    else
+                    if (work_node.st.st_size > p_out->chunk_at(o.chunk_at))
+                    //    pre_process = 1;
+                    //else
                     {
                         // it's possible that user deleted the CTM, and still
                         // has an (obsolete) temp-file.  It would be safe to
@@ -2975,9 +2992,11 @@ void process_stat_buffer(path_item *path_buffer,
                             }
                         }
                     }
+                    //fprintf( stderr, "%s (PreP=%d, UnL=%d, Pack=%d, Tmp=%d, DExist=%d)\n",
+                    //         p_out->path(), pre_process, do_unlink, work_node.packable, work_node.temp_flag, dest_exists );
 
                     // --- create destination (if needed)
-                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out))
+                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, &(chunk_size)))
                     {
                         errsend_fmt(((errno == EDQUOT) ? FATAL : NONFATAL),
                                     "Rank %d: couldn't prepare destination-file (1) '%s': %s\n",
@@ -2997,7 +3016,6 @@ void process_stat_buffer(path_item *path_buffer,
                             // compare work - just send the whole file
                             if ((work_node.st.st_size <= chunk_at) || (S_ISLNK(work_node.st.st_mode)) || (o.work_type == COMPAREWORK && o.meta_data_only))
                             {
-
                                 work_node.chksz = work_node.st.st_size;   // set chunk size to size of file
                                 chunk_curr_offset = work_node.st.st_size; // (exit chunking-loop)
                                 PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
@@ -3020,7 +3038,12 @@ void process_stat_buffer(path_item *path_buffer,
                             {
 
                                 // if we have hit the size of a COPYBUFFER or are about to exceed chunk_size, ship off the work
-                                if (((reg_buffer_count % COPYBUFFER) == 0) || (reg_buffer_count != 0 && (num_bytes_seen + work_node.chksz) > chunk_size))
+                                if ( reg_buffer_count != 0  &&
+                                     (
+                                      ((reg_buffer_count % COPYBUFFER) == 0) || 
+                                      ((num_bytes_seen + work_node.chksz) > chunk_size)
+                                     )
+                                   )
                                 {
                                     PRINT_MPI_DEBUG("rank %d: process_stat_buffer() parallel destination "
                                                     "- sending %d reg buffers to manager.\n",
@@ -3057,7 +3080,7 @@ void process_stat_buffer(path_item *path_buffer,
                 else
                 {
 
-                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out))
+                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, NULL))
                     {
                         errsend_fmt(((errno == EDQUOT) ? FATAL : NONFATAL),
                                     "Rank %d: couldn't prepare destination-file (2) '%s': %s\n",
@@ -3277,6 +3300,12 @@ void worker_copylist(int rank,
     {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
+#ifdef MARFS
+    if ( !MARFS_Path::close_packedfh() )
+    {
+        errsend_fmt(NONFATAL, "Failed to close file handle\n");
+    }
+#endif
 
 #ifdef OLD_MARFS
     if (!OLD_MARFS_Path::close_fh())

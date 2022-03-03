@@ -297,6 +297,7 @@ protected:
 #define NO_IMPL(METHOD) unimplemented(__FILE__, __LINE__, (#METHOD))
 #define NO_IMPL_STATIC(METHOD, CLASS) unimplemented_static(__FILE__, __LINE__, (#METHOD), (#CLASS))
 
+
 class Path
 {
 protected:
@@ -1927,9 +1928,10 @@ public:
 
 #include <linux/limits.h>
 
-static marfs_fhandle packedFh = NULL;
 
-static marfs_ctxt ctxt = NULL;
+extern marfs_fhandle marfspackedFh;
+extern marfs_ctxt    marfsctxt;
+
 
 class MARFS_Path : public Path
 {
@@ -1938,9 +1940,6 @@ protected:
 
    marfs_fhandle fh;
    marfs_dhandle dh;
-
-   uint64_t _open_offset;
-   uint64_t _open_size;
 
    bool _parallel;
    bool _packed;
@@ -1951,13 +1950,14 @@ protected:
    {
       _errno = 0;
 
-      _rc = marfs_stat(ctxt, path(), &_item->st, AT_SYMLINK_NOFOLLOW);
+      _rc = marfs_stat(marfsctxt, path(), &_item->st, AT_SYMLINK_NOFOLLOW);
 
       if (_rc)
       {
          _errno = errno;
          return false;
       }
+      _item->ftype = MARFSFILE;
 
       return true;
    }
@@ -1966,10 +1966,9 @@ protected:
        : Path(),
          fh(NULL),
          dh(NULL),
-         _open_offset(0),
-         _open_size(0),
          _parallel(false),
-         _packed(false)
+         _packed(false),
+         _offset(0)
    {
 
       unset(DID_STAT);
@@ -1994,7 +1993,8 @@ public:
 
       if (fh)
       {
-         marfs_close(fh);
+         if ( !(_packed) )
+            marfs_close(fh);
       }
 
       if (dh)
@@ -2003,16 +2003,48 @@ public:
       }
    }
 
+   // closes the underlying fh stream for packed files
+   static bool close_packedfh()
+   {
+      //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
+      if (marfspackedFh)
+      {
+         if ( marfs_close(marfspackedFh) ) {
+            marfspackedFh = NULL;
+            return false;
+         }
+         marfspackedFh = NULL;
+      }
+
+      return true;
+   }
+
    virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size)
    {
       off_t offset;
-      size_t size;
+      size_t size = 0;
 
+      // possibly open a new marfs_fhandle
+      char release = 0;
+      if ( fh == NULL ) {
+         fh = marfs_open( marfsctxt, marfspackedFh, path(), MARFS_WRITE );
+         if ( fh == NULL ) {
+            _errno = errno;
+            _rc = -1;
+            return 0;
+         }
+         release = 1;
+      }
       if (marfs_chunkbounds(fh, 0, &offset, &size))
       {
          _rc = -1;
          _errno = errno;
-         return -1;
+         return 0;
+      }
+      if ( release ) {
+         if (  marfs_release(fh) )
+            if ( _rc == 0 ) { _errno = errno; _rc = -1; }
+         fh = NULL;
       }
 
       return size;
@@ -2043,7 +2075,7 @@ public:
    // other writes to the file.
    virtual bool pre_process(PathPtr src)
    {
-      marfs_fhandle handle = marfs_creat(ctxt, NULL, path(), 0600);
+      marfs_fhandle handle = marfs_creat(marfsctxt, NULL, path(), 0600);
       if (handle == NULL)
       {
          _rc = -1;
@@ -2066,18 +2098,20 @@ public:
    // single-threaded reconciliation of all these details, after close().
    virtual bool post_process(PathPtr src)
    {
-      marfs_fhandle handle = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
-      if (handle == NULL)
-      {
-         _rc = -1;
-         _errno = errno;
-         return false;
-      }
+      if ( !(_packed) ) {
+         marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         if (handle == NULL)
+         {
+            _rc = -1;
+            _errno = errno;
+            return false;
+         }
 
-      if (_rc = marfs_close(handle))
-      {
-         _errno = errno;
-         return false;
+         if (_rc = marfs_close(handle))
+         {
+            _errno = errno;
+            return false;
+         }
       }
 
       return true;
@@ -2090,7 +2124,7 @@ public:
 
    virtual bool lchown(uid_t owner, gid_t group)
    {
-      if (_rc = marfs_chown(ctxt, path(), owner, group, AT_SYMLINK_NOFOLLOW))
+      if (_rc = marfs_chown(marfsctxt, path(), owner, group, AT_SYMLINK_NOFOLLOW))
       {
          _errno = errno;
       }
@@ -2100,7 +2134,7 @@ public:
 
    virtual bool chmod(mode_t mode)
    {
-      if (_rc = marfs_chmod(ctxt, path(), mode, AT_SYMLINK_NOFOLLOW))
+      if (_rc = marfs_chmod(marfsctxt, path(), mode, 0))
       {
          _errno = errno;
       }
@@ -2114,7 +2148,7 @@ public:
       times[0] = {.tv_sec = ut->actime, .tv_nsec = 0};
       times[1] = {.tv_sec = ut->modtime, .tv_nsec = 0};
 
-      if (_rc = marfs_futimens(fh, times))
+      if (_rc = utimensat(times, 0))
       {
          _errno = errno;
       }
@@ -2124,17 +2158,35 @@ public:
 
    virtual bool utimensat(const struct timespec times[2], int flags)
    {
+
+      // possibly open a new marfs_fhandle
+      char release = 0;
+      if ( fh == NULL ) {
+         fh = marfs_open( marfsctxt, marfspackedFh, path(), MARFS_WRITE );
+         if ( fh == NULL ) {
+            _errno = errno;
+            _rc = -1;
+            return false;
+         }
+         release = 1;
+      }
       if (_rc = marfs_futimens(fh, times))
       {
          _errno = errno;
       }
+      if ( release ) {
+         if (  marfs_release(fh) )
+            if ( _rc == 0 ) { _errno = errno; _rc = -1; }
+         fh = NULL;
+      }
+
       unset(DID_STAT);
       return (_rc == 0);
    }
 
    virtual bool access(int mode)
    {
-      if (_rc = marfs_access(ctxt, path(), mode, 0))
+      if (_rc = marfs_access(marfsctxt, path(), mode, 0))
       {
          _errno = errno;
       }
@@ -2145,7 +2197,7 @@ public:
    // path must not be relative
    virtual bool faccessat(int mode, int flags)
    {
-      if (_rc = marfs_access(ctxt, path(), mode, flags))
+      if (_rc = marfs_access(marfsctxt, path(), mode, flags))
       {
          _errno = errno;
       }
@@ -2167,8 +2219,6 @@ public:
    // after individual writers have all called marfs_close()
    virtual bool open(int flags, mode_t mode, size_t offset, size_t length)
    {
-      _open_offset = offset;
-      _open_size = length;
       return open(flags, mode);
    }
 
@@ -2177,24 +2227,23 @@ public:
       if (flags & O_CONCURRENT_WRITE)
       {
          // should only ever have O_CONCURRENT_WRITE and O_WRONLY
-         fh = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
          _parallel = true;
+         _packed = false;
       }
       else if (flags & O_CREAT && !exists())
       {
          // should only ever have O_CREAT and O_WRONLY
-         if (packedFh)
+         if (marfspackedFh)
          {
-            fh = marfs_creat(ctxt, packedFh, path(), mode);
+            fh = marfs_creat(marfsctxt, marfspackedFh, path(), mode);
          }
          else
          {
-            if (fh = marfs_creat(ctxt, NULL, path(), mode))
-            {
-               packedFh = fh;
-            }
+            fh = marfs_creat(marfsctxt, NULL, path(), mode);
          }
          _packed = true;
+         _parallel = false;
       }
       else if (flags & O_WRONLY)
       {
@@ -2203,11 +2252,15 @@ public:
          functionality (O_CREAT is ignored if the file already exists). Maybe
          this should disappear and the !exists() condition should be removed
          above.*/
-         fh = marfs_open(ctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         _parallel = true;
+         _packed = false;
       }
       else
       {
-         fh = marfs_open(ctxt, NULL, path(), MARFS_READ);
+         fh = marfs_open(marfsctxt, NULL, path(), MARFS_READ);
+         _parallel = false;
+         _packed = false;
       }
 
       if (!fh)
@@ -2218,6 +2271,7 @@ public:
          _packed = false;
          return false;
       }
+      else if (_packed) { marfspackedFh = fh; }
       _offset = 0;
       set(IS_OPEN);
       return true;
@@ -2225,7 +2279,7 @@ public:
 
    virtual bool opendir()
    {
-      dh = marfs_opendir(ctxt, path());
+      dh = marfs_opendir(marfsctxt, path());
       if (!dh)
       {
          _rc = -1;
@@ -2245,21 +2299,24 @@ public:
             _errno = errno;
             return false;
          }
+         fh = NULL;
+         marfspackedFh = NULL;
          _parallel = false;
-      }
-      else if (_packed)
-      {
          _packed = false;
       }
-      else
+      //else if (_packed)
+      //{
+      //   _packed = false;
+      //}
+      else if ( !(_packed) )
       {
          if (_rc = marfs_close(fh))
          {
             _errno = errno;
             return false;
          }
+         fh = NULL;
       }
-      fh = NULL;
       unset(DID_STAT);
       unset(IS_OPEN);
       return true;
@@ -2273,7 +2330,7 @@ public:
    // see comments at Path::rename()
    virtual bool rename(const char *new_path)
    {
-      if (_rc = marfs_rename(ctxt, path(), new_path))
+      if (_rc = marfs_rename(marfsctxt, path(), new_path))
       {
          _errno = errno;
       }
@@ -2316,10 +2373,16 @@ public:
 
    virtual ssize_t read(char *buf, size_t count, off_t offset)
    {
-      if (_offset != offset && marfs_seek(fh, offset, SEEK_SET))
-      {
-         _errno = errno;
-         return false;
+      if (_offset != offset) {
+         off_t newoffset = marfs_seek(fh, offset, SEEK_SET);
+         if ( newoffset != offset )
+         {
+            // even if offset is unexpected, record the resulting value if it makes any sense at all
+            if ( newoffset >= 0 ) { _offset = newoffset; }
+            _errno = errno;
+            return false;
+         }
+         _offset = offset;
       }
 
       ssize_t bytes = marfs_read(fh, buf, count);
@@ -2356,10 +2419,16 @@ public:
 
    virtual ssize_t write(char *buf, size_t count, off_t offset)
    {
-      if (_offset != offset && marfs_seek(fh, offset, SEEK_SET))
-      {
-         _errno = errno;
-         return false;
+      if (_offset != offset) {
+         off_t newoffset = marfs_seek(fh, offset, SEEK_SET);
+         if ( newoffset != offset )
+         {
+            // even if offset is unexpected, record the resulting value if it makes any sense at all
+            if ( newoffset >= 0 ) { _offset = newoffset; }
+            _errno = errno;
+            return false;
+         }
+         _offset = offset;
       }
 
       ssize_t bytes = marfs_write(fh, buf, count);
@@ -2375,7 +2444,7 @@ public:
 
    virtual bool mkdir(mode_t mode)
    {
-      if (_rc = marfs_mkdir(ctxt, path(), mode))
+      if (_rc = marfs_mkdir(marfsctxt, path(), mode))
       {
          _errno = errno;
       }
@@ -2385,7 +2454,7 @@ public:
 
    virtual bool unlink()
    {
-      if (_rc = marfs_unlink(ctxt, path()))
+      if (_rc = marfs_unlink(marfsctxt, path()))
       {
          _errno = errno;
       }
@@ -2401,7 +2470,7 @@ public:
    // marfs_readlink(), unlike POSIX readlink(), does currently add final '\0'
    virtual ssize_t readlink(char *buf, size_t bufsiz)
    {
-      ssize_t count = marfs_readlink(ctxt, path(), buf, bufsiz);
+      ssize_t count = marfs_readlink(marfsctxt, path(), buf, bufsiz);
       if (-1 == count)
       {
          _rc = -1; // we need an _rc_ssize
@@ -2412,7 +2481,7 @@ public:
 
    virtual bool symlink(const char *link_name)
    {
-      if (_rc = marfs_symlink(ctxt, path(), link_name))
+      if (_rc = marfs_symlink(marfsctxt, path(), link_name))
       {
          _errno = errno;
       }
@@ -2422,7 +2491,7 @@ public:
 
    static int lstat(char *path, struct stat *buf)
    {
-      return marfs_stat(ctxt, path, buf, AT_SYMLINK_NOFOLLOW);
+      return marfs_stat(marfsctxt, path, buf, AT_SYMLINK_NOFOLLOW);
    }
 };
 
@@ -3442,18 +3511,6 @@ public:
       }
 #endif
 
-#ifdef MARFS
-      ctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_BATCH, 0);
-      packedFh = NULL;
-      size_t ctaglen = 8 + strlen( opts->jid );
-      char* ctagstr = (char*)malloc( sizeof(char) * ctaglen );
-      if ( ctagstr ) {
-         snprintf( ctagstr, ctaglen, "Pftool-%s", opts->jid );
-         marfs_setctag( ctxt, ctagstr );
-         free( ctagstr );
-      }
-#endif
-
       _flags |= INIT;
    }
 
@@ -3502,6 +3559,20 @@ public:
    // shallow copy.
    static PathPtr create_shallow(const PathItemPtr &item)
    {
+#ifdef MARFS
+      if ( marfsctxt == NULL ) {
+         marfsctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_BATCH, 0);
+         marfspackedFh = NULL;
+         size_t ctaglen = 8 + strlen( _opts->jid );
+         char* ctagstr = (char*)malloc( sizeof(char) * ctaglen );
+         if ( ctagstr ) {
+            snprintf( ctagstr, ctaglen, "Pftool-%s", _opts->jid );
+            marfs_setctag( marfsctxt, ctagstr );
+            free( ctagstr );
+         }
+      }
+
+#endif
       PathPtr p;
 
       if (!item)

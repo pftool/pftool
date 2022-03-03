@@ -1024,9 +1024,10 @@ int update_stats(PathPtr p_src,
 
     // Make a path_item matching <dest_file>, using <src_file>->dest_ftype
     // NOTE: Path::follow() is false, by default
-    path_item dest_copy(p_dst->node());
-    dest_copy.ftype = p_src->dest_ftype();
-    PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
+    //path_item dest_copy(p_dst->node());
+    //dest_copy.ftype = p_src->dest_ftype();
+    //PathPtr p_dest(PathFactory::create_shallow(&dest_copy));
+    PathPtr p_dest = p_dst;
 
     // if running as root, always update <dest_file> owner  (without following links)
     // non-root user can also attempt this, by setting "preserve" (with -o)
@@ -1077,7 +1078,7 @@ int update_stats(PathPtr p_src,
                     p_dest->path(), p_dest->strerror());
     }
 
-    if (!p_src->get_packable() && p_src->st().st_size >= o.chunk_at)
+    if (!p_src->get_packable() && p_src->st().st_size > o.chunk_at)
     {
         const char *plus_sign = strrchr((const char *)p_dest->path(), '+');
         if (plus_sign)
@@ -1528,9 +1529,11 @@ int stat_item(path_item *work_node, struct options &o)
 #ifdef MARFS
     if (!got_type)
     {
+        // identify if the path is below the MarFS mountpoint
         rc = MARFS_Path::lstat(work_node->path, &st);
-        if (rc == 0)
+        if (rc == 0  ||  errno != EINVAL)
         {
+            // only failure w/ EINVAL indicates an invalid path
             work_node->ftype = MARFSFILE;
             got_type = true;
         }
@@ -1623,8 +1626,10 @@ int stat_item(path_item *work_node, struct options &o)
             return -1;
     }
 
-    work_node->st = st;
-    return 0;
+    // only update our stat struct if the stat was successful
+    if ( rc == 0 )
+        work_node->st = st;
+    return rc;
 }
 
 // <fs> is actually a SrcDstFSType.  If you have <sys/vfs.h>, then initialize

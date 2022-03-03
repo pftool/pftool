@@ -465,6 +465,11 @@ bool S3_Path::fake_stat(const char *path_name, struct stat *st)
 
 #endif
 
+#ifdef MARFS
+marfs_fhandle marfspackedFh;
+marfs_ctxt marfsctxt;
+#endif
+
 #ifdef OLD_MARFS
 
 /**
