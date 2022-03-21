@@ -85,6 +85,7 @@ int main(int argc, char *argv[])
     s3_enable_EMC_extensions(1);
 #endif
 
+#if defined(OLD_MARFS)  ||  defined(MARFS)
 #ifdef OLD_MARFS
     // aws_init() (actually, curl_global_init()) is supposed to be done
     // before *any* threads are created.  Could MPI_Init() create threads
@@ -92,7 +93,7 @@ int main(int argc, char *argv[])
     AWS4C_CHECK(aws_init());
     //s3_enable_EMC_extensions(1); TODO: Where does this need to be set
     //
-
+#endif
     {
         int rootEscalation;
         rootEscalation = 0;
@@ -102,12 +103,14 @@ int main(int argc, char *argv[])
             rootEscalation = 1;
         }
 
+#ifdef OLD_MARFS
         char *const user_name = (char *)"root";
         if (aws_read_config(user_name))
         {
             fprintf(stderr, "unable to load AWS4C config\n");
             exit(1);
         }
+#endif
 
         if (1 == rootEscalation)
         {
@@ -122,9 +125,11 @@ int main(int argc, char *argv[])
                 perror("unable to set egid back to user");
                 exit(1);
             }
+            //printf( "DROPPED ROOT PERM\n" );
         }
     }
 
+#ifdef OLD_MARFS
     if (read_configuration())
     {
         fprintf(stderr, "unable to load MarFS config\n");
@@ -156,8 +161,9 @@ int main(int argc, char *argv[])
 #else
     int config_fail_ok = 0;
 #endif
+#endif //OLD_MARFS
 
-#endif
+#endif //OLD_MARFS  OR  MARFS
 
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS)
     {
