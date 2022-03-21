@@ -1931,6 +1931,9 @@ public:
 
 extern marfs_fhandle marfspackedFh;
 extern marfs_ctxt    marfsctxt;
+extern char          marfs_ctag_set;
+
+int initialize_marfs_context( void );
 
 
 class MARFS_Path : public Path
@@ -3560,9 +3563,7 @@ public:
    static PathPtr create_shallow(const PathItemPtr &item)
    {
 #ifdef MARFS
-      if ( marfsctxt == NULL ) {
-         marfsctxt = marfs_init(::getenv("MARFS_CONFIG_PATH"), MARFS_BATCH, 0);
-         marfspackedFh = NULL;
+      if ( !(marfs_ctag_set) ) {
          size_t ctaglen = 8 + strlen( _opts->jid );
          char* ctagstr = (char*)malloc( sizeof(char) * ctaglen );
          if ( ctagstr ) {
@@ -3570,6 +3571,7 @@ public:
             marfs_setctag( marfsctxt, ctagstr );
             free( ctagstr );
          }
+         marfs_ctag_set = 1;
       }
 
 #endif

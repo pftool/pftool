@@ -86,6 +86,12 @@ int main(int argc, char *argv[])
 #endif
 
 #if defined(OLD_MARFS)  ||  defined(MARFS)
+#ifdef MARFS
+    if ( initialize_marfs_context() ) {
+        fprintf( stderr, "Failed to initialize MarFS Context!\n" );
+        exit(1);
+    }
+#endif
 #ifdef OLD_MARFS
     // aws_init() (actually, curl_global_init()) is supposed to be done
     // before *any* threads are created.  Could MPI_Init() create threads
@@ -822,10 +828,10 @@ int manager(int rank,
     size_t examined_byte_count = 0;
     size_t finished_byte_count = 0;
 
-    char message[MESSAGESIZE];
-    char errmsg[MESSAGESIZE];
-    char base_path[PATHSIZE_PLUS];
-    char dir_path[PATHSIZE_PLUS];
+    char message[MESSAGESIZE] = {0};
+    char errmsg[MESSAGESIZE] = {0};
+    char base_path[PATHSIZE_PLUS] = {0};
+    char dir_path[PATHSIZE_PLUS] = {0};
 
     struct stat st;
 
