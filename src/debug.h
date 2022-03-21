@@ -24,7 +24,7 @@
 
 #ifdef POLL_DEBUG
 #define POLL_DEBUG_ON 1
-#define PRINT_POLL_DEBUG(format, args...) fprintf(stderr, "POLL_DEBUG: "format, ##args);
+#define PRINT_POLL_DEBUG(format, args...) fprintf(stderr, "POLL_DEBUG: " format, ##args);
 #else
 #define POLL_DEBUG_ON 0
 #define PRINT_POLL_DEBUG(format, args...)
@@ -32,7 +32,7 @@
 
 #ifdef PROC_DEBUG
 #define PROC_DEBUG_ON 1
-#define PRINT_PROC_DEBUG(format, args...) fprintf(stderr, "PROC_DEBUG: "format, ##args);
+#define PRINT_PROC_DEBUG(format, args...) fprintf(stderr, "PROC_DEBUG: " format, ##args);
 #else
 #define PROC_DEBUG_ON 0
 #define PRINT_PROC_DEBUG(format, args...)
@@ -40,7 +40,7 @@
 
 #ifdef MPI_DEBUG
 #define MPI_DEBUG_ON 1
-#define PRINT_MPI_DEBUG(format, args...) fprintf(stderr, "MPI_DEBUG: "format, ##args);
+#define PRINT_MPI_DEBUG(format, args...) fprintf(stderr, "MPI_DEBUG: " format, ##args);
 #else
 #define MPI_DEBUG_ON 0
 #define PRINT_MPI_DEBUG(format, args...)
@@ -48,7 +48,7 @@
 
 #ifdef IO_DEBUG
 #define IO_DEBUG_ON 1
-#define PRINT_IO_DEBUG(format, args...) fprintf(stderr, "IO_DEBUG: "format, ##args);
+#define PRINT_IO_DEBUG(format, args...) fprintf(stderr, "IO_DEBUG: " format, ##args);
 #else
 #define IO_DEBUG_ON 0
 #define PRINT_IO_DEBUG(format, args...)
