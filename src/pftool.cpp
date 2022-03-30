@@ -104,7 +104,9 @@ int main(int argc, char *argv[])
         int rootEscalation;
         rootEscalation = 0;
 
-        if (0 == geteuid())
+        uid_t curuid = getuid();
+        uid_t cureuid = geteuid();
+        if (curuid != cureuid)
         {
             rootEscalation = 1;
         }
@@ -131,7 +133,7 @@ int main(int argc, char *argv[])
                 perror("unable to set egid back to user");
                 exit(1);
             }
-            //printf( "DROPPED ROOT PERM\n" );
+            printf( "DROPPED ROOT PERM\n" );
         }
     }
 
