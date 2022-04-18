@@ -2410,12 +2410,12 @@ int maybe_pre_process(int pre_process,
                       const struct options &o,
                       PathPtr &p_work,
                       PathPtr &p_out,
-                      ssize_t* chunk_size)
+                      ssize_t* chunk_size,
+                      CTM** ctm)
 {
 
     if (o.work_type != COPYWORK)
         return 0;
-
     else if (pre_process == 1)
     {
         //we are working with a either a size 0 file, or a packable file, or
@@ -2464,8 +2464,7 @@ int maybe_pre_process(int pre_process,
 
         if (!p_temp->pre_process(p_work))
             return -1;
-
-        else if (create_CTM(p_out, p_work))
+        else if (strcmp(p_out->class_name().get(), "NULL_Path")  &&  create_CTM(p_out, p_work))
         {
             errsend_fmt(NONFATAL, "create_CTM failed for %s, %s: %s\n",
                         p_out->path(), p_work->path(), strerror(errno));
@@ -2475,18 +2474,27 @@ int maybe_pre_process(int pre_process,
         // possibly update chunk size value
         if ( chunk_size  &&  *chunk_size < 1 ) {
             ssize_t chnksztmp = p_temp->chunksize(p_work->st().st_size, o.chunksize);
-            if ( chnksztmp < 1 ){
+            if ( chnksztmp < 1 ) {
                 errsend_fmt(NONFATAL, "failed to identify chunk size value for %s, %s: %s\n",
                             p_out->path(), p_work->path(), strerror(errno));
                 if (do_unlink) { p_temp->unlink(); } // possibly repeat the unlink of our temp file
                 return -1;
             }
             *chunk_size = chnksztmp;
+            if ( ctm  &&  ((*ctm)->chnksz != chnksztmp) ) {
+               // if the dest FS disagrees about chunksize, take its word for it and purge existing CTM
+               purgeCTM(p_out->path());
+               freeCTM( ctm );
+               *ctm = NULL;
+               output_fmt(1, "INFO  PRE-PROCESS -- Starting from 0, due to CTM chunksize mismatch: %s\n",
+                          p_out->path());
+            }
         }
     }
-    else if ( pre_process == 0  &&  chunk_size  &&  *chunk_size < 1 ) {
-       // worker is creating this file, so don't bother to chunk
-       *chunk_size = o.chunksize;
+    else if ( pre_process == 0  &&  chunk_size  &&  *chunk_size < 1 )
+    {
+        // worker is creating this file, so don't bother to chunk
+        *chunk_size = o.chunksize;
     }
 
     return 0;
@@ -3010,7 +3018,7 @@ void process_stat_buffer(path_item *path_buffer,
                     //         p_out->path(), pre_process, do_unlink, work_node.packable, work_node.temp_flag, dest_exists );
 
                     // --- create destination (if needed)
-                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, &(chunk_size)))
+                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, &(chunk_size), &(ctm)))
                     {
                         errsend_fmt(((errno == EDQUOT) ? FATAL : NONFATAL),
                                     "Rank %d: couldn't prepare destination-file (1) '%s': %s\n",
@@ -3094,7 +3102,7 @@ void process_stat_buffer(path_item *path_buffer,
                 else
                 {
 
-                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, NULL))
+                    if (maybe_pre_process(pre_process, do_unlink, o, p_work, p_out, NULL, NULL))
                     {
                         errsend_fmt(((errno == EDQUOT) ? FATAL : NONFATAL),
                                     "Rank %d: couldn't prepare destination-file (2) '%s': %s\n",
