@@ -73,7 +73,12 @@ AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
 AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
 AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
 
-
+# define the MARFS config path
+AM_COND_IF([MARFS],[
+   AS_IF([test "x$MARFS_CONFIG_PATH" != x],
+      [AC_DEFINE_UNQUOTED([MARFS_CONFIG_PATH], ["$MARFS_CONFIG_PATH"], [Path to the MarFS Config File])],
+      [AC_MSG_ERROR([MARFS_CONFIG_PATH is not defined!])])
+   ])
 
 # chunk-transfer metadata can be stored to allow incremental restarts for
 # large N:1 destination-files.  use '--enable-CTM=' to specify how (or

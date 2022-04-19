@@ -2481,7 +2481,7 @@ int maybe_pre_process(int pre_process,
                 return -1;
             }
             *chunk_size = chnksztmp;
-            if ( ctm  &&  ((*ctm)->chnksz != chnksztmp) ) {
+            if ( ctm  &&  (*ctm)  &&  ((*ctm)->chnksz != chnksztmp) ) {
                // if the dest FS disagrees about chunksize, take its word for it and purge existing CTM
                purgeCTM(p_out->path());
                freeCTM( ctm );

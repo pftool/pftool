@@ -130,8 +130,6 @@ def main(parser):
     pfcmd.add("--oversubscribe")
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by", "node")
-    # Export marfs config env var to all procs
-    pfcmd.add("-x", "MARFS_CONFIG_PATH")
     if "all" not in config.node_list:
         pfcmd.add("-host", ",".join(config.node_list))
     pfcmd.add("-n", str(config.total_procs))
