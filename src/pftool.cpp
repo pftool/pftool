@@ -101,14 +101,12 @@ int main(int argc, char *argv[])
     //
 #endif
     {
-        int rootEscalation;
-        rootEscalation = 0;
-
+        int setuidbinary = 0;
         uid_t curuid = getuid();
         uid_t cureuid = geteuid();
-        if (curuid != cureuid)
+        if ( curuid != cureuid )
         {
-            rootEscalation = 1;
+            setuidbinary = 1;
         }
 
 #ifdef OLD_MARFS
@@ -120,20 +118,19 @@ int main(int argc, char *argv[])
         }
 #endif
 
-        if (1 == rootEscalation)
+        if ( setuidbinary )
         {
-            if (0 != seteuid(getuid()))
+            if ( seteuid(curuid) )
             {
                 perror("unable to set euid back to user");
                 exit(1);
             }
             // probably a no-op, unless someone accidentally sets SGID on pftool.
-            if (0 != setegid(getgid()))
+            if ( setegid(getgid()) )
             {
                 perror("unable to set egid back to user");
                 exit(1);
             }
-            printf( "DROPPED ROOT PERM\n" );
         }
     }
 
@@ -304,7 +301,7 @@ int main(int argc, char *argv[])
                 o.chunksize = str2Size(optarg);
                 break;
 
-            case 'D':
+            case 'M':
                 o.max_readdir_ranks = atoi(optarg);
                 break;
 
@@ -367,8 +364,8 @@ int main(int argc, char *argv[])
                 o.parallel_dest = 1;
                 break;
 
-            case 'M':
-                o.meta_data_only = 0;
+            case 'D':
+                o.meta_data_only = 0; // data comparison ( NOT metadata-only )
                 break;
 
             case 'v':

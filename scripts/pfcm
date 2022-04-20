@@ -52,8 +52,8 @@ def main(parser):
 
     if config.logging:
         commands.add("-l")
-    if args.metadata:
-        commands.add("-M")
+    if args.data:
+        commands.add("-D")
     if args.verbose:
         commands.add("-v")
     if args.preserve:
@@ -144,10 +144,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-M',
-        '--metadata',
+        '-D',
+        '--data',
         action='store_true',
-        help='Check changes to Metadata only',
+        help='Compare data content of files, in addition to metadata',
         default=False
     )
 
