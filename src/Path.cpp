@@ -467,12 +467,14 @@ bool S3_Path::fake_stat(const char *path_name, struct stat *st)
 
 #ifdef MARFS
 marfs_fhandle marfspackedFh;
+marfs_fhandle marfsreadstream;
 marfs_ctxt marfsctxt;
 char marfs_ctag_set;
 
 int initialize_marfs_context( void ) {
    marfs_ctag_set = 0;
    marfspackedFh = NULL;
+   marfsreadstream = NULL;
    marfsctxt = marfs_init( MARFS_CONFIG_PATH, MARFS_BATCH, 0 );
    if ( marfsctxt == NULL ) {
       return -1;

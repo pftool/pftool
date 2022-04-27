@@ -1930,6 +1930,7 @@ public:
 
 
 extern marfs_fhandle marfspackedFh;
+extern marfs_fhandle marfsReadStream;
 extern marfs_ctxt    marfsctxt;
 extern char          marfs_ctag_set;
 
@@ -1994,10 +1995,9 @@ public:
    {
       Path::close_all();
 
-      if (fh)
+      if (fh  &&  fh != marfspackedFh  &&  fh != marfsReadStream)
       {
-         if ( !(_packed) )
-            marfs_close(fh);
+         marfs_release(fh);
       }
 
       if (dh)
@@ -2010,16 +2010,22 @@ public:
    static bool close_packedfh()
    {
       //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
+      bool retval = true;
       if (marfspackedFh)
       {
          if ( marfs_close(marfspackedFh) ) {
-            marfspackedFh = NULL;
-            return false;
+            retval = false;
          }
          marfspackedFh = NULL;
       }
+      if ( marfsReadStream ) {
+         if ( marfs_release(marfsReadStream) ) {
+            retval = false;
+         }
+         marfsReadStream = NULL;
+      }
 
-      return true;
+      return retval;
    }
 
    virtual ssize_t chunksize(size_t file_size, size_t desired_chunk_size)
@@ -2261,7 +2267,8 @@ public:
       }
       else
       {
-         fh = marfs_open(marfsctxt, NULL, path(), MARFS_READ);
+         fh = marfs_open(marfsctxt, marfsReadStream, path(), MARFS_READ);
+         marfsReadStream = fh;
          _parallel = false;
          _packed = false;
       }
@@ -2295,35 +2302,15 @@ public:
 
    virtual bool close()
    {
-      if (_parallel)
-      {
+      if ( fh != marfspackedFh  &&  fh != marfsReadStream ) {
          if (_rc = marfs_release(fh))
          {
             _errno = errno;
             return false;
          }
-         if ( fh == marfspackedFh ) {
-            marfspackedFh = NULL;
-         }
          fh = NULL;
          _parallel = false;
          _packed = false;
-      }
-      //else if (_packed)
-      //{
-      //   _packed = false;
-      //}
-      else if ( !(_packed) )
-      {
-         if (_rc = marfs_close(fh))
-         {
-            _errno = errno;
-            return false;
-         }
-         if ( fh == marfspackedFh ) {
-            marfspackedFh = NULL;
-         }
-         fh = NULL;
       }
       unset(DID_STAT);
       unset(IS_OPEN);
