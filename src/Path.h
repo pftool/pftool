@@ -2030,7 +2030,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, marfspackedFh, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2165,7 +2165,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, marfspackedFh, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2302,8 +2302,10 @@ public:
             _errno = errno;
             return false;
          }
+         if ( fh == marfspackedFh ) {
+            marfspackedFh = NULL;
+         }
          fh = NULL;
-         marfspackedFh = NULL;
          _parallel = false;
          _packed = false;
       }
@@ -2317,6 +2319,9 @@ public:
          {
             _errno = errno;
             return false;
+         }
+         if ( fh == marfspackedFh ) {
+            marfspackedFh = NULL;
          }
          fh = NULL;
       }
