@@ -1870,6 +1870,13 @@ void worker(int rank, struct options &o)
         }
         message_ready = 0;
     }
+#ifdef MARFS
+    // Close our MarFS stream as late as possible
+    if ( !MARFS_Path::close_packedfh() )
+    {
+        errsend_fmt(NONFATAL, "Failed to finalize MarFS stream ( some files may have failed to sync! )\n");
+    }
+#endif
 
     // cleanup
     if (rank == OUTPUT_PROC)
@@ -3339,13 +3346,6 @@ void worker_copylist(int rank,
     {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
-#ifdef MARFS
-    if ( !MARFS_Path::close_packedfh() )
-    {
-        errsend_fmt(NONFATAL, "Failed to close file handle\n");
-    }
-#endif
-
 #ifdef OLD_MARFS
     if (!OLD_MARFS_Path::close_fh())
     {

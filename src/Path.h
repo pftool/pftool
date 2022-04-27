@@ -3564,10 +3564,10 @@ public:
    {
 #ifdef MARFS
       if ( !(marfs_ctag_set) ) {
-         size_t ctaglen = 8 + strlen( _opts->jid );
+         size_t ctaglen = 13 + strlen( _opts->jid ) + snprintf( NULL, 0, "%d", _rank ); // pretty lame way to calc len
          char* ctagstr = (char*)malloc( sizeof(char) * ctaglen );
          if ( ctagstr ) {
-            snprintf( ctagstr, ctaglen, "Pftool-%s", _opts->jid );
+            snprintf( ctagstr, ctaglen, "Pftool-Rank%d-%s", _rank, _opts->jid );
             marfs_setctag( marfsctxt, ctagstr );
             free( ctagstr );
          }
