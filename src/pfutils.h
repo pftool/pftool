@@ -133,7 +133,44 @@ enum SrcDstFSType
 #define PARALLEL_DESTFS PANASASFS /* beginning of SrcDstFSTypes supporting N:1 writes */
 #define REST_FS S3FS              /* beginning of SrcDstFSTypes that are RESTful */
 
+// special open flags, specific to the Pftool Path class
 #define O_CONCURRENT_WRITE 020000000000
+#define O_SOURCE_PATH      002000000000
+#define O_DEST_PATH        004000000000
+// attempt to verify that our custom open flags do not collide with system defs
+#if ( ( O_CONCURRENT_WRITE == 0 )  ||  ( O_CONCURRENT_WRITE & \
+      ( O_RDONLY | O_WRONLY | O_RDWR | \
+        O_CREAT | O_EXCL | O_TRUNC | \
+        O_APPEND | O_DIRECTORY | O_DIRECT | \
+        O_NOFOLLOW | O_NOATIME | O_CLOEXEC | \
+        O_ACCMODE | O_NOCTTY | O_NONBLOCK | \
+        O_DSYNC | O_LARGEFILE | FASYNC \
+      ) ) \
+    )
+#error "O_CONCURRENT_WRITE definition collides with existing open() flag values!"
+#endif
+#if ( ( O_SOURCE_PATH == 0 )  ||  ( O_SOURCE_PATH & \
+      ( O_RDONLY | O_WRONLY | O_RDWR | \
+        O_CREAT | O_EXCL | O_TRUNC | \
+        O_APPEND | O_DIRECTORY | O_DIRECT | \
+        O_NOFOLLOW | O_NOATIME | O_CLOEXEC | \
+        O_ACCMODE | O_NOCTTY | O_NONBLOCK | \
+        O_DSYNC | O_LARGEFILE | FASYNC \
+      ) ) \
+    )
+#error "O_SOURCE_PATH definition collides with existing open() flag values!"
+#endif
+#if ( ( O_DEST_PATH == 0 )  ||  ( O_DEST_PATH & \
+      ( O_RDONLY | O_WRONLY | O_RDWR | \
+        O_CREAT | O_EXCL | O_TRUNC | \
+        O_APPEND | O_DIRECTORY | O_DIRECT | \
+        O_NOFOLLOW | O_NOATIME | O_CLOEXEC | \
+        O_ACCMODE | O_NOCTTY | O_NONBLOCK | \
+        O_DSYNC | O_LARGEFILE | FASYNC \
+      ) ) \
+    )
+#error "O_DEST_PATH definition collides with existing open() flag values!"
+#endif
 
 #define DevMinor(x) ((x)&0xFFFF)
 #define DevMajor(x) ((unsigned)(x) >> 16)

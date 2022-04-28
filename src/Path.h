@@ -1929,8 +1929,9 @@ public:
 #include <linux/limits.h>
 
 
-extern marfs_fhandle marfspackedFh;
-extern marfs_fhandle marfsReadStream;
+extern marfs_fhandle marfsCreateStream;
+extern marfs_fhandle marfsSourceReadStream;
+extern marfs_fhandle marfsDestReadStream;
 extern marfs_ctxt    marfsctxt;
 extern char          marfs_ctag_set;
 
@@ -1995,7 +1996,7 @@ public:
    {
       Path::close_all();
 
-      if (fh  &&  fh != marfspackedFh  &&  fh != marfsReadStream)
+      if (fh  &&  fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream)
       {
          marfs_release(fh);
       }
@@ -2011,18 +2012,24 @@ public:
    {
       //printf("rank %d close_fh calling subp\n", MARFS_Path::_rank);
       bool retval = true;
-      if (marfspackedFh)
+      if (marfsCreateStream)
       {
-         if ( marfs_close(marfspackedFh) ) {
+         if ( marfs_close(marfsCreateStream) ) {
             retval = false;
          }
-         marfspackedFh = NULL;
+         marfsCreateStream = NULL;
       }
-      if ( marfsReadStream ) {
-         if ( marfs_release(marfsReadStream) ) {
+      if ( marfsSourceReadStream ) {
+         if ( marfs_release(marfsSourceReadStream) ) {
             retval = false;
          }
-         marfsReadStream = NULL;
+         marfsSourceReadStream = NULL;
+      }
+      if ( marfsDestReadStream ) {
+         if ( marfs_release(marfsDestReadStream) ) {
+            retval = false;
+         }
+         marfsDestReadStream = NULL;
       }
 
       return retval;
@@ -2243,14 +2250,7 @@ public:
       else if (flags & O_CREAT && !exists())
       {
          // should only ever have O_CREAT and O_WRONLY
-         if (marfspackedFh)
-         {
-            fh = marfs_creat(marfsctxt, marfspackedFh, path(), mode);
-         }
-         else
-         {
-            fh = marfs_creat(marfsctxt, NULL, path(), mode);
-         }
+         fh = marfs_creat(marfsctxt, marfsCreateStream, path(), mode);
          _packed = true;
          _parallel = false;
       }
@@ -2265,10 +2265,21 @@ public:
          _parallel = true;
          _packed = false;
       }
-      else
+      else if (flags & O_RDONLY)
       {
-         fh = marfs_open(marfsctxt, marfsReadStream, path(), MARFS_READ);
-         marfsReadStream = fh;
+         if (flags & O_SOURCE_PATH) {
+            fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), MARFS_READ);
+            if ( fh )
+               marfsSourceReadStream = fh;
+         }
+         else if (flags & O_DEST_PATH) {
+            fh = marfs_open(marfsctxt, marfsDestReadStream, path(), MARFS_READ);
+            if ( fh )
+               marfsDestReadStream = fh;
+         }
+         else {
+            fh = marfs_open(marfsctxt, NULL, path(), MARFS_READ);
+         }
          _parallel = false;
          _packed = false;
       }
@@ -2281,7 +2292,7 @@ public:
          _packed = false;
          return false;
       }
-      else if (_packed) { marfspackedFh = fh; }
+      else if (_packed) { marfsCreateStream = fh; }
       _offset = 0;
       set(IS_OPEN);
       return true;
@@ -2302,7 +2313,7 @@ public:
 
    virtual bool close()
    {
-      if ( fh != marfspackedFh  &&  fh != marfsReadStream ) {
+      if ( fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream ) {
          if (_rc = marfs_release(fh))
          {
             _errno = errno;

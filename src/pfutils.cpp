@@ -588,7 +588,7 @@ int copy_file(PathPtr p_src,
     }
 
     // OPEN source for reading (binary mode)
-    if (!p_src->open(O_RDONLY, p_src->mode()))
+    if (!p_src->open(O_RDONLY | O_SOURCE_PATH, p_src->mode()))
     {
         errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
         if (buf)
@@ -686,7 +686,7 @@ int copy_file(PathPtr p_src,
         while ((bytes_processed != blocksize) && (retry_count < 5))
         {
             p_src->close(); // best effort
-            if (!p_src->open(O_RDONLY, p_src->mode(), offset + completed, length - completed))
+            if (!p_src->open(O_RDONLY | O_SOURCE_PATH, p_src->mode(), offset + completed, length - completed))
             {
                 errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
                             p_src->path(), offset, completed);
@@ -902,7 +902,7 @@ int compare_file(path_item *src_file,
             return -1;
         }
 
-        if (!p_src->open(O_RDONLY, src_file->st.st_mode, offset, length))
+        if (!p_src->open(O_RDONLY | O_SOURCE_PATH, src_file->st.st_mode, offset, length))
         {
             errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
             free(ibuf);
@@ -910,7 +910,7 @@ int compare_file(path_item *src_file,
             return -1;
         }
 
-        if (!p_dest->open(O_RDONLY, dest_file->st.st_mode, offset, length))
+        if (!p_dest->open(O_RDONLY | O_DEST_PATH, dest_file->st.st_mode, offset, length))
         {
             errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
             free(ibuf);
