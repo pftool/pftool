@@ -2265,7 +2265,7 @@ public:
          _parallel = true;
          _packed = false;
       }
-      else if (flags & O_RDONLY)
+      else
       {
          if (flags & O_SOURCE_PATH) {
             fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), MARFS_READ);
