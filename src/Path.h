@@ -2487,7 +2487,7 @@ public:
 
    virtual bool symlink(const char *link_name)
    {
-      if (_rc = marfs_symlink(marfsctxt, path(), link_name))
+      if (_rc = marfs_symlink(marfsctxt, link_name, path()))
       {
          _errno = errno;
       }
