@@ -1316,7 +1316,7 @@ int manager(int rank,
                 {
                     // syslog includes the interval BW
                     sprintf(message,
-                            "INFO ACCUM  files/chunks: %7s    "
+                            "INFO  ACCUM  files/chunks: %7s    "
                             "data: %10sB / %10sB    "
                             "BW: (interval: %10sB/s    overall: %10sB/s)    "
                             "errs: %d\n",
@@ -1327,7 +1327,7 @@ int manager(int rank,
                     write_output(message, 2); // syslog-only
                 }
                 sprintf(message,
-                        "INFO ACCUM  files/chunks: %7s    "
+                        "INFO  ACCUM  files/chunks: %7s    "
                         "data: %10sB / %10sB    "
                         "avg BW: %10sB/s    "
                         "errs: %d\n",
