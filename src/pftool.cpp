@@ -2499,10 +2499,17 @@ int maybe_pre_process(int pre_process,
             *chunk_size = chnksztmp;
         }
     }
-    else if ( pre_process == 0  &&  chunk_size  &&  *chunk_size < 1 )
-    {
-        // worker is creating this file, so don't bother to chunk
-        *chunk_size = o.chunksize;
+    else if ( pre_process == 0 ) {
+        if (do_unlink && !p_out->unlink() && (errno != ENOENT))
+        {
+            errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
+                        p_out->path(), p_out->strerror());
+        }
+        if ( chunk_size  &&  *chunk_size < 1 )
+        {
+            // worker is creating this file, so don't bother to chunk
+            *chunk_size = o.chunksize;
+        }
     }
 
     if (chunk_size && *chunk_size < 1) {
