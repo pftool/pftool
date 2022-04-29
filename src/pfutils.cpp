@@ -549,7 +549,7 @@ int copy_file(PathPtr p_src,
         }
         else if (numchars >= PATHSIZE_PLUS)
         {
-            errsend_fmt(NONFATAL, "readlink %s, not enough room for '\\0'", p_src->path());
+            errsend_fmt(NONFATAL, "readlink %s, not enough room for '\\0'\n", p_src->path());
             return -1;
         }
         link_path[numchars] = '\0';
@@ -558,7 +558,7 @@ int copy_file(PathPtr p_src,
         ////        if (rc < 0)
         if (!p_dest->symlink(link_path) && strcmp(p_dest->class_name().get(), "NULL_Path"))
         {
-            errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s", p_dest->path(), link_path);
+            errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s\n", p_dest->path(), link_path);
             return -1;
         }
 
