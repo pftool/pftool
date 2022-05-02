@@ -1079,6 +1079,14 @@ int manager(int rank,
         PathPtr p_dest(PathFactory::create(dest_path));
         sprintf(message, "INFO  HEADER   Dest-type:   %s\n", p_dest->class_name().get());
         write_output(message, 1);
+
+#ifdef CONDUIT
+        // possibly send Conduit Header message
+        sprintf( message,
+                 "#CONDUIT-MSG {\"Type\":\"HEADER\", \"SourceFS\":\"%s\", \"DestinationFS\":\"%s\"}\n",
+                 p_src->class_name().get(), p_dest->class_name().get() );
+        write_output(message, 1);
+#endif
     }
 
     //starttime
@@ -1337,6 +1345,14 @@ int manager(int rank,
                         non_fatal);
                 write_output(message, 0); // stdout-only
 
+#ifdef CONDUIT
+                // possibly send Conduit Accum message
+                sprintf( message,
+                         "#CONDUIT-MSG {\"Type\":\"ACCUM\", \"Files&Chunks\":%d, \"DataFinished\":\"%s\", \"Bandwidth\":\"%s\"}\n",
+                         num_copied_files, bytes, bw_avg );
+                write_output(message, 1);
+#endif
+
                 // log accumulated performance-statistics for marfs-internals
                 send_command(ACCUM_PROC, SHOWTIMINGCMD);
 
@@ -1415,6 +1431,8 @@ int manager(int rank,
 
     static const size_t BUF_SIZE = 1024;
     char human_val[BUF_SIZE];
+    char bw_avg[BUF_SIZE];
+    human_readable( bw_avg, BUF_SIZE, (float)num_copied_bytes / ( elapsed_time + 1 ) );
 
     if (o.work_type == LSWORK)
     {
@@ -1433,8 +1451,8 @@ int manager(int rank,
 
         if ((num_copied_bytes / (1024 * 1024)) > 0)
         {
-            sprintf(message, "INFO  FOOTER   Data Rate:                  %4zd MB/second\n",
-                    (num_copied_bytes / (1024 * 1024)) / (elapsed_time + 1));
+            sprintf(message, "INFO  FOOTER   Data Rate:                  %5sB/second\n",
+                    bw_avg);
             write_output(message, 1);
         }
     }
@@ -1464,6 +1482,14 @@ int manager(int rank,
             elapsed_time,
             ((elapsed_time == 1) ? "" : "s"));
     write_output(message, 1);
+
+#ifdef CONDUIT
+    // possibly send Conduit FOOTER message
+    sprintf( message,
+             "#CONDUIT-MSG {\"Type\":\"FOOTER\", \"Files&Chunks\":%d, \"Data\":\"%s\", \"Bandwidth\":\"%s\", \"Files\":%d, \"Directories\":%d}\n",
+             num_copied_files, human_val, bw_avg, examined_file_count, examined_dir_count );
+    write_output(message, 1);
+#endif
 
     // (ask ACCUM_PROC to) show statistics accumulated over final period
     send_command(ACCUM_PROC, SHOWTIMINGCMD);

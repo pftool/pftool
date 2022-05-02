@@ -1433,6 +1433,7 @@ void send_worker_exit(int target_rank)
 
 static void errsend_internal(Lethality fatal, const char *errormsg)
 {
+
     write_output(errormsg, 1);
 
     if (fatal)
@@ -1450,6 +1451,14 @@ void errsend(Lethality fatal, const char *error_text)
 {
     //send an error message to the outputproc. Die if fatal.
     char errormsg[MESSAGESIZE];
+
+#ifdef CONDUIT
+    // possibly send a CONDUIT message, as well
+    snprintf( errormsg, MESSAGESIZE,
+              "#CONDUIT-MSG {\"Type\":\"ERROR\", \"Class\":\"%s\", \"Origin\":\"%s\", \"Errno\":%d, \"Message\":\"%s\"}",
+              (fatal) ? "FATAL" : "NONFATAL", "Unknown", errno, error_text );
+    write_output(errormsg, 1);
+#endif
 
     if (fatal)
         snprintf(errormsg, MESSAGESIZE, "ERROR FATAL: %s\n", error_text);
@@ -1469,6 +1478,31 @@ void errsend_fmt(Lethality fatal, const char *format, ...)
 {
     char errormsg[MESSAGESIZE];
     va_list args;
+
+#ifdef CONDUIT
+    // possibly send a CONDUIT message, as well
+    va_list tmpargs;
+    va_start( tmpargs, format );
+
+    // format message header
+    size_t tmpoffset = snprintf( errormsg, MESSAGESIZE,
+              "#CONDUIT-MSG {\"Type\":\"ERROR\", \"Class\":\"%s\", \"Origin\":\"%s\", \"Errno\":%d, \"Message\":\"",
+              (fatal) ? "FATAL" : "NONFATAL", "Unknown", errno );
+    // format proc message
+    size_t messagelen = vsnprintf(errormsg + tmpoffset, MESSAGESIZE - tmpoffset, format, tmpargs);
+    // check for buffer overflow
+    if ( (tmpoffset + messagelen) >= MESSAGESIZE ) {
+        // if the message is too long, just omit it
+        snprintf( errormsg + tmpoffset, MESSAGESIZE - tmpoffset, "\"}\n" );
+    }
+    else {
+        // remove assumed newline char ( this is why we need an explicit overflow check, above )
+        *(errormsg + tmpoffset + messagelen - 1) = '\0';
+        // append message end
+        snprintf( errormsg + tmpoffset + messagelen - 1, MESSAGESIZE - tmpoffset - messagelen + 1, "\"}\n" );
+    }
+    write_output(errormsg, 1);
+#endif
 
     snprintf(errormsg, MESSAGESIZE, "ERROR %sFATAL: ", (fatal ? "" : "NON"));
     size_t offset = strlen(errormsg);

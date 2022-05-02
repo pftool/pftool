@@ -49,6 +49,10 @@ AC_ARG_ENABLE(debug,
    AS_HELP_STRING([  --enable-debug], [build with -O0, instead of -O3]))
 AM_CONDITIONAL([DEBUG], [test "x$enable_debug" = xyes])
 
+AC_ARG_ENABLE(conduit,
+   AS_HELP_STRING([  --enable-conduit], [Enable extra Conduit message output]))
+AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes])
+
 AC_CONFIG_HEADER([config.h])
 
 
