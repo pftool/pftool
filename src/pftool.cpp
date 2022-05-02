@@ -2556,7 +2556,9 @@ int maybe_pre_process(int pre_process,
  */
 bool compare(const path_item a, const path_item b){
     if(a.st.st_mtime == b.st.st_mtime){
-        return a.st.st_size < b.st.st_size;
+        if(a.st.st_mtim.tv_nsec == b.st.st_mtim.tv_nsec)
+            return a.st.st_size < b.st.st_size;
+        return a.st.st_mtim.tv_nsec < b.st.st_mtim.tv_nsec;
     }
     return a.st.st_mtime < b.st.st_mtime;
 }
