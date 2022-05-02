@@ -42,6 +42,10 @@ if MARFS
   marfs_cflags=-DMARFS
 endif
 
+if CONDUIT
+  conduit_cflags=-DCONDUIT
+endif
+
 if OLD_MARFS
   marfs_cflags=-DOLD_MARFS
   marfs_ldflags=-lisal
@@ -57,9 +61,9 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags) @AWSXML_CFLAGS@
+__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(conduit_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
-__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(s3_cflags) @AWSXML_CFLAGS@
+__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(conduit_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
 __top_builddir__bin_pftool_LDFLAGS  = $(generic_ldflags) $(supportlib_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags) @AWSXML_LIBS@
 
