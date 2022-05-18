@@ -1285,7 +1285,7 @@ public:
 
    virtual bool supports_n_to_1() const
    {
-      return true;
+      return false;
    }
 
    // pftool uses the blocksize of the destination.  Match
