@@ -26,10 +26,13 @@ def validate_args(parser):
                     error = "All sources for a recursive copy must be" + \
                         " contained within the same directory."
                     raise ArgError
-        if args.dest_path.split()[-1] == "/":
-            base_dest_name = os.path.dirname(args.dest_path)
-        else:
+
+        # if the provided destination is a directory check that it exists
+        # if the provided destination is a file check that it's parent directory exists
+        if args.dest_path[-1] == "/" or os.path.isdir(args.dest_path):
             base_dest_name = args.dest_path
+        else:
+            base_dest_name = os.path.dirname(args.dest_path)
         if base_dest_name and not os.path.exists(base_dest_name):
             error = f"{args.dest_path} - No such file or directory"
             raise ArgError
@@ -262,5 +265,4 @@ if __name__ == "__main__":
         parser.print_usage()
         sys.exit(1)
 
-    
     main(parser)

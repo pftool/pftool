@@ -270,7 +270,7 @@ class Config:
             # Fall back on the nodes set to ON in pftool.cfg
             nodelist, total_procs = get_nodeallocation()
             if nodelist and total_procs:
-                self.nodelist = nodelist
+                self.node_list = nodelist
                 self.total_procs = total_procs
             else:
                 # get hosts from node list in pftool.cfg
