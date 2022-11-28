@@ -154,7 +154,7 @@ AC_CHECK_LIB([rt], [timer_settime])
 # NOTE: each test *prepends* its library to LIBS, so test for the
 #       depended-on libs before the libs that depend on them.
 AS_IF([test x"$enable_marfs" == xyes],
-   [AC_CHECK_LIB([marfs], [marfs_init])])
+   [AC_CHECK_LIB([marfs], [marfs_init], [], [AC_ERROR([could not find libmarfs])])])
 
 AS_IF([test x"$enable_old_marfs" == xyes],
   [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
