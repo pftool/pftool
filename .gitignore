@@ -45,7 +45,7 @@ m4
 src/.libs
 bin
 etc/pftool.cfg
-etc/pftool.cfg.example
+etc/example-pftool.cfg
 ar-lib
 core*
 foo.*

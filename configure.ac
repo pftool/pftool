@@ -12,6 +12,12 @@ AC_CONFIG_SRCDIR([src])
 # note: -Wall -Werror are automake options.  they are NOT compiler flags
 AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
 
+# change defaults, instead of "-g -O2"
+CXXFLAGS="-g"
+CFLAGS="$CFLAGS -g"
+CPPFLAGS="$CFLAGS"
+# pftool, as a setuid program, will need to have any custom library path explicitly built into the binary ( NO user env )
+if test x"$prefix" != xNONE; then LDFLAGS="$LDFLAGS -Wl,-rpath=$prefix/lib"; fi
 
 # lets add some options to our CFLAGS variable
 # AC_ARG_ENABLE(threads,
@@ -55,11 +61,6 @@ AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes])
 
 AC_CONFIG_HEADER([config.h])
 
-
-
-
-# change defaults, instead of "-g -O2"
-: ${CFLAGS="-g "} ${CXXFLAGS="-g"}
 
 # checks for programs.
 # note that we are checking for mpicc first, the next check will verify CC
