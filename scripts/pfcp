@@ -74,7 +74,7 @@ def main(parser):
         commands.add("-g")
 
     for i in args.source_path:
-        if not os.path.exists(i):
+        if not os.path.lexists(i):
             sys.exit(f"cannot stat '{i}': No such file or directory")
 
     commands.add("-s", config.write_size)

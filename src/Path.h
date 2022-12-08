@@ -1111,12 +1111,57 @@ public:
 
    virtual char *realpath(char *resolved_path)
    {
-      char *ret;
-      ret = ::realpath(_item->path, resolved_path);
-      if (NULL == ret)
-      {
+      // GRANSOM -- I've edited this behavior to avoid performing a realpath() of the full target,
+      //            and instead only realpath the parent of the target file/dir.  This is to allow 
+      //            pftool to properly ( in my opinion ) copy symlink sources, recreating the link 
+      //            at the destination path rather than copying the target of the link to that path.
+      // duplicate the path, so we can modify
+      char* duppath = strdup( _item->path );
+      if ( duppath == NULL ) {
          _errno = errno;
+         return NULL;
       }
+      // parse over the path, identifying transition from parent path to FS entry
+      char* childref = NULL;
+      char* pathparse = duppath;
+      while ( pathparse  &&  *pathparse != '\0' ) {
+         if ( *pathparse == '/' ) {
+            while ( *pathparse == '/' ) {
+               pathparse++;
+            }
+            if ( *pathparse != '\0' ) {
+               childref = pathparse; // note start of next path component
+            }
+         }
+         pathparse++;
+      }
+      // prepare to generate the final path
+      char *ret;
+      // check for empty path or root path degenerate case
+      if ( childref == NULL ) {
+         // just realpath the full thing
+         ret = ::realpath(_item->path, resolved_path);
+         if (NULL == ret)
+         {
+            _errno = errno;
+         }
+      }
+      else {
+         // trim our duplicated path, leaving only the parent path at the head
+         *(childref - 1) = '\0';
+         // only realpath the parent path
+         ret = ::realpath(duppath, resolved_path);
+         if ( ret == NULL ) {
+            _errno = errno;
+         }
+         else {
+            size_t rppathlen = strlen( ret );
+            // we know the allocated str is PATH_MAX bytes, so we can safely append
+            snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
+         }
+      }
+      free( duppath );
+      //printf( "REALPATH: %s\n  RET: %s\n", _item->path, ret );
       return ret;
    }
 
