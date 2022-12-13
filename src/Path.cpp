@@ -1,22 +1,20 @@
 #include "pftool.h"
 #include "Path.h"
 
-#if defined(S3) || defined(MARFS)
-#include "aws4c_extra.h"        // XML-parsing tools
+#if defined(S3) || defined(OLD_MARFS)
+#include "aws4c_extra.h" // XML-parsing tools
 #endif
 
-
 // definitions of static vector-members for Pool templated-classes
-template<typename T> std::vector<T*> Pool<T>::_pool;
-
+template <typename T>
+std::vector<T *> Pool<T>::_pool;
 
 // defns for static PathFactory members
-uint8_t          PathFactory::_flags   = 0;
-struct options*  PathFactory::_opts    = NULL;
-pid_t            PathFactory::_pid     = 0;       // for PLFS
-int              PathFactory::_rank    = 1;
-int              PathFactory::_n_ranks = 1;
-
+uint8_t PathFactory::_flags = 0;
+struct options *PathFactory::_opts = NULL;
+pid_t PathFactory::_pid = 0; // for PLFS
+int PathFactory::_rank = 1;
+int PathFactory::_n_ranks = 1;
 
 // NOTE: New path might not be of the same subclass as us.  For example, we
 //    could be descending into a PLFS volume.
@@ -33,20 +31,20 @@ int              PathFactory::_n_ranks = 1;
 //    overhead for constructing from a raw pathname.
 
 PathPtr
-Path::path_append(char* suffix) const {
+Path::path_append(char *suffix) const
+{
 
-   char  new_path[PATHSIZE_PLUS];
+   char new_path[PATHSIZE_PLUS];
    size_t len = strlen(_item->path);
 
-   strncpy(new_path,      _item->path, PATHSIZE_PLUS);
-   strncpy(new_path +len, suffix,      PATHSIZE_PLUS -len);
+   strncpy(new_path, _item->path, PATHSIZE_PLUS);
+   strncpy(new_path + len, suffix, PATHSIZE_PLUS - len);
 
-   if (new_path[PATHSIZE_PLUS -1])
-      return PathPtr();         // return NULL, for overflow
+   if (new_path[PATHSIZE_PLUS - 1])
+      return PathPtr(); // return NULL, for overflow
 
    return PathFactory::create(new_path);
 }
-
 
 // remove a suffix.  If <size> is negative, it is size of suffix to remove.
 // Otherwise, it is the size of the prefix to keep.
@@ -58,25 +56,23 @@ Path::path_append(char* suffix) const {
 //    do that, but we're taking the simpler approach, for now.)
 
 PathPtr
-Path::path_truncate(ssize_t size) const {
+Path::path_truncate(ssize_t size) const
+{
 
-   char  new_path[PATHSIZE_PLUS];
-   
+   char new_path[PATHSIZE_PLUS];
+
    size_t new_len = size;
    if (size < 0)
       new_len = strlen(_item->path) - size;
 
    if (new_len >= PATHSIZE_PLUS)
-      return PathPtr();         // return NULL, for overflow/underflow
+      return PathPtr(); // return NULL, for overflow/underflow
 
    strncpy(new_path, _item->path, new_len);
    new_path[new_len] = 0;
 
    return PathFactory::create(new_path);
 }
-
-
-
 
 #ifdef S3
 
@@ -117,7 +113,7 @@ Path::path_truncate(ssize_t size) const {
 //      Content-Type: text/plain
 //      Connection: close
 //      Server: AmazonS3
-//      
+//
 //      <AccessControlPolicy>
 //        <Owner>
 //          <ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID>
@@ -133,29 +129,26 @@ Path::path_truncate(ssize_t size) const {
 //            <Permission>FULL_CONTROL</Permission>
 //          </Grant>
 //        </AccessControlList>
-//      </AccessControlPolicy> 
+//      </AccessControlPolicy>
 //
 //
 
-
-bool
-S3_Path::fake_stat(const char* path_name, struct stat* st) {
+bool S3_Path::fake_stat(const char *path_name, struct stat *st)
+{
 
    //   NO_IMPL_STATIC(fake_stat, S3_Path); // TBD
 
    // get these from the pool, instead of was_iobuf_new, to avoid mallocs
    IOBufPtr b_ptr(Pool<IOBuf>::get(true));
-   IOBuf*   b = b_ptr.get();
+   IOBuf *b = b_ptr.get();
 
    // defaults
-   memset((char*)st, 0, sizeof(struct stat));
-
+   memset((char *)st, 0, sizeof(struct stat));
 
    // .................................................................
    // device    (N/A)
    // inode     (N/A)
    // .................................................................
-
 
    // .................................................................
    // mode
@@ -186,13 +179,14 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 
    // Need to parse path to figure out wether this is a bucket, or not.
    // These elements are like S3_Path members.
-   std::string  host;
-   std::string  bucket;
-   std::string  obj;
+   std::string host;
+   std::string bucket;
+   std::string obj;
 
    bool trailing_slash = S3_Path::parse_host_bucket_object(host, bucket, obj, path_name);
 
-   if (! host.size()) {
+   if (!host.size())
+   {
       errsend_fmt(NONFATAL, "couldn't parse host from '%s'\n", path_name);
       return false;
    }
@@ -200,75 +194,82 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    if (bucket.size())
       s3_set_bucket(bucket.c_str());
 
-
-   // query for metadata, capturing XML response
+      // query for metadata, capturing XML response
 #if 0
    std::string  acl_path(obj);
    acl_path += (trailing_slash ? "/?acl" : "?acl");
 #else
-   std::string  acl_path(obj + "?acl");
+   std::string acl_path(obj + "?acl");
 #endif
-   
-   const size_t xml_buf_size = 1024 * 256;   // plenty for ACL-XML or error response (?)
+
+   const size_t xml_buf_size = 1024 * 256; // plenty for ACL-XML or error response (?)
    char xml_buf[xml_buf_size];
    aws_iobuf_reset(b);
    aws_iobuf_extend_static(b, xml_buf, xml_buf_size);
    aws_iobuf_growth_size(b, xml_buf_size); // in case we overflow
 
-   AWS4C_CHECK( s3_get(b, (char*)acl_path.c_str()) );
+   AWS4C_CHECK(s3_get(b, (char *)acl_path.c_str()));
 
    ///   AWS4C_CHECK_OK( b );
    if (b->code != 200)
-      return false;             // e.g. 404 'Not Found'
+      return false; // e.g. 404 'Not Found'
 
    // prepare to parse response-XML
    aws_iobuf_realloc(b);
    xmlDocPtr doc = xmlReadMemory(b->first->buf, b->first->len, NULL, NULL, 0);
-   if (! doc) {
+   if (!doc)
+   {
       errsend_fmt(NONFATAL, "couldn't xmlReadMemory in ACL-response from '%s'\n",
                   acl_path.c_str());
       return false;
    }
 
-   char* uid       = NULL;
-   char* uid_name  = NULL;
-   char* uid_perms = NULL;
+   char *uid = NULL;
+   char *uid_name = NULL;
+   char *uid_perms = NULL;
 
    // navigate parsed XML-tree to find "<Owner>"
-   xmlNode* root_element = xmlDocGetRootElement(doc);
-   xmlNode* owner = find_xml_element_named(root_element, "Owner");
-   if (! owner) {
+   xmlNode *root_element = xmlDocGetRootElement(doc);
+   xmlNode *owner = find_xml_element_named(root_element, "Owner");
+   if (!owner)
+   {
       errsend_fmt(FATAL, "No 'owner' in ACL-response from '%s'\n", acl_path.c_str());
       return false;
    }
-   else {
+   else
+   {
 
       // find owner's "ID" (this will be some 64-hex-digit number)
-      uid       = (char*)find_element_named(owner, "ID");
-      uid_name  = (char*)find_element_named(owner, "DisplayName"); // email address?
+      uid = (char *)find_element_named(owner, "ID");
+      uid_name = (char *)find_element_named(owner, "DisplayName"); // email address?
 
       // find the list of "grant" elements (XML siblings) in the ACL XML
-      xmlNode* grant = find_xml_element_named(root_element, "Grant");
-      if (! grant) {
+      xmlNode *grant = find_xml_element_named(root_element, "Grant");
+      if (!grant)
+      {
          errsend_fmt(FATAL, "No 'grant' in ACL-response from '%s'\n", acl_path.c_str());
          return false;
       }
-      else {
+      else
+      {
 
          // find the grant that has the same ID as "Owner"
-         for (xmlNode* gr=grant; gr; gr=gr->next) {
-            char* id = (char*)find_element_named(gr, "ID");
-            if (!strcmp(id, uid)) {
+         for (xmlNode *gr = grant; gr; gr = gr->next)
+         {
+            char *id = (char *)find_element_named(gr, "ID");
+            if (!strcmp(id, uid))
+            {
 
                // get the permissions for the grant matching Owner's ID.
                // this will be one of the following value (strings):
                //   FULL_CONTROL | WRITE | WRITE_ACP | READ | READ_ACP
-               uid_perms = (char*)find_element_named(gr, "Permission");
+               uid_perms = (char *)find_element_named(gr, "Permission");
                break;
             }
          }
 
-         if (! uid_perms) {
+         if (!uid_perms)
+         {
             errsend_fmt(FATAL, "No 'grant' in ACL-response from '%s', for user '%s'\n",
                         acl_path.c_str(), uid_name);
             return false;
@@ -277,13 +278,12 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    }
 
    // pretend it's possible to translate S3 ACL permissions into POSIX.
-   if      (! strcmp(uid_perms, "READ"))
+   if (!strcmp(uid_perms, "READ"))
       st->st_mode |= (S_IRUSR);
-   else if (! strcmp(uid_perms, "WRITE"))
+   else if (!strcmp(uid_perms, "WRITE"))
       st->st_mode |= (S_IWUSR);
-   else if (! strcmp(uid_perms, "FULL_CONTROL"))
-      st->st_mode |= (S_IRUSR | S_IWUSR);  // what, I can't "execute" this object?
-
+   else if (!strcmp(uid_perms, "FULL_CONTROL"))
+      st->st_mode |= (S_IRUSR | S_IWUSR); // what, I can't "execute" this object?
 
    // There is no easy way to tell if this thing "is a directory". We could
    // query the bucket with "?prefix=<obj>&Delimiter=/", then look through
@@ -314,7 +314,7 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    //       above.  (In this case, it's not inefficient.)  For example,
    //       suppose in bucket "A" we have objects with the following names:
    //
-   //     
+   //
    //           B/C/D
    //           B/C2
    //
@@ -340,15 +340,16 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    //      metadata yet.  If someone calls S3_Path::is_dir(), and we
    //      don't already know that it is a dir, *then* we do this.
 
-
    // (c) if user meta-data says it's a directory, then it's a directory.
-   else if (obj.size()) {
+   else if (obj.size())
+   {
       IOBufPtr b2_ptr(Pool<IOBuf>::get(true));
-      IOBuf*   b2 = b2_ptr.get();
+      IOBuf *b2 = b2_ptr.get();
 
       // parse user-defined meta-data into <b>->meta
-      AWS4C_CHECK( s3_head(b, (char*)obj.c_str()) );
-      if (b->code == 200 && b->meta) {
+      AWS4C_CHECK(s3_head(b, (char *)obj.c_str()));
+      if (b->code == 200 && b->meta)
+      {
 
          // meta-data includes key="mode_bits" ?
          //
@@ -357,10 +358,12 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
          //       bits.  I think we shouldn't ignore that.  Therefore, we
          //       OR the meta-data value with __S_IFMT, before installing,
          //       to make sure we aren't munging permissions.
-         const char* mode_bits_string = aws_metadata_get((const MetaNode**)&(b->meta), "mode_bits");
-         if (mode_bits_string) {
+         const char *mode_bits_string = aws_metadata_get((const MetaNode **)&(b->meta), "mode_bits");
+         if (mode_bits_string)
+         {
             mode_t mode;
-            if (sscanf(mode_bits_string, "0x%08x", &mode) != 1) {
+            if (sscanf(mode_bits_string, "0x%08x", &mode) != 1)
+            {
                errsend_fmt(FATAL, "Couldn't parse 'mode_bits' meta-data value ('%s') for '%s'\n",
                            mode_bits_string, acl_path.c_str());
                aws_iobuf_reset(b2);
@@ -373,7 +376,6 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    }
 #endif
 
-
    // .................................................................
    // nlink     (N/A)
    // UID       (N/A)
@@ -381,26 +383,22 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
    // rdev      (N/A)
    // .................................................................
 
-
    // .................................................................
    // size
    // .................................................................
    st->st_size = b->contentLen;
 
-
    // .................................................................
    // block-size
    // .................................................................
-   st->st_blksize = 512;        // ... imagine owning the Brooklyn Bridge!
-
+   st->st_blksize = 512; // ... imagine owning the Brooklyn Bridge!
 
    // .................................................................
    // block-count
    // .................................................................
    st->st_size = b->contentLen / 512;
-   if (b->contentLen & (512 -1))
-      ++ st->st_blocks;         // ... all the bridge tolls would go to you!
-
+   if (b->contentLen & (512 - 1))
+      ++st->st_blocks; // ... all the bridge tolls would go to you!
 
    // .................................................................
    // atime
@@ -431,9 +429,10 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 
    // extract modification-time (string).  Translate to time_t.  Use this
    // for ctime, mtime, and atime.
-   if (b->lastMod) {
-      struct tm   tm;
-      time_t      mod_time;
+   if (b->lastMod)
+   {
+      struct tm tm;
+      time_t mod_time;
       strptime(b->lastMod, "%a, %d %b %Y %H:%M:%S %Z", &tm);
       mod_time = mktime(&tm);
 
@@ -441,12 +440,12 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
       st->st_mtime = mod_time;
       st->st_ctime = mod_time;
    }
-   else {
+   else
+   {
       st->st_atime = 0;
       st->st_mtime = 0;
       st->st_ctime = 0;
    }
-
 
    // free storage for parsed XML tree
    xmlFreeDoc(doc);
@@ -467,6 +466,26 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
 #endif
 
 #ifdef MARFS
+marfs_fhandle marfsCreateStream;
+marfs_fhandle marfsSourceReadStream;
+marfs_fhandle marfsDestReadStream;
+marfs_ctxt marfsctxt;
+char marfs_ctag_set;
+
+int initialize_marfs_context( void ) {
+   marfs_ctag_set = 0;
+   marfsCreateStream = NULL;
+   marfsSourceReadStream = NULL;
+   marfsDestReadStream = NULL;
+   marfsctxt = marfs_init( MARFS_CONFIG_PATH, MARFS_BATCH, 0 );
+   if ( marfsctxt == NULL ) {
+      return -1;
+   }
+   return 0;
+}
+#endif
+
+#ifdef OLD_MARFS
 
 /**
  * used by the marfs_readdir_wrapper() to read only one item using marfs_readdir
@@ -477,8 +496,9 @@ S3_Path::fake_stat(const char* path_name, struct stat* st) {
  * @param off Not Used
  * @return 1 This tells marfs_readdir to only copy one thing
  */
-int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off) {
-   marfs_dirp_t* dir = (marfs_dirp_t*) buf;
+int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, off_t off)
+{
+   marfs_dirp_t *dir = (marfs_dirp_t *)buf;
 
    // /usr/include/bits/dirent.h shows that the size of this is 256 but I do not know how long this will be true
    strncpy(dir->name, name, PATH_MAX);
@@ -497,27 +517,33 @@ int marfs_readdir_filler(void *buf, const char *name, const struct stat *stbuf, 
  * @param ffi The information about the directoy to be used by marfs_readdir
  * @return 0 on EOF, <0 on error, >0 on success
  */
-int marfs_readdir_wrapper(marfs_dirp_t* dir, const char* path, MarFS_DirHandle* ffi) {
+int marfs_readdir_wrapper(marfs_dirp_t *dir, const char *path, MarFS_DirHandle *ffi)
+{
    int rc;
    dir->valid = 0; // this will allow us to see if the buffer has been filled
 
    rc = marfs_readdir(path, dir, marfs_readdir_filler, 0, ffi);
-   if(0 == rc) {
-      if(1 != dir->valid) {
+   if (0 == rc)
+   {
+      if (1 != dir->valid)
+      {
          return 0;
-      } else {
+      }
+      else
+      {
          return 1;
       }
-   } else {
+   }
+   else
+   {
       return rc;
    }
 }
 
-bool packedFhInitialized = false;
-bool packedFhInUse = false;
-MarFS_FileHandle packedFh;
+bool packed_FileHandle_Initialized = false;
+bool packed_FileHandle_InUse = false;
+MarFS_FileHandle packed_FileHandle;
 
 std::vector<path_item> packedPaths;
 
 #endif
-

@@ -54,7 +54,13 @@ def get_fixed_source(source):
     """
     src_full = []
     for i in source:
-        src_full.append(os.path.realpath(i))
+        # want to realpath any parent dir, but not the entry itself
+        ( headpath, tailpath ) = os.path.split(i.rstrip("/"))
+        if not headpath: # no headpath -> no '/' in path
+            # need to realpath cwd and append target entry
+            src_full.append(os.path.realpath(".") + "/" + tailpath)
+        else: # stripping trailing '/' chars should mean we don't have to worry about empty tailpath
+            src_full.append(os.path.realpath(headpath) + "/" + tailpath)
     src_fixed = []
     for i in src_full:
         if i.find("/var/lib/perceus/vnfs") != "-1":
@@ -270,7 +276,7 @@ class Config:
             # Fall back on the nodes set to ON in pftool.cfg
             nodelist, total_procs = get_nodeallocation()
             if nodelist and total_procs:
-                self.nodelist = nodelist
+                self.node_list = nodelist
                 self.total_procs = total_procs
             else:
                 # get hosts from node list in pftool.cfg

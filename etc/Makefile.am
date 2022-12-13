@@ -1,9 +1,9 @@
 EXTRA_DIST = pftool.mpi.cfg
 
 sysconfdir = $(prefix)/etc
-sysconf_DATA = pftool.cfg 
+sysconf_DATA = example-pftool.cfg
 
-CLEANFILES = pftool.cfg
+CLEANFILES = example-pftool.cfg
 
-pftool.cfg: $(srcdir)/$(EXTRA_DIST)
+example-pftool.cfg: $(srcdir)/$(EXTRA_DIST)
 	cp -p $(EXTRA_DIST) $@

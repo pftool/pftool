@@ -52,8 +52,8 @@ def main(parser):
 
     if config.logging:
         commands.add("-l")
-    if args.metadata:
-        commands.add("-M")
+    if args.data:
+        commands.add("-D")
     if args.verbose:
         commands.add("-v")
     if args.preserve:
@@ -89,8 +89,6 @@ def main(parser):
     pfcmd.add("--oversubscribe")
     pfcmd.add("--allow-run-as-root")
     pfcmd.add("--map-by", "node")
-    # Export marfs config env var to all procs
-    pfcmd.add("-x", "MARFSCONFIGRC")
 
     if "all" not in config.node_list:
         pfcmd.add("-host", ",".join(config.node_list))
@@ -146,10 +144,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-M',
-        '--metadata',
+        '-D',
+        '--data',
         action='store_true',
-        help='Check changes to Metadata only',
+        help='Compare data content of files, in addition to metadata',
         default=False
     )
 
