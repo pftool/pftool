@@ -2450,20 +2450,21 @@ public:
    // TBD: See opendir()
    virtual bool readdir(char *path, size_t size)
    {
+      errno = 0;
       if (size)
       {
          path[0] = 0;
       }
       struct dirent *d = marfs_readdir(dh);
       unset(DID_STAT);
-      if (d > 0)
+      if (d != NULL)
       {
          strncpy(path, d->d_name, size);
       }
-      else if (d < 0)
+      else
       {
          _errno = errno;
-         return false;
+         return bool(_errno == 0);
       }
       return true;
    }
