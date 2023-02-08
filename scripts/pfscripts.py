@@ -59,7 +59,7 @@ def get_fixed_source(source):
         if not headpath: # no headpath -> no '/' in path
             # need to realpath cwd and append target entry
             src_full.append(os.path.realpath(".") + "/" + tailpath)
-        else: # stripping trailing '/' chars should mean we don't have to worry about empty tailpath
+        else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
             src_full.append(os.path.realpath(headpath) + "/" + tailpath)
     src_fixed = []
     for i in src_full:
@@ -74,6 +74,15 @@ def get_fixed_dest(dest):
     dest_fixed = []
     dest_full = []
     dest_full.append(os.path.realpath(dest))
+
+    # want to realpath any parent dir, but not the entry itself
+    ( headpath, tailpath ) = os.path.split(dest.rstrip("/"))
+    if not headpath: # no headpath -> no '/' in path
+        # need to realpath cwd and append target entry
+        dest_full.append(os.path.realpath(".") + "/" + tailpath)
+    else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
+        dest_full.append(os.path.realpath(headpath) + "/" + tailpath)
+
     for j in dest_full:
         if j.find("/var/lib/perceus/vnfs") != "-1":
             dest_fixed.append(j.split('rootfs', 1)[-1])
