@@ -73,7 +73,6 @@ def get_fixed_source(source):
 def get_fixed_dest(dest):
     dest_fixed = []
     dest_full = []
-    dest_full.append(os.path.realpath(dest))
 
     # want to realpath any parent dir, but not the entry itself
     ( headpath, tailpath ) = os.path.split(dest.rstrip("/"))
