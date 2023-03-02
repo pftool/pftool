@@ -2345,8 +2345,8 @@ void worker_readdir(int rank,
                         PathPtr p_new = PathFactory::create(path);
                         if (!p_new->exists())
                         {
-                            errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
-                                        "Failed to stat path (2) %s\n", p_new->path());
+                            // GRANSOM EDIT : Altered to make 'stat' failure NONFATAL, even if o.work_type != LSWORK
+                            errsend_fmt( NONFATAL, "Failed to stat path (2) %s\n", p_new->path() );
                             break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
