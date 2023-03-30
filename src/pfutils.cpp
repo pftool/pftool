@@ -892,7 +892,7 @@ int compare_file(path_item *src_file,
             char dest_link_path[PATHSIZE_PLUS];
             int numchars;
             // actually perform readlink ops
-            numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
+            numchars = p_src->readlink(src_link_path, PATHSIZE_PLUS);
             if (numchars < 0)
             {
                 errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
