@@ -48,19 +48,23 @@ def write_log(message, priority=syslog.LOG_ERR | syslog.LOG_USER):
     syslog.closelog()
 
 
-def get_fixed_source(source):
+def get_fixed_source(source,symlinks):
     """
     Some input sources might need perceus things removed
     """
     src_full = []
     for i in source:
-        # want to realpath any parent dir, but not the entry itself
-        ( headpath, tailpath ) = os.path.split(i.rstrip("/"))
-        if not headpath: # no headpath -> no '/' in path
-            # need to realpath cwd and append target entry
-            src_full.append(os.path.realpath(".") + "/" + tailpath)
-        else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
-            src_full.append(os.path.realpath(headpath) + "/" + tailpath)
+        if not symlinks:
+            # just realpath the entire sting
+            src_full.append(os.path.realpath(i))
+        else:
+            # want to realpath any parent dir, but not the entry itself
+            ( headpath, tailpath ) = os.path.split(i.rstrip("/"))
+            if not headpath: # no headpath -> no '/' in path
+                # need to realpath cwd and append target entry
+                src_full.append(os.path.realpath(".") + "/" + tailpath)
+            else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
+                src_full.append(os.path.realpath(headpath) + "/" + tailpath)
     src_fixed = []
     for i in src_full:
         if i.find("/var/lib/perceus/vnfs") != "-1":
@@ -70,17 +74,21 @@ def get_fixed_source(source):
     return src_fixed
 
 
-def get_fixed_dest(dest):
+def get_fixed_dest(dest,symlinks):
     dest_fixed = []
     dest_full = []
 
-    # want to realpath any parent dir, but not the entry itself
-    ( headpath, tailpath ) = os.path.split(dest.rstrip("/"))
-    if not headpath: # no headpath -> no '/' in path
-        # need to realpath cwd and append target entry
-        dest_full.append(os.path.realpath(".") + "/" + tailpath)
-    else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
-        dest_full.append(os.path.realpath(headpath) + "/" + tailpath)
+    if not symlinks:
+        # just realpath the entire string
+        dest_full.append(os.path.realpath(dest))
+    else:
+        # want to realpath any parent dir, but not the entry itself
+        ( headpath, tailpath ) = os.path.split(dest.rstrip("/"))
+        if not headpath: # no headpath -> no '/' in path
+            # need to realpath cwd and append target entry
+            dest_full.append(os.path.realpath(".") + "/" + tailpath)
+        else: # stripping trailing '/' chars ( above ) should mean we don't have to worry about empty tailpath
+            dest_full.append(os.path.realpath(headpath) + "/" + tailpath)
 
     for j in dest_full:
         if j.find("/var/lib/perceus/vnfs") != "-1":
