@@ -549,7 +549,7 @@ int copy_file(PathPtr p_src,
         }
         else if (numchars >= PATHSIZE_PLUS)
         {
-            errsend_fmt(NONFATAL, "readlink %s, not enough room for '\\0'\n", p_src->path());
+            errsend_fmt(NONFATAL, "readlink %s, not enough room for '%s'\n", p_src->path());
             return -1;
         }
         link_path[numchars] = '\0';
@@ -880,6 +880,42 @@ int compare_file(path_item *src_file,
         //metadata compare
         if (meta_data_only)
         {
+            return 0;
+        }
+
+        // special case for symlinks
+        if (p_src->is_link()) {
+            // quick check for non-link dest
+            if( !p_dest->is_link() ) { return -1; }
+            // allocate buffs to link tgt compare
+            char src_link_path[PATHSIZE_PLUS];
+            char dest_link_path[PATHSIZE_PLUS];
+            int numchars;
+            // actually perform readlink ops
+            numchars = p_src->readlink(src_link_path, PATHSIZE_PLUS);
+            if (numchars < 0)
+            {
+                errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
+                return -1;
+            }
+            else if (numchars >= PATHSIZE_PLUS)
+            {
+                errsend_fmt(NONFATAL, "readlink %s, not enough room for '%s'\n", p_src->path());
+                return -1;
+            }
+            else if ( p_dest->readlink(dest_link_path, PATHSIZE_PLUS - 1) != numchars ) {
+                errsend_fmt(NONFATAL, "symlink target mismatch for '%s' and '%s'\n", p_src->path(), p_dest->path());
+                return -1;
+            }
+            // ensure NULL-terminator
+            src_link_path[numchars] = '\0';
+            dest_link_path[numchars] = '\0';
+            // actually strcmp the targets
+            if ( strncmp( src_link_path, dest_link_path, numchars ) ) {
+                errsend_fmt(NONFATAL, "symlink target mismatch for '%s' and '%s'\n", p_src->path(), p_dest->path());
+                return -1;
+            }
+            // symlinks match
             return 0;
         }
 

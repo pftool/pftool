@@ -1344,7 +1344,7 @@ public:
 #ifdef OLD_MARFS
       return ((1024 * 1024 * 1024) - MARFS_REC_UNI_SIZE); // M_R_U_S == 2943
 #else
-      return (1024 * 1024 * 1024);
+      return desired_chunk_size; // NULL path doesn't actually care about chunk size, so return the default
 #endif
    }
 
@@ -2108,7 +2108,7 @@ public:
          fh = NULL;
       }
 
-      return size;
+      return (size) ? size : desired_chunk_size; // if we got a real chunksize of zero, just return the default instead
    }
 
    // Two MarFS files are "the exact same file" if they have the same
@@ -2450,20 +2450,21 @@ public:
    // TBD: See opendir()
    virtual bool readdir(char *path, size_t size)
    {
+      errno = 0;
       if (size)
       {
          path[0] = 0;
       }
       struct dirent *d = marfs_readdir(dh);
       unset(DID_STAT);
-      if (d > 0)
+      if (d != NULL)
       {
          strncpy(path, d->d_name, size);
       }
-      else if (d < 0)
+      else
       {
          _errno = errno;
-         return false;
+         return bool(_errno == 0);
       }
       return true;
    }

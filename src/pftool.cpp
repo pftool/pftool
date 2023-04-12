@@ -1193,7 +1193,9 @@ int manager(int rank,
                         proc_status[work_rank].readdir = 1;
                         readdir_rank_count += 1;
                         send_worker_readdir(work_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
-                        start = 0;
+                        // GRANSOM EDIT:
+                        //   Changed to only stop handing out cmdline sources AFTER we have actually handed out all of them
+                        if ( dir_buf_list_size == 0 ) { start = 0; }
                     }
                     else if (!o.recurse)
                     {
@@ -2343,8 +2345,8 @@ void worker_readdir(int rank,
                         PathPtr p_new = PathFactory::create(path);
                         if (!p_new->exists())
                         {
-                            errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
-                                        "Failed to stat path (2) %s\n", p_new->path());
+                            // GRANSOM EDIT : Altered to make 'stat' failure NONFATAL, even if o.work_type != LSWORK
+                            errsend_fmt( NONFATAL, "Failed to stat path (2) %s\n", p_new->path() );
                             break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;

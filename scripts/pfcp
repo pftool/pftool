@@ -106,8 +106,8 @@ def main(parser):
         pass
     # src_fixed has the last '/' shaved off,
     # which is important for synthetic data sources
-    src_fixed = pfs.get_fixed_source(args.source_path)
-    dest_fixed = pfs.get_fixed_dest(args.dest_path)
+    src_fixed = pfs.get_fixed_source(args.source_path,args.symlinks)
+    dest_fixed = pfs.get_fixed_dest(args.dest_path,args.symlinks)
     commands.add("-c", *dest_fixed)
     if args.syn_size:
         commands.add("-p", *args.source_path)
@@ -259,6 +259,14 @@ if __name__ == "__main__":
         type=int,
         help='Number of times to retry on non-fatal errors',
         default=1
+    )
+
+    parser.add_argument(
+        '-s',
+        '--symlinks',
+        action='store_true',
+        help='Do not dereference symlink arguments ( source or dest )',
+        default=False
     )
 
     if len(sys.argv) < 2:

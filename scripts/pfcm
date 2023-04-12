@@ -27,7 +27,6 @@ def validate_args(parser):
             base_dest_name = os.path.dirname(args.dest_path)
         else:
             base_dest_name = args.dest_path
-        print(os.path.exists(base_dest_name))
         if base_dest_name and not os.path.exists(base_dest_name):
             error = f"{args.dest_path} - No such file or directory"
             raise ArgError
@@ -68,8 +67,8 @@ def main(parser):
 
     commands.add("-C", config.chunk_at)
     commands.add("-S", config.chunk_size)
-    src_fixed = pfs.get_fixed_source(args.source_path)
-    dest_fixed = pfs.get_fixed_dest(args.dest_path)
+    src_fixed = pfs.get_fixed_source(args.source_path,args.symlinks)
+    dest_fixed = pfs.get_fixed_dest(args.dest_path,args.symlinks)
     commands.add("-c", *dest_fixed)
     commands.add("-p", *src_fixed)
 
@@ -96,7 +95,6 @@ def main(parser):
     pfcmd.add(pfs.PF.PFTOOL)
 
     pfcmd.add(*commands.commands)
-    print(pfcmd)
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0], host, time.strftime(
@@ -173,6 +171,14 @@ if __name__ == "__main__":
         type=str,
         help='Exclude pattern',
         default=None
+    )
+
+    parser.add_argument(
+        '-s',
+        '--symlinks',
+        action='store_true',
+        help='Do not dereference symlink arguments ( source or dest )',
+        default=False
     )
 
     if len(sys.argv) < 2:
