@@ -1974,9 +1974,9 @@ public:
 #include <linux/limits.h>
 
 
-extern marfs_fhandle marfsCreateStream;
-extern marfs_fhandle marfsSourceReadStream;
-extern marfs_fhandle marfsDestReadStream;
+extern marfs_fhandle marfsCreateStream;       // stream for 'packing' created files on a MarFS dest
+extern marfs_fhandle marfsSourceReadStream;   // stream for reading from a MarFS source
+extern marfs_fhandle marfsDestReadStream;     // stream for reading from a MarFS dest ( i.e. pfcm )
 extern marfs_ctxt    marfsctxt;
 extern char          marfs_ctag_set;
 
@@ -2144,10 +2144,16 @@ public:
          return false;
       }
 
-      if ((_rc = marfs_extend(handle, src->st().st_size)) || (_rc = marfs_release(handle)))
+      if ( (_rc = marfs_extend(handle, src->st().st_size)) )
       {
          _errno = errno;
-         marfs_close(handle);
+         marfs_release(handle); // don't leak our handle reference
+         return false;
+      }
+
+      if ( (_rc = marfs_release(handle)) )
+      {
+         _errno = errno;
          return false;
       }
 
@@ -2296,6 +2302,8 @@ public:
       {
          // should only ever have O_CREAT and O_WRONLY
          fh = marfs_creat(marfsctxt, marfsCreateStream, path(), mode);
+         if ( fh )
+            marfsCreateStream = fh;
          _packed = true;
          _parallel = false;
       }
@@ -2333,11 +2341,33 @@ public:
       {
          _rc = -1;
          _errno = errno;
+         if ( errno == EBADFD ) {
+            // our stream has been unrecoverably broken
+            if ( _packed ) {
+               // abandon the create stream
+               marfs_release( marfsCreateStream );
+               marfsCreateStream = NULL;
+            }
+            else if ( _parallel = false ) {
+               // should only be true for a read stream
+               if ( flags & O_SOURCE_PATH ) {
+                  // abandon our source read stream
+                  marfs_release( marfsSourceReadStream );
+                  marfsSourceReadStream = NULL;
+               }
+               else if ( flags & O_DEST_PATH ) {
+                  // abandon our dest read stream
+                  marfs_release( marfsDestReadStream );
+                  marfsDestReadStream = NULL;
+               }
+            }
+            // any fallthrough from the above cases should be for 'fresh' streams, which can be ignored
+            //    ( those created from a NULL ref, rather than an existing stream )
+         }
          _parallel = false;
          _packed = false;
          return false;
       }
-      else if (_packed) { marfsCreateStream = fh; }
       _offset = 0;
       set(IS_OPEN);
       return true;
