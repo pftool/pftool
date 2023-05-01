@@ -1089,7 +1089,7 @@ int update_stats(PathPtr p_src,
         return 0;
 
     // perform any final adjustments on destination, before we set atime/mtime
-    if ( p_dest->post_process(p_src) ) {
+    if ( p_dest->post_process(p_src) != true ) {
         errsend_fmt(NONFATAL, "Failed to finalize destination file %s: %s\n",
                     p_dest->path(), p_dest->strerror());
         return -1; // DO NOT update any other stats if this step fails

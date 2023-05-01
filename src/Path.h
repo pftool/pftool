@@ -2165,6 +2165,7 @@ public:
    // single-threaded reconciliation of all these details, after close().
    virtual bool post_process(PathPtr src)
    {
+      _rc = 0; // assume success
       if ( !(_packed) ) {
          marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
          if (handle == NULL)
