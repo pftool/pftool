@@ -40,6 +40,8 @@ endif
 
 if MARFS
   marfs_cflags=-DMARFS
+install-exec-local:
+	chmod u+s $(bindir)/pftool
 endif
 
 if CONDUIT
@@ -49,11 +51,9 @@ endif
 if OLD_MARFS
   marfs_cflags=-DOLD_MARFS
   marfs_ldflags=-lisal
-endif
-
-if MARFS || OLD_MARFS
 install-exec-local:
 	chmod u+s $(bindir)/pftool
+	chmod g-s $(bindir)/pftool
 endif
 
 if ALLSTATIC
