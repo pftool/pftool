@@ -2088,7 +2088,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), O_WRONLY );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2167,7 +2167,7 @@ public:
    {
       _rc = 0; // assume success
       if ( !(_packed) ) {
-         marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          if (handle == NULL)
          {
             _rc = -1;
@@ -2230,7 +2230,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), O_WRONLY );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2295,7 +2295,7 @@ public:
       if (flags & O_CONCURRENT_WRITE)
       {
          // should only ever have O_CONCURRENT_WRITE and O_WRONLY
-         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          _parallel = true;
          _packed = false;
       }
@@ -2315,24 +2315,24 @@ public:
          functionality (O_CREAT is ignored if the file already exists). Maybe
          this should disappear and the !exists() condition should be removed
          above.*/
-         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          _parallel = true;
          _packed = false;
       }
       else
       {
          if (flags & O_SOURCE_PATH) {
-            fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), O_RDONLY);
             if ( fh )
                marfsSourceReadStream = fh;
          }
          else if (flags & O_DEST_PATH) {
-            fh = marfs_open(marfsctxt, marfsDestReadStream, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, marfsDestReadStream, path(), O_RDONLY);
             if ( fh )
                marfsDestReadStream = fh;
          }
          else {
-            fh = marfs_open(marfsctxt, NULL, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, NULL, path(), O_RDONLY);
          }
          _parallel = false;
          _packed = false;
