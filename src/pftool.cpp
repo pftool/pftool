@@ -598,7 +598,7 @@ int main(int argc, char *argv[])
         {
 
             PathPtr p_dest(PathFactory::create(dest_path));
-            if (!p_dest->exists() || !p_dest->is_dir())
+            if ( strcmp(p_dest->class_name().get(), "NULL_Path")  &&  (!p_dest->exists() || !p_dest->is_dir()) )
             {
                 fprintf(stderr, "Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
@@ -2767,7 +2767,7 @@ void process_stat_buffer(path_item *path_buffer,
             // if selected options require writing to a temp-file, instead of
             // dest, then determine whether it exists. (We also check whether
             // source and temp-file "match" the timestamps recorded in CTM.)
-            if (o.work_type == COPYWORK)
+            if (o.work_type == COPYWORK  &&  strcmp(p_out->class_name().get(), "NULL_Path"))
             {
 
                 // // don't bother stat'ing CTM if we're just going to ignore it
