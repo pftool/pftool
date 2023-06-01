@@ -512,7 +512,7 @@ int copy_file(PathPtr p_src,
               struct options &o)
 {
     //MPI_Status status;
-    int rc;
+    int rc = 0;
     size_t completed = 0;
     char *buf = NULL;
     char errormsg[MESSAGESIZE];
@@ -583,8 +583,8 @@ int copy_file(PathPtr p_src,
     }
     if (blocksize)
     {
-        buf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
-        if (!buf)
+        rc = posix_memalign((void **)&buf, 4096, blocksize * sizeof(char));
+        if (!buf || rc)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
                         blocksize, p_src->path());
@@ -934,16 +934,16 @@ int compare_file(path_item *src_file,
 
         //byte compare
         // allocate buffers and open files ...
-        ibuf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
-        if (!ibuf)
+        rc = posix_memalign((void **)&ibuf, 4096, blocksize * sizeof(char));
+        if (!ibuf || rc)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
                         blocksize, src_file->path);
             return -1;
         }
 
-        obuf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
-        if (!obuf)
+        rc = posix_memalign((void **)&obuf, 4096, blocksize * sizeof(char));
+        if (!obuf || rc)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
                         blocksize, dest_file->path);
