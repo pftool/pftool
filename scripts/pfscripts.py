@@ -282,6 +282,7 @@ class Config:
             self.mpirun = config.get("environment", "mpirun")
             self.parallel_dest = config.getboolean(
                 "environment", "parallel_dest")
+            self.direct_io = config.getboolean("environment", "direct_io")
             self.darshan_lib = config.get("environment", "darshanlib")
             # at some point write size chunk_at and chunk_size were optional
             # that is no longer the case

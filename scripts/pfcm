@@ -67,6 +67,8 @@ def main(parser):
 
     commands.add("-C", config.chunk_at)
     commands.add("-S", config.chunk_size)
+    if config.direct_io:
+        commands.add("-B")
     src_fixed = pfs.get_fixed_source(args.source_path,args.symlinks)
     dest_fixed = pfs.get_fixed_dest(args.dest_path,args.symlinks)
     commands.add("-c", *dest_fixed)

@@ -89,6 +89,9 @@ def main(parser):
         commands.add("-e")
         commands.add(args.exclude)
 
+    if config.direct_io:
+            commands.add("-B")
+
     try:
         if config.parallel_dest:
             commands.add("-P")
