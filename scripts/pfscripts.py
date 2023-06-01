@@ -69,6 +69,8 @@ def get_fixed_source(source,symlinks):
     for i in src_full:
         if i.find("/var/lib/perceus/vnfs") != "-1":
             src_fixed.append(i.split('rootfs', 1)[-1])
+        elif i in src_fixed:
+            print( "Detected duplicate source path: \"" + i + "\" ( duplicate will be omitted )\n" )
         else:
             src_fixed.append(i)
     return src_fixed
