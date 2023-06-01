@@ -269,6 +269,7 @@ struct options
     FSType dest_fstype; // specifies the FS type of the destination
     int different;
     int parallel_dest;
+    int direct;
     int work_type;
     int meta_data_only;
     size_t blocksize;

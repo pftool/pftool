@@ -529,6 +529,13 @@ int copy_file(PathPtr p_src,
     //symlink
     char link_path[PATHSIZE_PLUS];
     int numchars;
+    int read_flags = O_RDONLY;
+    int write_flags = O_WRONLY | O_CREAT;
+
+    if (o.direct && (((length / 4096) * 4096) == length)) {
+        read_flags |= O_DIRECT;
+        write_flags |= O_DIRECT;
+    }
 
     // If source is a link, create similar link on the destination-side.
     //can't be const for MPI_IO
@@ -576,7 +583,7 @@ int copy_file(PathPtr p_src,
     }
     if (blocksize)
     {
-        buf = (char *)malloc(blocksize * sizeof(char));
+        buf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
         if (!buf)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
@@ -588,7 +595,7 @@ int copy_file(PathPtr p_src,
     }
 
     // OPEN source for reading (binary mode)
-    if (!p_src->open(O_RDONLY | O_SOURCE_PATH, p_src->mode()))
+    if (!p_src->open(read_flags, p_src->mode()) && !p_src->open(read_flags & ~O_DIRECT, p_src->mode()))
     {
         errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
         if (buf)
@@ -604,20 +611,19 @@ int copy_file(PathPtr p_src,
     if (p_src->size() <= length)
     {
         // no chunking
-        flags = O_WRONLY | O_CREAT;
         PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT",
                         p_dest->fstype_to_str());
     }
     else
     {
-        flags = O_WRONLY | O_CREAT | O_CONCURRENT_WRITE;
+        write_flags = write_flags | O_CONCURRENT_WRITE;
         PRINT_MPI_DEBUG("fstype = %s. Setting open flags to O_WRONLY | O_CREAT | O_CONCURRENT_WRITE",
                         p_dest->fstype_to_str());
     }
 
     // give destination the same mode as src, (access-bits only)
     mode_t dest_mode = p_src->mode() & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO);
-    if (!p_dest->open(flags, dest_mode, offset, length))
+    if (!p_dest->open(write_flags, dest_mode, offset, length) &&  !p_dest->open(write_flags & ~O_DIRECT, dest_mode, offset, length))
     {
         if (p_dest->get_errno() == EDQUOT)
         {
@@ -686,7 +692,7 @@ int copy_file(PathPtr p_src,
         while ((bytes_processed != blocksize) && (retry_count < 5))
         {
             p_src->close(); // best effort
-            if (!p_src->open(O_RDONLY | O_SOURCE_PATH, p_src->mode(), offset + completed, length - completed))
+            if (!p_src->open(read_flags, p_src->mode(), offset + completed, length - completed) && !p_src->open(read_flags & ~O_DIRECT, p_src->mode(), offset + completed, length - completed))
             {
                 errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
                             p_src->path(), offset, completed);
@@ -867,6 +873,13 @@ int compare_file(path_item *src_file,
                         ? (src_file->st.st_size - offset)
                         : src_file->chksz);
 
+    int read_flags = O_RDONLY;
+
+    if (o.direct && (((length / 4096) * 4096) == length)) {
+        read_flags |= O_DIRECT;
+    }
+
+
     PathPtr p_src(PathFactory::create_shallow(src_file));
     PathPtr p_dest(PathFactory::create_shallow(dest_file));
 
@@ -921,7 +934,7 @@ int compare_file(path_item *src_file,
 
         //byte compare
         // allocate buffers and open files ...
-        ibuf = (char *)malloc(blocksize * sizeof(char));
+        ibuf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
         if (!ibuf)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
@@ -929,7 +942,7 @@ int compare_file(path_item *src_file,
             return -1;
         }
 
-        obuf = (char *)malloc(blocksize * sizeof(char));
+        obuf = (char *)aligned_alloc(4096, blocksize * sizeof(char));
         if (!obuf)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
@@ -938,7 +951,7 @@ int compare_file(path_item *src_file,
             return -1;
         }
 
-        if (!p_src->open(O_RDONLY | O_SOURCE_PATH, src_file->st.st_mode, offset, length))
+        if (!p_src->open(read_flags, src_file->st.st_mode, offset, length) && !p_src->open(read_flags & ~O_DIRECT, src_file->st.st_mode, offset, length))
         {
             errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
             free(ibuf);
@@ -946,7 +959,7 @@ int compare_file(path_item *src_file,
             return -1;
         }
 
-        if (!p_dest->open(O_RDONLY | O_DEST_PATH, dest_file->st.st_mode, offset, length))
+        if (!p_dest->open(read_flags, dest_file->st.st_mode, offset, length) && !p_dest->open(read_flags & ~O_DIRECT, dest_file->st.st_mode, offset, length))
         {
             errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
             free(ibuf);
