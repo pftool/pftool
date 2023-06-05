@@ -1136,7 +1136,7 @@ public:
          pathparse++;
       }
       // prepare to generate the final path
-      char *ret;
+      char *ret = NULL;
       // check for empty path or root path degenerate case
       if ( childref == NULL ) {
          // just realpath the full thing
@@ -1147,18 +1147,26 @@ public:
          }
       }
       else {
-         // trim our duplicated path, leaving only the parent path at the head
-         *(childref - 1) = '\0';
-         // only realpath the parent path
-         ret = ::realpath(duppath, resolved_path);
-         if ( ret == NULL ) {
-            _errno = errno;
+         // check if we have a parent path
+         if ( childref - 1 != duppath ) {
+            // trim our duplicated path, leaving only the parent path at the head
+            *(childref - 1) = '\0';
+            // only realpath the parent path
+            ret = ::realpath(duppath, resolved_path);
          }
          else {
-            size_t rppathlen = strlen( ret );
-            // we know the allocated str is PATH_MAX bytes, so we can safely append
-            snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
+            // no parent path here implies a path of "/<tgt>" format
+            ret = ::realpath("/", resolved_path);
          }
+         if ( ret == NULL ) {
+            free( duppath );
+            _errno = errno;
+            return NULL;
+         }
+         size_t rppathlen = strlen( ret );
+         if ( *(ret + rppathlen - 1) == '/' ) { rppathlen--; } // overwrite any trailing '/', if present
+         // we know the allocated str is PATH_MAX bytes, so we can safely append
+         snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
       }
       free( duppath );
       //printf( "REALPATH: %s\n  RET: %s\n", _item->path, ret );

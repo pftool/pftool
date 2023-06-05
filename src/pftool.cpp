@@ -626,7 +626,7 @@ int main(int argc, char *argv[])
                 PathPtr p_src(PathFactory::create(head->data.path));
                 if (NULL == p_src->realpath(buf))
                 {
-                    fprintf(stderr, "Failed to realpath src: %s\n", head->data.path);
+                    fprintf(stderr, "Failed to realpath src: %s (%s)\n", p_src->path(),p_src->class_name().get());
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             } while (0 != strcmp(head->data.path, buf));
@@ -2464,6 +2464,11 @@ int maybe_pre_process(int pre_process,
         {
             errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
                         p_out->path(), p_out->strerror());
+        }
+        if ( chunk_size  &&  *chunk_size < 1 )
+        {
+            // worker is creating this file, so don't bother to chunk
+            *chunk_size = o.chunksize;
         }
         //if (!p_out->pre_process(p_work))
         //    return -1;
