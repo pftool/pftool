@@ -1381,7 +1381,7 @@ int manager(int rank,
     }
 
     gettimeofday(&out, NULL);
-    int elapsed_time = out.tv_sec - in.tv_sec;
+    double elapsed_time = (double)(out.tv_sec - in.tv_sec) + ((double)(out.tv_usec - in.tv_usec) / 1000000) + 0.0000001;
 
     // Manager and regular workers are done.
     // Coordinate shutdown of OUTPUT_PROC.
@@ -1440,7 +1440,7 @@ int manager(int rank,
     static const size_t BUF_SIZE = 1024;
     char human_val[BUF_SIZE];
     char bw_avg[BUF_SIZE];
-    human_readable( bw_avg, BUF_SIZE, (float)num_copied_bytes / ( elapsed_time + 1 ) );
+    human_readable( bw_avg, BUF_SIZE, (float)num_copied_bytes / ( elapsed_time ) );
 
     if (o.work_type == LSWORK)
     {
@@ -1486,9 +1486,7 @@ int manager(int rank,
         }
     }
 
-    sprintf(message, "INFO  FOOTER   Elapsed Time:               %4d second%s\n",
-            elapsed_time,
-            ((elapsed_time == 1) ? "" : "s"));
+    sprintf(message, "INFO  FOOTER   Elapsed Time:               %lf seconds\n", elapsed_time);
     write_output(message, 1);
 
 #ifdef CONDUIT
