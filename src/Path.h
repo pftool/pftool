@@ -2052,6 +2052,7 @@ public:
       if (fh  &&  fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream)
       {
          marfs_release(fh);
+         fh = NULL;
       }
 
       if (dh)
@@ -2398,7 +2399,9 @@ public:
    virtual bool close()
    {
       if ( fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream ) {
-         if (_rc = marfs_release(fh))
+         _rc = marfs_release(fh);
+         fh = NULL;
+         if ( _rc )
          {
             _errno = errno;
             return false;
