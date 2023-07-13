@@ -2473,6 +2473,14 @@ public:
             // even if offset is unexpected, record the resulting value if it makes any sense at all
             if ( newoffset >= 0 ) { _offset = newoffset; }
             _errno = errno;
+            if ( errno == EBADFD ) {
+               // our stream has been unrecoverably broken
+               if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+               if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+               if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+               marfs_release(fh);
+               fh = NULL;
+            }
             return false;
          }
          _offset = offset;
@@ -2520,6 +2528,14 @@ public:
             // even if offset is unexpected, record the resulting value if it makes any sense at all
             if ( newoffset >= 0 ) { _offset = newoffset; }
             _errno = errno;
+            if ( errno == EBADFD ) {
+               // our stream has been unrecoverably broken
+               if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+               if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+               if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+               marfs_release(fh);
+               fh = NULL;
+            }
             return false;
          }
          _offset = offset;
@@ -2529,6 +2545,14 @@ public:
       if (bytes == (ssize_t)-1)
       {
          _errno = errno;
+         if ( errno == EBADFD ) {
+            // our stream has been unrecoverably broken
+            if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+            if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+            if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+            marfs_release(fh);
+            fh = NULL;
+         }
          return false;
       }
       _offset += bytes;
