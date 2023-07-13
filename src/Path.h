@@ -2536,13 +2536,13 @@ public:
                marfs_release(fh);
                fh = NULL;
             }
-            return false;
+            return -1;
          }
          _offset = offset;
       }
 
       ssize_t bytes = marfs_write(fh, buf, count);
-      if (bytes == (ssize_t)-1)
+      if (bytes != count)
       {
          _errno = errno;
          if ( errno == EBADFD ) {
@@ -2553,9 +2553,8 @@ public:
             marfs_release(fh);
             fh = NULL;
          }
-         return false;
       }
-      _offset += bytes;
+      if ( bytes > 0 ) { _offset += bytes; }
       unset(DID_STAT);
       return bytes;
    }
