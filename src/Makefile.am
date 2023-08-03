@@ -40,6 +40,8 @@ endif
 
 if MARFS
   marfs_cflags=-DMARFS
+install-exec-local:
+	chmod u+s $(bindir)/pftool
 endif
 
 if CONDUIT

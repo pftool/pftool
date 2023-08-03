@@ -1136,7 +1136,7 @@ public:
          pathparse++;
       }
       // prepare to generate the final path
-      char *ret;
+      char *ret = NULL;
       // check for empty path or root path degenerate case
       if ( childref == NULL ) {
          // just realpath the full thing
@@ -1147,18 +1147,26 @@ public:
          }
       }
       else {
-         // trim our duplicated path, leaving only the parent path at the head
-         *(childref - 1) = '\0';
-         // only realpath the parent path
-         ret = ::realpath(duppath, resolved_path);
-         if ( ret == NULL ) {
-            _errno = errno;
+         // check if we have a parent path
+         if ( childref - 1 != duppath ) {
+            // trim our duplicated path, leaving only the parent path at the head
+            *(childref - 1) = '\0';
+            // only realpath the parent path
+            ret = ::realpath(duppath, resolved_path);
          }
          else {
-            size_t rppathlen = strlen( ret );
-            // we know the allocated str is PATH_MAX bytes, so we can safely append
-            snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
+            // no parent path here implies a path of "/<tgt>" format
+            ret = ::realpath("/", resolved_path);
          }
+         if ( ret == NULL ) {
+            free( duppath );
+            _errno = errno;
+            return NULL;
+         }
+         size_t rppathlen = strlen( ret );
+         if ( *(ret + rppathlen - 1) == '/' ) { rppathlen--; } // overwrite any trailing '/', if present
+         // we know the allocated str is PATH_MAX bytes, so we can safely append
+         snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
       }
       free( duppath );
       //printf( "REALPATH: %s\n  RET: %s\n", _item->path, ret );
@@ -1974,9 +1982,9 @@ public:
 #include <linux/limits.h>
 
 
-extern marfs_fhandle marfsCreateStream;
-extern marfs_fhandle marfsSourceReadStream;
-extern marfs_fhandle marfsDestReadStream;
+extern marfs_fhandle marfsCreateStream;       // stream for 'packing' created files on a MarFS dest
+extern marfs_fhandle marfsSourceReadStream;   // stream for reading from a MarFS source
+extern marfs_fhandle marfsDestReadStream;     // stream for reading from a MarFS dest ( i.e. pfcm )
 extern marfs_ctxt    marfsctxt;
 extern char          marfs_ctag_set;
 
@@ -2044,6 +2052,7 @@ public:
       if (fh  &&  fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream)
       {
          marfs_release(fh);
+         fh = NULL;
       }
 
       if (dh)
@@ -2088,7 +2097,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), O_WRONLY );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2144,10 +2153,16 @@ public:
          return false;
       }
 
-      if ((_rc = marfs_extend(handle, src->st().st_size)) || (_rc = marfs_release(handle)))
+      if ( (_rc = marfs_extend(handle, src->st().st_size)) )
       {
          _errno = errno;
-         marfs_close(handle);
+         marfs_release(handle); // don't leak our handle reference
+         return false;
+      }
+
+      if ( (_rc = marfs_release(handle)) )
+      {
+         _errno = errno;
          return false;
       }
 
@@ -2159,8 +2174,9 @@ public:
    // single-threaded reconciliation of all these details, after close().
    virtual bool post_process(PathPtr src)
    {
+      _rc = 0; // assume success
       if ( !(_packed) ) {
-         marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         marfs_fhandle handle = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          if (handle == NULL)
          {
             _rc = -1;
@@ -2223,7 +2239,7 @@ public:
       // possibly open a new marfs_fhandle
       char release = 0;
       if ( fh == NULL ) {
-         fh = marfs_open( marfsctxt, NULL, path(), MARFS_WRITE );
+         fh = marfs_open( marfsctxt, NULL, path(), O_WRONLY );
          if ( fh == NULL ) {
             _errno = errno;
             _rc = -1;
@@ -2288,7 +2304,7 @@ public:
       if (flags & O_CONCURRENT_WRITE)
       {
          // should only ever have O_CONCURRENT_WRITE and O_WRONLY
-         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          _parallel = true;
          _packed = false;
       }
@@ -2296,6 +2312,8 @@ public:
       {
          // should only ever have O_CREAT and O_WRONLY
          fh = marfs_creat(marfsctxt, marfsCreateStream, path(), mode);
+         if ( fh )
+            marfsCreateStream = fh;
          _packed = true;
          _parallel = false;
       }
@@ -2306,24 +2324,24 @@ public:
          functionality (O_CREAT is ignored if the file already exists). Maybe
          this should disappear and the !exists() condition should be removed
          above.*/
-         fh = marfs_open(marfsctxt, NULL, path(), MARFS_WRITE);
+         fh = marfs_open(marfsctxt, NULL, path(), O_WRONLY);
          _parallel = true;
          _packed = false;
       }
       else
       {
          if (flags & O_SOURCE_PATH) {
-            fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, marfsSourceReadStream, path(), O_RDONLY);
             if ( fh )
                marfsSourceReadStream = fh;
          }
          else if (flags & O_DEST_PATH) {
-            fh = marfs_open(marfsctxt, marfsDestReadStream, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, marfsDestReadStream, path(), O_RDONLY);
             if ( fh )
                marfsDestReadStream = fh;
          }
          else {
-            fh = marfs_open(marfsctxt, NULL, path(), MARFS_READ);
+            fh = marfs_open(marfsctxt, NULL, path(), O_RDONLY);
          }
          _parallel = false;
          _packed = false;
@@ -2333,11 +2351,33 @@ public:
       {
          _rc = -1;
          _errno = errno;
+         if ( errno == EBADFD ) {
+            // our stream has been unrecoverably broken
+            if ( _packed ) {
+               // abandon the create stream
+               marfs_release( marfsCreateStream );
+               marfsCreateStream = NULL;
+            }
+            else if ( _parallel = false ) {
+               // should only be true for a read stream
+               if ( flags & O_SOURCE_PATH ) {
+                  // abandon our source read stream
+                  marfs_release( marfsSourceReadStream );
+                  marfsSourceReadStream = NULL;
+               }
+               else if ( flags & O_DEST_PATH ) {
+                  // abandon our dest read stream
+                  marfs_release( marfsDestReadStream );
+                  marfsDestReadStream = NULL;
+               }
+            }
+            // any fallthrough from the above cases should be for 'fresh' streams, which can be ignored
+            //    ( those created from a NULL ref, rather than an existing stream )
+         }
          _parallel = false;
          _packed = false;
          return false;
       }
-      else if (_packed) { marfsCreateStream = fh; }
       _offset = 0;
       set(IS_OPEN);
       return true;
@@ -2359,7 +2399,9 @@ public:
    virtual bool close()
    {
       if ( fh != marfsCreateStream  &&  fh != marfsSourceReadStream  &&  fh != marfsDestReadStream ) {
-         if (_rc = marfs_release(fh))
+         _rc = marfs_release(fh);
+         fh = NULL;
+         if ( _rc )
          {
             _errno = errno;
             return false;
@@ -2431,6 +2473,14 @@ public:
             // even if offset is unexpected, record the resulting value if it makes any sense at all
             if ( newoffset >= 0 ) { _offset = newoffset; }
             _errno = errno;
+            if ( errno == EBADFD ) {
+               // our stream has been unrecoverably broken
+               if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+               if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+               if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+               marfs_release(fh);
+               fh = NULL;
+            }
             return false;
          }
          _offset = offset;
@@ -2478,18 +2528,33 @@ public:
             // even if offset is unexpected, record the resulting value if it makes any sense at all
             if ( newoffset >= 0 ) { _offset = newoffset; }
             _errno = errno;
-            return false;
+            if ( errno == EBADFD ) {
+               // our stream has been unrecoverably broken
+               if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+               if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+               if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+               marfs_release(fh);
+               fh = NULL;
+            }
+            return -1;
          }
          _offset = offset;
       }
 
       ssize_t bytes = marfs_write(fh, buf, count);
-      if (bytes == (ssize_t)-1)
+      if (bytes != count)
       {
          _errno = errno;
-         return false;
+         if ( errno == EBADFD ) {
+            // our stream has been unrecoverably broken
+            if ( fh == marfsCreateStream ) { marfsCreateStream = NULL; }
+            if ( fh == marfsSourceReadStream ) { marfsSourceReadStream = NULL; }
+            if ( fh == marfsDestReadStream ) { marfsDestReadStream = NULL; }
+            marfs_release(fh);
+            fh = NULL;
+         }
       }
-      _offset += bytes;
+      if ( bytes > 0 ) { _offset += bytes; }
       unset(DID_STAT);
       return bytes;
    }

@@ -604,7 +604,7 @@ int main(int argc, char *argv[])
         {
 
             PathPtr p_dest(PathFactory::create(dest_path));
-            if (!p_dest->exists() || !p_dest->is_dir())
+            if ( strcmp(p_dest->class_name().get(), "NULL_Path")  &&  (!p_dest->exists() || !p_dest->is_dir()) )
             {
                 fprintf(stderr, "Multiple inputs and target '%s' is not a directory\n", dest_path);
                 MPI_Abort(MPI_COMM_WORLD, -1);
@@ -626,7 +626,7 @@ int main(int argc, char *argv[])
                 PathPtr p_src(PathFactory::create(head->data.path));
                 if (NULL == p_src->realpath(buf))
                 {
-                    fprintf(stderr, "Failed to realpath src: %s\n", head->data.path);
+                    fprintf(stderr, "Failed to realpath src: %s (%s)\n", p_src->path(),p_src->class_name().get());
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             } while (0 != strcmp(head->data.path, buf));
@@ -2463,6 +2463,11 @@ int maybe_pre_process(int pre_process,
             errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
                         p_out->path(), p_out->strerror());
         }
+        if ( chunk_size  &&  *chunk_size < 1 )
+        {
+            // worker is creating this file, so don't bother to chunk
+            *chunk_size = o.chunksize;
+        }
         //if (!p_out->pre_process(p_work))
         //    return -1;
     }
@@ -2771,7 +2776,7 @@ void process_stat_buffer(path_item *path_buffer,
             // if selected options require writing to a temp-file, instead of
             // dest, then determine whether it exists. (We also check whether
             // source and temp-file "match" the timestamps recorded in CTM.)
-            if (o.work_type == COPYWORK)
+            if (o.work_type == COPYWORK  &&  strcmp(p_out->class_name().get(), "NULL_Path"))
             {
 
                 // // don't bother stat'ing CTM if we're just going to ignore it
