@@ -478,7 +478,7 @@ int initialize_marfs_context( void ) {
    marfsSourceReadStream = NULL;
    marfsDestReadStream = NULL;
    // NOTE -- as pftool is NOT multi-threaded, we are allowing libmarfs itself to handle erasure locking
-   marfsctxt = marfs_init( MARFS_CONFIG_PATH, MARFS_BATCH, 0, NULL );
+   marfsctxt = marfs_init( MARFS_CONFIG_PATH, MARFS_BATCH, NULL );
    if ( marfsctxt == NULL ) {
       return -1;
    }
