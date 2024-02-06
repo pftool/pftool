@@ -128,6 +128,15 @@ def main(parser):
     # this is a fix for "orted: command not found" issue
     pfcmd.add("-prefix", mpiroot)
 
+    # this is a fix for "no preset parameters found" issue w/ mlnx IB devices
+    pfcmd.add("--mca", "btl", "^openib")
+
+    # silence ssh /etc/issue output
+    pfcmd.add("--mca", "plm_rsh_args", "\"-o LogLevel=ERROR\"" )
+
+    # silence mpirun informational messages
+    pfcmd.add("-q")
+
     # Add darshan logging support if its available
     # (this must be called after adding mpi)
     pfs.add_darshan(config, pfcmd)
