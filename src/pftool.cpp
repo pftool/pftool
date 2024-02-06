@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <fnmatch.h>
+#include <sys/resource.h>
 
 #include "pftool.h"
 #include "ctm.h"
@@ -51,6 +52,17 @@ MPI_Comm accum_comm;  // manager + ACCUM
 
 int main(int argc, char *argv[])
 {
+    // before doing ANYTHING, set our stack-size soft limit to the system maximum
+    struct rlimit stacklimit;
+    if ( getrlimit( RLIMIT_STACK, &(stacklimit) ) ) {
+        fprintf( stderr, "Unable to get stack-size resource limit value\n" );
+    }
+    else if ( stacklimit.rlim_cur != stacklimit.rlim_max ) {
+        stacklimit.rlim_cur = stacklimit.rlim_max;
+        if ( setrlimit( RLIMIT_STACK, &(stacklimit) ) ) {
+            fprintf( stderr, "Unable to set stack-size resource limit value to %zd\n", stacklimit.rlim_cur );
+        }
+    }
 
     //general variables
     int i;
