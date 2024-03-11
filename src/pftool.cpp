@@ -49,6 +49,9 @@ RepoPodMap timing_stats_map; //only manager would use this
 // after OUTPUT_PROC is already in MPI_Finalize().
 MPI_Comm worker_comm; // manager + workers
 MPI_Comm accum_comm;  // manager + ACCUM
+#ifdef CONDUIT
+   static char global_conduit_nomove_sent = 0;
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -1100,7 +1103,7 @@ int manager(int rank,
 
 #ifdef CONDUIT
         // possibly send Conduit Header message
-        sprintf( message,
+        snprintf( message, MESSAGESIZE,
                  "#CONDUIT-MSG {\"Type\":\"HEADER\", \"SourceFS\":\"%s\", \"DestinationFS\":\"%s\"}\n",
                  p_src->class_name().get(), p_dest->class_name().get() );
         write_output(message, 1);
@@ -1367,7 +1370,7 @@ int manager(int rank,
 
 #ifdef CONDUIT
                 // possibly send Conduit Accum message
-                sprintf( message,
+                snprintf( message, MESSAGESIZE,
                          "#CONDUIT-MSG {\"Type\":\"ACCUM\", \"Files&Chunks\":%d, \"DataFinished\":\"%s\", \"Bandwidth\":\"%s\"}\n",
                          num_copied_files, bytes, bw_avg );
                 write_output(message, 1);
@@ -1503,7 +1506,7 @@ int manager(int rank,
 
 #ifdef CONDUIT
     // possibly send Conduit FOOTER message
-    sprintf( message,
+    snprintf( message, MESSAGESIZE,
              "#CONDUIT-MSG {\"Type\":\"FOOTER\", \"Files&Chunks\":%d, \"Data\":\"%s\", \"Bandwidth\":\"%s\", \"Files\":%d, \"Directories\":%d}\n",
              num_copied_files, human_val, bw_avg, examined_file_count, examined_dir_count );
     write_output(message, 1);
@@ -2204,6 +2207,9 @@ void worker_readdir(int rank,
     char path[PATHSIZE_PLUS];
     char full_path[PATHSIZE_PLUS];
     char errmsg[MESSAGESIZE];
+#ifdef CONDUIT
+    char message[MESSAGESIZE] = {0};
+#endif
     path_item mkdir_node;
     path_item work_node;
     path_item workbuffer[STATBUFFER];
@@ -2321,6 +2327,14 @@ void worker_readdir(int rank,
                 }
             }
             strncpy(path, p_work->path(), PATHSIZE_PLUS);
+#ifdef CONDUIT
+            // notify conduit that these dir perms are incompatible with a 'move' operation
+            if ( !global_conduit_nomove_sent  &&  !(p_work->faccessat(W_OK, AT_SYMLINK_NOFOLLOW)) ) {
+               snprintf(message, MESSAGESIZE, "#CONDUIT-MSG {\"Type\":\"NOMOVE\", \"Path\":\"%s\"}\n", p_work->path());
+               write_output(message, 1);
+               global_conduit_nomove_sent = 1;
+            }
+#endif
 
             // assure <path> ends with a single slash
             trim_trailing('/', path);

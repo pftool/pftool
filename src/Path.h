@@ -2267,7 +2267,7 @@ public:
       {
          _errno = errno;
       }
-      unset(DID_STAT);
+      //unset(DID_STAT); #gransom edit, unsure why this is here
       return (_rc == 0);
    }
 
@@ -2278,7 +2278,7 @@ public:
       {
          _errno = errno;
       }
-      unset(DID_STAT);
+      //unset(DID_STAT); #gransom edit, unsure why this is here
       return (_rc == 0);
    }
 
