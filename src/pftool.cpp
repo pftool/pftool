@@ -2126,7 +2126,11 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
     }
     if (log < 2)
     {
+#ifdef CONDUIT
+        if (sending_rank == MANAGER_PROC  ||  strncmp( msg, "#CONDUIT-MSG ", 13 ) == 0)
+#else
         if (sending_rank == MANAGER_PROC)
+#endif
         {
             printf("%s", msg);
         }
