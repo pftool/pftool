@@ -45,6 +45,9 @@ typedef int (*ctm_delete_fn_t)(const char *chnkfname);
 // different methods in the way chunk metadata is stored and accessed
 enum ctm_impltype {
 	CTM_NONE,					// no CTM routines/functions. Typically means there is no file to transfer
+#ifdef CONDUIT
+	CTM_MEM,					// just fake a CTM store so we can use the in-memory structures with CONDUIT
+#endif
 	CTM_FILE,					// use file-based routines/functions to manage chunk metadata
 	CTM_XATTR,					// user xattr routines/functions to manage chunk metadata
 	CTM_UNKNOWN					// don't know how to access the chunk metadata

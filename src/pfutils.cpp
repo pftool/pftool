@@ -447,7 +447,7 @@ void get_output_path(path_item *out_node, // fill in out_node.path
     }
     if (path_slice_duped)
         free((void *)path_slice);
-
+#ifndef CONDUIT
     if ((rename_flag == 1) && (src_node->packable == 0) && strcmp(dest_node->path, "/dev/null"))
     {
         //need to create temporary file name
@@ -468,7 +468,7 @@ void get_output_path(path_item *out_node, // fill in out_node.path
         epoch_to_string(timestamp, DATE_STRING_MAX, &mtime);
         strcat(out_node->path, timestamp);
     }
-
+#endif
     out_node->path[PATHSIZE_PLUS - 1] = 0;
 }
 
@@ -1130,7 +1130,7 @@ int update_stats(PathPtr p_src,
         errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                     p_dest->path(), p_dest->strerror());
     }
-
+#ifndef CONDUIT
     if (!p_src->get_packable() && p_src->st().st_size > o.chunk_at)
     {
         const char *plus_sign = strrchr((const char *)p_dest->path(), '+');
@@ -1154,7 +1154,7 @@ int update_stats(PathPtr p_src,
             p_dest = p_dest_orig;
         }
     }
-
+#endif
     return 0;
 }
 
@@ -1854,16 +1854,6 @@ int get_free_rank(struct worker_proc_status *proc_status, int start_range, int e
 // return 1 for yes, 0 for no.
 int processing_complete(struct worker_proc_status *proc_status, int free_worker_count, int nproc)
 {
-#if 0
-    int i;
-    int count = 0;
-    for (i = 0; i < nproc; i++) {
-        if (proc_status[i].inuse == 1)
-           return 0;
-    }
-    return 1;
-
-#else
     if (free_worker_count == (nproc - START_PROC))
     {
         int i;
@@ -1875,8 +1865,6 @@ int processing_complete(struct worker_proc_status *proc_status, int free_worker_
         return 1;
     }
     return 0;
-
-#endif
 }
 
 //Queue Function Definitions
