@@ -56,7 +56,7 @@ AC_ARG_ENABLE(debug,
 AM_CONDITIONAL([DEBUG], [test "x$enable_debug" = xyes])
 
 AC_ARG_ENABLE(conduit,
-   AS_HELP_STRING([  --enable-conduit], [Enable extra Conduit message output]))
+   AS_HELP_STRING([  --enable-conduit], [Enable extra Conduit message output, disable tempfile logic, disable persistent CTM]))
 AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes])
 
 AC_CONFIG_HEADER([config.h])

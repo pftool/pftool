@@ -2096,10 +2096,10 @@ void worker_update_chunk(int rank,
 
             PathPtr p_work(PathFactory::create_shallow(&work_node));
             PathPtr p_out(PathFactory::create_shallow(&out_node_temp)); //use temporary file due to chunking
+	    purgeCTM(p_out->path());  // actually remove the file from the CTM path
             update_stats(p_work, p_out, o);
         }
     }
-
     free(workbuf);
     send_manager_work_done(rank);
 }
@@ -2504,7 +2504,7 @@ int maybe_pre_process(int pre_process,
     else if (pre_process >= 2)
     {
         // work_node is chunkable, so output goes to a temporary file.
-
+#ifndef CONDUIT
         // construct temp-file pathname
         char timestamp_plus[DATE_STRING_MAX + 1];
         char *timestamp = &timestamp_plus[1];
@@ -2553,7 +2553,18 @@ int maybe_pre_process(int pre_process,
                             p_out->path(), p_work->path(), strerror(errno));
             }
         }
-
+#else
+	// skip all the tempfile junk above, just prep like we did it to p_temp
+	PathPtr p_temp = p_out;
+	if (!p_temp) return -1;
+	if (do_unlink) {
+            // unlink the destination file - we're overwriting it!
+            if (!p_temp->unlink() && (errno != ENOENT)) {
+                errsend_fmt(FATAL, "Failed to unlink destination file %s: %s\n", p_temp->path(), strerror(errno));
+            }
+        }
+	if (!p_temp->pre_process(p_work)) return -1;
+#endif
         // possibly update chunk size value
         if ( chunk_size  &&  *chunk_size < 1 ) {
             ssize_t chnksztmp = p_temp->chunksize(p_work->st().st_size, o.chunksize);

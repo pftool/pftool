@@ -30,6 +30,9 @@
 const char *_impl2str(CTM_ITYPE implidx) {
 	static const char *IMPLSTR[] = {
 		"No CTM"
+#ifdef CONDUIT
+		,"Memory CTM"
+#endif
 		,"File CTM"
 		,"xattr CTM"
 		,"Unsupported CTM"
@@ -51,7 +54,9 @@ const char *_impl2str(CTM_ITYPE implidx) {
 *  file.
 */
 CTM_ITYPE _whichCTM(const char *transfilename) {
-
+#ifdef CONDUIT
+	return CTM_MEM;
+#endif
 #if CTM_MODE == CTM_PREFER_FILES
 	return CTM_FILE;
 
@@ -101,13 +106,18 @@ CTM *_createCTM(const char *transfilename) {
 	if(itype == CTM_NONE || itype == CTM_UNKNOWN)	// no or unsupported type? -> return NULL
 	  return(newCTM);
 
-	newCTM = (CTM *)malloc(sizeof(CTM));		// now we allocate the structure
+	newCTM = (CTM *)calloc(1, sizeof(CTM));		// now we allocate the structure
 	if (! newCTM)
 	   return NULL;
-	memset(newCTM,0,sizeof(CTM));			// clear the memory of the newCTM CTM structure
 
 	newCTM->chnkimpl = itype;				// assign implmentation
 	switch ((int)newCTM->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
+#ifdef CONDUIT
+	  case CTM_MEM   :
+		  	   newCTM->chnkfname = strdup(transfilename);
+			   registerCTF(&newCTM->impl);  // only use read here, but steal the allocator
+		  	   break;
+#endif
 	  case CTM_XATTR :
 			   newCTM->chnkfname = strdup(transfilename);
 			   registerCTA(&newCTM->impl);	// assign implementation
@@ -212,6 +222,9 @@ CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
 */
 int putCTM(CTM *ctmptr) {
 	if(!ctmptr) return(EINVAL);				// Nothing to write, because there is no structure!
+#ifdef CONDUIT
+	return(0);  // just fake it for CONDUIT
+#endif
 	return(ctmptr->impl.write(ctmptr));
 }
 
@@ -249,7 +262,9 @@ int removeCTM(CTM **pctmptr) {
 	int rc = 0;						// return code for function
 
 	if(!ctmptr) return(EINVAL);				// Nothing to remove, because there is no structure!
+#ifndef CONDUIT		// no structure to delete
 	rc=ctmptr->impl.del(ctmptr->chnkfname);		// delete CTM from persistent store
+#endif
 	freeCTM(pctmptr);					// deallocate the CTM structure
 	return(rc);
 }
@@ -266,13 +281,9 @@ int hasCTM(const char *transfilename) {
 	CTM_ITYPE itype =  _whichCTM(transfilename);		// implementation type. Get how the CTM is stored in persistent store
 
 	switch ((int)itype) {					// test, based on how CTM store is implemented
-	  case CTM_NONE    :					// no or unsupported type? -> return FALSE
-	  case CTM_UNKNOWN : return(FALSE);
-
 	  case CTM_XATTR   : return(foundCTA(transfilename));
-
-	  case CTM_FILE    :
-	  default          : return(foundCTF(transfilename));
+	  case CTM_FILE    : return(foundCTF(transfilename));
+	  default          : return(FALSE);  // no reason to call out the various types if they default to false
 	}
 }
 
@@ -290,14 +301,11 @@ void purgeCTM(const char *transfilename) {
 	  case CTM_XATTR   :
 			     deleteCTA(transfilename);		// don't care about the return code
 			     break;
-								// have to generate the md5 name for CTF files
 	  case CTM_FILE    :
 			     chnkfname = genCTFFilename(transfilename);
 			     unlinkCTF(chnkfname);		// don't care about return code
 			     if(chnkfname) free(chnkfname);	// we done with the temporary name
 			     break;
-	  case CTM_NONE    :					// no or unsupported type? -> nothing to do
-	  case CTM_UNKNOWN : 
 	  default          : break;
 	}
 	return;
@@ -337,7 +345,7 @@ int chunktransferredCTM(CTM *ctmptr,int idx) {
 }
 
 /**
-* This function tests the chuck flags of
+* This function tests the chunk flags of
 * a CTM structure. If they are all set
 * (i.e. set to 1), then TRUE is returned.
 *
@@ -428,6 +436,9 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  */
 int check_ctm_match(const char* src_to_hash, const char* dest)
 {
+#ifdef CONDUIT
+	return 0; // always say we don't have persistent CTM for CONDUIT copies
+#else
 	static const char*  dev_null = "/dev/null/";
 	static const size_t dev_null_len = strlen(dev_null);
 
@@ -469,12 +480,8 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 		else {
 
 			// prepare to read timestamp onto the end of <dest>
-#if 1
 			char dest_temp[PATHSIZE_PLUS];
 			strcpy(dest_temp, dest);
-#else
-			char* dest_temp = dest; // alter existing <dest> string
-#endif
 			dest_temp[dest_len] = '+';
 			char* timestamp = dest_temp + dest_len +1;
 
@@ -495,8 +502,7 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 				// Our attempt to stat such a file (below) would fail with ENOTDIR.
 				ret = 4;
 			}
-			else if (stat(dest_temp, &st)
-			         && (errno != ENOENT)) {
+			else if (stat(dest_temp, &st) && (errno != ENOENT)) {
 				ret = -errno;    // stat failed for some reason other than ENOENT
 			}
 			else if (errno == ENOENT) {
@@ -504,10 +510,6 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 			}
 			else
 				ret = 2;         // passed all the tests.  It's a match
-#if 1
-#else
-			dest_temp[dest_len] = 0; // undo damage to original <dest>
-#endif
 		}
 	}
 	else {
@@ -524,6 +526,7 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 	free(ctm_name);
 	free(src_hash);
 	return ret;
+#endif
 }
 
 // We assume <timestamp> has size DATE_STRING_MAX, at least
