@@ -2829,13 +2829,14 @@ void process_stat_buffer(path_item *path_buffer,
                 //   3 = CTM mis-match
                 //   4 = CTM match, but temp-file is gone (treat as mis-match)
                 //
+#ifndef CONDUIT
                 int temp_exists = check_temporary(p_work, &out_node);
                 if (temp_exists)
                 {
                     dest_exists = temp_exists; //restart with a temporary file
                 }
                 // }
-
+#endif
                 // avoid redundant 'stat's
                 dest_has_ctm = (dest_exists > 1);
 
@@ -3046,7 +3047,7 @@ void process_stat_buffer(path_item *path_buffer,
                 if (parallel_dest)
                 {
                     CTM *ctm = (CTM *)NULL; // CTM structure used with chunked files
-
+#ifndef CONDUIT
                     // --- prepare for chunking
                     //
                     // MarFS will adjust a given chunksize to match (some
@@ -3063,7 +3064,7 @@ void process_stat_buffer(path_item *path_buffer,
                     if ( chunk_size == o.chunksize  &&  !(p_out->supports_n_to_1()) ) {
                         chunk_size = p_work->chunksize(p_work->st().st_size, o.chunksize);
                     }
-
+#endif
                     int ctmExists = 0;
 
                     // handle zero-length source file - because it will not
