@@ -3048,7 +3048,7 @@ void process_stat_buffer(path_item *path_buffer,
                 if (parallel_dest)
                 {
                     CTM *ctm = (CTM *)NULL; // CTM structure used with chunked files
-#ifndef CONDUIT
+
                     // --- prepare for chunking
                     //
                     // MarFS will adjust a given chunksize to match (some
@@ -3058,11 +3058,16 @@ void process_stat_buffer(path_item *path_buffer,
                     // into each object.  (i.e. chunk_size is smaller than
                     // the actual amount to be written, leaving enough room
                     // for recovery-info)
+#ifdef CONDUIT
+                    if ( !(do_unlink) ) {
+#endif
                     chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
 
                     // if the dest has no specific required chunk size, use the source chunk size instead
                     if ( chunk_size == o.chunksize  &&  !(p_out->supports_n_to_1()) ) {
                         chunk_size = p_work->chunksize(p_work->st().st_size, o.chunksize);
+                    }
+#ifdef CONDUIT
                     }
 #endif
                     chunk_at = p_out->chunk_at(o.chunk_at);
