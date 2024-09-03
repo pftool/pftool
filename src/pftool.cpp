@@ -2761,6 +2761,7 @@ void process_stat_buffer(path_item *path_buffer,
     {
         process = 0;
         pre_process = 0;
+        chunk_size = 0;
 
         path_item &work_node = path_buffer[i]; // avoid a copy
 
@@ -3058,13 +3059,13 @@ void process_stat_buffer(path_item *path_buffer,
                     // the actual amount to be written, leaving enough room
                     // for recovery-info)
                     chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
-                    chunk_at = p_out->chunk_at(o.chunk_at);
 
                     // if the dest has no specific required chunk size, use the source chunk size instead
                     if ( chunk_size == o.chunksize  &&  !(p_out->supports_n_to_1()) ) {
                         chunk_size = p_work->chunksize(p_work->st().st_size, o.chunksize);
                     }
 #endif
+                    chunk_at = p_out->chunk_at(o.chunk_at);
                     int ctmExists = 0;
 
                     // handle zero-length source file - because it will not
