@@ -2761,6 +2761,7 @@ void process_stat_buffer(path_item *path_buffer,
     {
         process = 0;
         pre_process = 0;
+        chunk_size = 0;
 
         path_item &work_node = path_buffer[i]; // avoid a copy
 
@@ -2829,13 +2830,14 @@ void process_stat_buffer(path_item *path_buffer,
                 //   3 = CTM mis-match
                 //   4 = CTM match, but temp-file is gone (treat as mis-match)
                 //
+#ifndef CONDUIT
                 int temp_exists = check_temporary(p_work, &out_node);
                 if (temp_exists)
                 {
                     dest_exists = temp_exists; //restart with a temporary file
                 }
                 // }
-
+#endif
                 // avoid redundant 'stat's
                 dest_has_ctm = (dest_exists > 1);
 
@@ -3056,14 +3058,19 @@ void process_stat_buffer(path_item *path_buffer,
                     // into each object.  (i.e. chunk_size is smaller than
                     // the actual amount to be written, leaving enough room
                     // for recovery-info)
+#ifdef CONDUIT
+                    if ( !(do_unlink) ) {
+#endif
                     chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
-                    chunk_at = p_out->chunk_at(o.chunk_at);
 
                     // if the dest has no specific required chunk size, use the source chunk size instead
                     if ( chunk_size == o.chunksize  &&  !(p_out->supports_n_to_1()) ) {
                         chunk_size = p_work->chunksize(p_work->st().st_size, o.chunksize);
                     }
-
+#ifdef CONDUIT
+                    }
+#endif
+                    chunk_at = p_out->chunk_at(o.chunk_at);
                     int ctmExists = 0;
 
                     // handle zero-length source file - because it will not
