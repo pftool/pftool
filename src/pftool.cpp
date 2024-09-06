@@ -2504,7 +2504,7 @@ int maybe_pre_process(int pre_process,
     else if (pre_process >= 2)
     {
         // work_node is chunkable, so output goes to a temporary file.
-#ifndef CONDUIT
+#ifdef TMPFILE
         // construct temp-file pathname
         char timestamp_plus[DATE_STRING_MAX + 1];
         char *timestamp = &timestamp_plus[1];
@@ -2538,33 +2538,48 @@ int maybe_pre_process(int pre_process,
                     errsend_fmt(FATAL, "Failed to unlink temporary-file %s: %s\n",
                         p_temp->path(), strerror(errno));
                 }
-
+#ifdef RESTART
                 // CTM is obsolete
                 // printf("purging CTM for path: %s\n", p_out->path());
                 purgeCTM(p_out->path());
+#endif
             }
 
             // prepare destination for parallel write
             if (!p_temp->pre_process(p_work))
                 return -1;
+#ifdef RESTART
             else if (strcmp(p_out->class_name().get(), "NULL_Path")  &&  create_CTM(p_out, p_work))
             {
                 errsend_fmt(NONFATAL, "create_CTM failed for %s, %s: %s\n",
                             p_out->path(), p_work->path(), strerror(errno));
             }
+#endif
         }
-#else
-	// skip all the tempfile junk above, just prep like we did it to p_temp
-	PathPtr p_temp = p_out;
-	if (!p_temp) return -1;
-	if (do_unlink) {
+#else // NO TMPFILE SUPPORT
+        // skip all the tempfile junk above, just prep like we did it to p_temp
+        PathPtr p_temp = p_out;
+        if (!p_temp) return -1;
+        if (do_unlink) {
             // unlink the destination file - we're overwriting it!
             if (!p_temp->unlink() && (errno != ENOENT)) {
                 errsend_fmt(FATAL, "Failed to unlink destination file %s: %s\n", p_temp->path(), strerror(errno));
             }
-        }
-	if (!p_temp->pre_process(p_work)) return -1;
+#ifdef RESTART
+            // CTM is obsolete
+            // printf("purging CTM for path: %s\n", p_out->path());
+            purgeCTM(p_out->path());
 #endif
+        }
+        if (!p_temp->pre_process(p_work)) return -1;
+#ifdef RESTART
+        else if (strcmp(p_out->class_name().get(), "NULL_Path")  &&  create_CTM(p_out, p_work))
+        {
+            errsend_fmt(NONFATAL, "create_CTM failed for %s, %s: %s\n",
+                        p_out->path(), p_work->path(), strerror(errno));
+        }
+#endif
+#endif // END OF TMPFILE VS NO-TMPFILE LOGIC
         // possibly update chunk size value
         if ( chunk_size  &&  *chunk_size < 1 ) {
             ssize_t chnksztmp = p_temp->chunksize(p_work->st().st_size, o.chunksize);
@@ -2830,13 +2845,17 @@ void process_stat_buffer(path_item *path_buffer,
                 //   3 = CTM mis-match
                 //   4 = CTM match, but temp-file is gone (treat as mis-match)
                 //
-#ifndef CONDUIT
+#ifdef RESTART
+#ifdef TMPFILE
                 int temp_exists = check_temporary(p_work, &out_node);
                 if (temp_exists)
                 {
                     dest_exists = temp_exists; //restart with a temporary file
                 }
-                // }
+#else
+                int ctm_exists = check_ctm_match( p_work->path(), out_node.path );
+                if ( ctm_exists ) {  dest_exists = ctm_exists; }
+#endif
 #endif
                 // avoid redundant 'stat's
                 dest_has_ctm = (dest_exists > 1);
@@ -3058,18 +3077,13 @@ void process_stat_buffer(path_item *path_buffer,
                     // into each object.  (i.e. chunk_size is smaller than
                     // the actual amount to be written, leaving enough room
                     // for recovery-info)
-#ifdef CONDUIT
-                    if ( !(do_unlink) ) {
-#endif
-                    chunk_size = p_out->chunksize(p_work->st().st_size, o.chunksize);
 
-                    // if the dest has no specific required chunk size, use the source chunk size instead
-                    if ( chunk_size == o.chunksize  &&  !(p_out->supports_n_to_1()) ) {
-                        chunk_size = p_work->chunksize(p_work->st().st_size, o.chunksize);
-                    }
-#ifdef CONDUIT
-                    }
-#endif
+                    // lo; here lies a dead 'chunk_size'
+                    // set too soon, we now surmise.
+                    // never to rise,
+                    // please don't revise,
+                    // till this codebase itself eventually dies.
+
                     chunk_at = p_out->chunk_at(o.chunk_at);
                     int ctmExists = 0;
 

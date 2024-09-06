@@ -30,7 +30,7 @@
 const char *_impl2str(CTM_ITYPE implidx) {
 	static const char *IMPLSTR[] = {
 		"No CTM"
-#ifdef CONDUIT
+#ifndef RESTART
 		,"Memory CTM"
 #endif
 		,"File CTM"
@@ -54,7 +54,7 @@ const char *_impl2str(CTM_ITYPE implidx) {
 *  file.
 */
 CTM_ITYPE _whichCTM(const char *transfilename) {
-#ifdef CONDUIT
+#ifndef RESTART
 	return CTM_MEM;
 #endif
 #if CTM_MODE == CTM_PREFER_FILES
@@ -112,7 +112,7 @@ CTM *_createCTM(const char *transfilename) {
 
 	newCTM->chnkimpl = itype;				// assign implmentation
 	switch ((int)newCTM->chnkimpl) {			// now fill out structure, based on how CTM store is implemented
-#ifdef CONDUIT
+#ifndef RESTART
 	  case CTM_MEM   :
 		  	   newCTM->chnkfname = strdup(transfilename);
 			   registerCTF(&newCTM->impl);  // only use read here, but steal the allocator
@@ -222,8 +222,8 @@ CTM *getCTM(const char *transfilename, long numchnks, size_t sizechnks) {
 */
 int putCTM(CTM *ctmptr) {
 	if(!ctmptr) return(EINVAL);				// Nothing to write, because there is no structure!
-#ifdef CONDUIT
-	return(0);  // just fake it for CONDUIT
+#ifndef RESTART
+	return(0);  // just fake it
 #endif
 	return(ctmptr->impl.write(ctmptr));
 }
@@ -262,7 +262,7 @@ int removeCTM(CTM **pctmptr) {
 	int rc = 0;						// return code for function
 
 	if(!ctmptr) return(EINVAL);				// Nothing to remove, because there is no structure!
-#ifndef CONDUIT		// no structure to delete
+#ifdef RESTART		// need a structure to delete
 	rc=ctmptr->impl.del(ctmptr->chnkfname);		// delete CTM from persistent store
 #endif
 	freeCTM(pctmptr);					// deallocate the CTM structure
@@ -436,8 +436,8 @@ char *tostringCTM(CTM *ctmptr, char **rbuf, int *rlen) {
  */
 int check_ctm_match(const char* src_to_hash, const char* dest)
 {
-#ifdef CONDUIT
-	return 0; // always say we don't have persistent CTM for CONDUIT copies
+#ifndef RESTART
+	return 0; // always say we don't have persistent CTM
 #else
 	static const char*  dev_null = "/dev/null/";
 	static const size_t dev_null_len = strlen(dev_null);
@@ -478,7 +478,7 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 			ret = -EIO;
 		}
 		else {
-
+#ifdef TMPFILE
 			// prepare to read timestamp onto the end of <dest>
 			char dest_temp[PATHSIZE_PLUS];
 			strcpy(dest_temp, dest);
@@ -498,6 +498,9 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 			}
 
 			else if (!strncmp(dest, dev_null, dev_null_len)) {
+#else
+			if (!strncmp(dest, dev_null, dev_null_len)) {
+#endif
 				// pftool was writing to /dev/null/blah, which is a special target.
 				// Our attempt to stat such a file (below) would fail with ENOTDIR.
 				ret = 4;

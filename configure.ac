@@ -59,6 +59,14 @@ AC_ARG_ENABLE(conduit,
    AS_HELP_STRING([  --enable-conduit], [Enable extra Conduit message output, disable tempfile logic, disable persistent CTM]))
 AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes])
 
+AC_ARG_ENABLE([tmpfile],
+              AS_HELP_STRING( [--disable-tmpfile], [Disable output to temporary file during parallel write @{:@ CONDUIT support forces this off @:}@] ) )
+AM_CONDITIONAL([TMPFILE], [test "x$enable_tmpfile" = "xyes"  &&  test "x$enable_conduit" != "xyes"])
+
+AC_ARG_ENABLE([restart],
+              AS_HELP_STRING( [--disable-restart], [Disable restartability of parallel writes and output of CTM info @{:@ CONDUIT support forces this off @:}@] ) )
+AM_CONDITIONAL([RESTART], [test "x$enable_restart" = "xyes"  &&  test "x$enable_conduit" != "xyes"])
+
 AC_CONFIG_HEADER([config.h])
 
 
@@ -210,5 +218,8 @@ LDFLAGS  : $LDFLAGS
 LIBS     : $LIBS
 CPPFLAGS : $CPPFLAGS
 CPP      : $CPP
+
+CONDUIT Support : $enable_conduit
+Tempfile Output : $enable_tmpfile
 
 EOF
