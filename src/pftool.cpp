@@ -2479,8 +2479,19 @@ int maybe_pre_process(int pre_process,
                       ssize_t* chunk_size)
 {
 
-    if (o.work_type != COPYWORK)
+    if (o.work_type != COPYWORK) {
+        // try to set chunk_size, regardless
+        if ( chunk_size  &&  *chunk_size < 1 ) {
+            ssize_t chnksztmp = p_out->chunksize(p_work->st().st_size, o.chunksize);
+            if ( chnksztmp < 1 ) {
+                errsend_fmt(NONFATAL, "failed to identify chunk size value for %s, %s: %s\n",
+                            p_out->path(), p_work->path(), strerror(errno));
+                return -1;
+            }
+            *chunk_size = chnksztmp;
+        }
         return 0;
+    }
 
     if (pre_process == 1)
     {

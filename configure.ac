@@ -32,9 +32,10 @@ AC_ARG_ENABLE(s3,
    AS_HELP_STRING([  --enable-s3], [enable S3 support]))
 AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
 
+MARFS_ENABLED="DISABLED"
 AC_ARG_ENABLE(marfs,
    AS_HELP_STRING([  --enable-marfs], [enable marfs support]))
-AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes])
+AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes]  &&  MARFS_ENABLED="ENABLED")
 
 AC_ARG_ENABLE(old_marfs,
    AS_HELP_STRING([  --enable-old_marfs], [enable old_marfs support]))
@@ -55,17 +56,20 @@ AC_ARG_ENABLE(debug,
    AS_HELP_STRING([  --enable-debug], [build with -O0, instead of -O3]))
 AM_CONDITIONAL([DEBUG], [test "x$enable_debug" = xyes])
 
+CONDUIT_ENABLED="DISABLED"
 AC_ARG_ENABLE(conduit,
    AS_HELP_STRING([  --enable-conduit], [Enable extra Conduit message output, disable tempfile logic, disable persistent CTM]))
-AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes])
+AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes]  &&  CONDUIT_ENABLED="ENABLED")
 
+TMPFILE_ENABLED="DISABLED"
 AC_ARG_ENABLE([tmpfile],
               AS_HELP_STRING( [--disable-tmpfile], [Disable output to temporary file during parallel write @{:@ CONDUIT support forces this off @:}@] ) )
-AM_CONDITIONAL([TMPFILE], [test "x$enable_tmpfile" = "xyes"  &&  test "x$enable_conduit" != "xyes"])
+AM_CONDITIONAL([TMPFILE], [( test "x$enable_tmpfile" = "xyes"  ||  test "x$enable_tmpfile" = "x" )  &&  test "x$CONDUIT_ENABLED" = "xDISABLED"]  &&  TMPFILE_ENABLED="ENABLED")
 
+RESTART_ENABLED="DISABLED"
 AC_ARG_ENABLE([restart],
               AS_HELP_STRING( [--disable-restart], [Disable restartability of parallel writes and output of CTM info @{:@ CONDUIT support forces this off @:}@] ) )
-AM_CONDITIONAL([RESTART], [test "x$enable_restart" = "xyes"  &&  test "x$enable_conduit" != "xyes"])
+AM_CONDITIONAL([RESTART], [( test "x$enable_restart" = "xyes"  ||  test "x$enable_restart" = "x" )  &&  test "x$CONDUIT_ENABLED" = "xDISABLED"]  &&  RESTART_ENABLED="ENABLED")
 
 AC_CONFIG_HEADER([config.h])
 
@@ -219,7 +223,11 @@ LIBS     : $LIBS
 CPPFLAGS : $CPPFLAGS
 CPP      : $CPP
 
-CONDUIT Support : $enable_conduit
-Tempfile Output : $enable_tmpfile
+PREFIX   : $prefix
+
+MARFS Support   : $MARFS_ENABLED
+CONDUIT Support : $CONDUIT_ENABLED
+Tempfile Output : $TMPFILE_ENABLED
+Restartability  : $RESTART_ENABLED
 
 EOF

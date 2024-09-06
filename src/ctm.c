@@ -505,7 +505,11 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 				// Our attempt to stat such a file (below) would fail with ENOTDIR.
 				ret = 4;
 			}
+#ifdef TMPFILE
 			else if (stat(dest_temp, &st) && (errno != ENOENT)) {
+#else
+			else if (stat(dest, &st) && (errno != ENOENT)) {
+#endif
 				ret = -errno;    // stat failed for some reason other than ENOENT
 			}
 			else if (errno == ENOENT) {
