@@ -447,7 +447,7 @@ void get_output_path(path_item *out_node, // fill in out_node.path
     }
     if (path_slice_duped)
         free((void *)path_slice);
-#ifndef CONDUIT
+#ifdef TMPFILE
     if ((rename_flag == 1) && (src_node->packable == 0) && strcmp(dest_node->path, "/dev/null"))
     {
         //need to create temporary file name
@@ -1130,7 +1130,7 @@ int update_stats(PathPtr p_src,
         errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
                     p_dest->path(), p_dest->strerror());
     }
-#ifndef CONDUIT
+#ifdef TMPFILE
     if (!p_src->get_packable() && p_src->st().st_size > o.chunk_at)
     {
         const char *plus_sign = strrchr((const char *)p_dest->path(), '+');
@@ -1518,7 +1518,6 @@ void errsend(Lethality fatal, const char *error_text)
     else
         snprintf(errormsg, MESSAGESIZE, "ERROR NONFATAL: %s\n", error_text);
 
-    // errormsg[MESSAGESIZE -1] = 0; /* no need for this */
     errsend_internal(fatal, errormsg);
 }
 

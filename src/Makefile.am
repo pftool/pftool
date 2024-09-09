@@ -38,14 +38,20 @@ if S3
   s3_ldflags=$(_s3_ldflags) -laws4c -laws4c_extra -lcurl -lxml2
 endif
 
+feature_enable_cflags =
 if MARFS
-  marfs_cflags=-DMARFS
+  feature_enable_cflags += -DMARFS
 install-exec-local:
 	chmod u+s $(bindir)/pftool
 endif
-
 if CONDUIT
-  conduit_cflags=-DCONDUIT
+  feature_enable_cflags += -DCONDUIT
+endif
+if TMPFILE
+  feature_enable_cflags += -DTMPFILE
+endif
+if RESTART
+  feature_enable_cflags += -DRESTART
 endif
 
 if OLD_MARFS
@@ -63,9 +69,9 @@ endif
 supportlib_ldflags=-lssl
 
 
-__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(conduit_cflags) $(s3_cflags) @AWSXML_CFLAGS@
+__top_builddir__bin_pftool_CFLAGS   = $(generic_cflags) $(syndata_cflags) $(feature_enable_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
-__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(marfs_cflags) $(conduit_cflags) $(s3_cflags) @AWSXML_CFLAGS@
+__top_builddir__bin_pftool_CXXFLAGS = $(generic_cflags) $(syndata_cflags) $(feature_enable_cflags) $(s3_cflags) @AWSXML_CFLAGS@
 
 __top_builddir__bin_pftool_LDFLAGS  = $(generic_ldflags) $(supportlib_ldflags) $(s3_ldflags) $(marfs_ldflags) $(allstatic_ldflags) @AWSXML_LIBS@
 
