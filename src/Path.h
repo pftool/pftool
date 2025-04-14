@@ -1073,6 +1073,7 @@ public:
    }
    virtual bool opendir()
    {
+      do_stat_internal(); // this fixes a Lustre issue when server access upcall isn't set
       _dirp = ::opendir(_item->path);
       if (!bool(_dirp))
       {
