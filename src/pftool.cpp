@@ -1492,13 +1492,13 @@ int manager(int rank,
         }
         else
         { // we're going to print the "things we think are different" message if doing meta compare only
-            sprintf(message, "INFO  FOOTER   Total Files Different:      %4d\n", non_fatal);
-            write_output(message, 1);
-
+          // different math because we're overloading the usage of these vars in different modes
             human_readable(human_val, BUF_SIZE, num_copied_bytes);
             sprintf(message, "INFO  FOOTER   Total Data Different:   %10sB\n", human_val);
             write_output(message, 1);
         }
+        sprintf(message, "INFO  FOOTER   Total Files Different:      %4d\n", non_fatal);
+        write_output(message, 1);
     }
 
     sprintf(message, "INFO  FOOTER   Elapsed Time:               %lf seconds\n", elapsed_time);
@@ -2177,7 +2177,9 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     {
         PRINT_MPI_DEBUG("rank %d: worker_buffer_output() Unpacking the message from %d\n", rank, sending_rank);
         MPI_Unpack(buffer, buffersize, &position, msg, MESSAGESIZE, MPI_CHAR, MPI_COMM_WORLD);
-        printf("RANK %3d: %s", sending_rank, msg);
+        if (strlen(msg) > 10) { // only emit messages with content
+            printf("RANK %3d: %s", sending_rank, msg);
+	}
     }
     free(buffer);
     fflush(stdout);
@@ -2484,9 +2486,9 @@ int maybe_pre_process(int pre_process,
         if ( chunk_size  &&  *chunk_size < 1 ) {
             ssize_t chnksztmp = p_out->chunksize(p_work->st().st_size, o.chunksize);
             if ( chnksztmp < 1 ) {
-                errsend_fmt(NONFATAL, "failed to identify chunk size value for %s, %s: %s\n",
-                            p_out->path(), p_work->path(), strerror(errno));
-                return -1;
+                // just optimistically use the config value if detection fails
+                *chunk_size = o.chunksize;
+		return 0;
             }
             *chunk_size = chnksztmp;
         }
@@ -2922,8 +2924,8 @@ void process_stat_buffer(path_item *path_buffer,
                 process = 0;
             }
             // if selected options require reading the destination-file,
-            // and destination-file is not readable, we have a problem
-            else if ((o.work_type == COMPAREWORK) && (!o.meta_data_only) && (!p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW)))
+            // and destination-file exists and is not readable, we have a problem
+            else if ((o.work_type == COMPAREWORK) && (!o.meta_data_only) && (!p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW)) && dest_exists)
             {
 
                 errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
@@ -3517,14 +3519,14 @@ void worker_comparelist(int rank,
     }
 
     worksize = read_count * sizeof(path_list);
-    workbuf = (char *)malloc(worksize * sizeof(char));
+    workbuf = (char *)calloc(worksize, sizeof(char));
     if (!workbuf)
     {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for workbuf\n", worksize);
     }
 
     writesize = MESSAGESIZE * read_count;
-    writebuf = (char *)malloc(writesize * sizeof(char));
+    writebuf = (char *)calloc(writesize, sizeof(char));
     if (!writebuf)
     {
         errsend_fmt(FATAL, "Failed to allocate %lu bytes for writebuf\n", writesize);

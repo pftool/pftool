@@ -622,7 +622,8 @@ int copy_file(PathPtr p_src,
     }
 
     // give destination the same mode as src, (access-bits only)
-    mode_t dest_mode = p_src->mode() & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO);
+    // always add user write
+    mode_t dest_mode = (p_src->mode() & (S_ISUID | S_ISGID | S_IRWXU | S_IRWXG | S_IRWXO)) | S_IWUSR;
     if (!p_dest->open(write_flags, dest_mode, offset, length) &&  !p_dest->open(write_flags & ~O_DIRECT, dest_mode, offset, length))
     {
         if (p_dest->get_errno() == EDQUOT)
@@ -1109,7 +1110,8 @@ int update_stats(PathPtr p_src,
     }
 
     // update <dest_file> access-permissions
-    mode = p_src->mode() & 07777;
+    // always add user write
+    mode = (p_src->mode() & 07777) | S_IWUSR;
     if (!p_dest->chmod(mode))
     {
         errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
@@ -2103,33 +2105,10 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options &o, int dst_has_
     // (satisfied conditions -> "same" file)
 
     if (src.st.st_size == dst.st.st_size && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
-#if 0
-        // by removing this we no longer care about file permissions for transfers.
-        // Probably the right choice, but revisit if needed
-        && (src.st.st_mode == dst.st.st_mode)
-
-        // non-root doesn't chown unless '-o'
-        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid))
-            || (geteuid() && !o.preserve))
-#else
         // only chown if preserve set
         && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserve)
-#endif
     )
     {
-
-        // if a chunkable file matches metadata, but has CTM,
-        // then files are NOT the same.
-        //
-        // QUES: is this still a good test, now that we do restarts with
-        //    temp dest-files?  If source is different from destination in
-        //    MD terms, then a copy will restart using any CTM that may be
-        //    there.  If the source is not different from dest, then who
-        //    cares if there is CTM?  We don't have to worry that
-        //    destination has been modified.
-        if ((o.work_type == COPYWORK) && (src.st.st_size >= o.chunk_at) && ((dst_has_ctm > 0) || ((dst_has_ctm < 0) && hasCTM(dst.path))))
-            return 0;
-
         // class-specific techniques (e.g. MarFS file has RESTART?)
         if (p_dst->incomplete())
             return 0;
