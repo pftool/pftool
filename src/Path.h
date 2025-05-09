@@ -1134,7 +1134,8 @@ public:
                childref = pathparse; // note start of next path component
             }
          }
-         pathparse++;
+	 if ( *pathparse != '\0' )
+            pathparse++;
       }
       // prepare to generate the final path
       char *ret = NULL;
