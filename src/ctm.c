@@ -446,7 +446,7 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 	int fd;
 	char* ctm_name;
 	char* src_hash; //must be freed
-	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1];
+	char ctm_src_hash[SIG_DIGEST_LENGTH * 2 + 1] = {0};
 
 	ctm_name = genCTFFilename(dest);
 	src_hash = str2sig(src_to_hash);
@@ -480,7 +480,7 @@ int check_ctm_match(const char* src_to_hash, const char* dest)
 		else {
 #ifdef TMPFILE
 			// prepare to read timestamp onto the end of <dest>
-			char dest_temp[PATHSIZE_PLUS];
+			char dest_temp[PATHSIZE_PLUS] = {0};
 			strcpy(dest_temp, dest);
 			dest_temp[dest_len] = '+';
 			char* timestamp = dest_temp + dest_len +1;
@@ -584,8 +584,8 @@ int create_CTM(PathPtr& p_out, PathPtr& p_src)
 	time_t mtime = p_src->mtime();
 	char*  ctm_name;             //need free
 	char*  src_hash;             //need free
-	char   src_to_hash[PATHSIZE_PLUS];
-	char   src_mtime[DATE_STRING_MAX];
+	char   src_to_hash[PATHSIZE_PLUS] = {0};
+	char   src_mtime[DATE_STRING_MAX] = {0};
 	int    ret = 0;
 
 	//construct src hash

@@ -193,8 +193,8 @@ int mkpath(char *thePath, mode_t perms)
 // convert up to 28 bytes of <b> to ASCII-hex.
 void hex_dump_bytes(char *b, int len, char *outhexbuf)
 {
-    char smsg[64];
-    char tmsg[3];
+    char smsg[64] = {0};
+    char tmsg[3] = {0};
     unsigned char *ptr;
     int start = 0;
 
@@ -253,7 +253,7 @@ void trim_trailing(int ch, char *path)
 {
     if (path)
     {
-        for (size_t pos = strlen(path) - 1; ((pos >= 0) && (path[pos] == ch)); --pos)
+        for (size_t pos = strlen(path) - 1; ((pos > 0) && (path[pos] == ch)); --pos)
         {
             path[pos] = '\0';
         }
@@ -267,7 +267,7 @@ void get_base_path(char *base_path,
                    int wildcard)
 { // (<wildcard> is boolean)
 
-    char dir_name[PATHSIZE_PLUS];
+    char dir_name[PATHSIZE_PLUS] = {0};
     struct stat st;
     int rc;
     char *path = (char *)item->path;
@@ -312,7 +312,7 @@ void get_dest_path(path_item *dest_node,  // fill this in
     int rc;
     struct stat beg_st;
     struct stat dest_st;
-    char temp_path[PATHSIZE_PLUS];
+    char temp_path[PATHSIZE_PLUS] = {0};
     char *result = dest_node->path;
     char *path_slice;
 
@@ -464,7 +464,7 @@ void get_output_path(path_item *out_node, // fill in out_node.path
 
         // construct temp-file pathname
         time_t mtime = src_node->st.st_mtime;
-        char timestamp[DATE_STRING_MAX];
+        char timestamp[DATE_STRING_MAX] = {0};
         epoch_to_string(timestamp, DATE_STRING_MAX, &mtime);
         strcat(out_node->path, timestamp);
     }
@@ -477,7 +477,7 @@ int one_byte_read(const char *path)
     int fd, bytes_processed;
     char data;
     int rc = 0;
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
     fd = open(path, O_RDONLY);
     if (fd < 0)
     {
@@ -515,7 +515,7 @@ int copy_file(PathPtr p_src,
     int rc = 0;
     size_t completed = 0;
     char *buf = NULL;
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
     int err = 0; // non-zero -> close src/dest, free buf
     int flags;
     off_t offset = (p_src->node().chkidx * p_src->node().chksz);
@@ -527,7 +527,7 @@ int copy_file(PathPtr p_src,
     int success = 0;
 
     //symlink
-    char link_path[PATHSIZE_PLUS];
+    char link_path[PATHSIZE_PLUS] = {0};
     int numchars;
     int read_flags = O_RDONLY;
     int write_flags = O_WRONLY | O_CREAT;
@@ -710,7 +710,7 @@ int copy_file(PathPtr p_src,
 
         if (bytes_processed != blocksize)
         {
-            char retry_msg[128];
+            char retry_msg[128] = {0};
             retry_msg[0] = 0;
             if (retry_count)
                 sprintf(retry_msg, " (retries = %d)", retry_count);
@@ -798,7 +798,7 @@ int copy_file(PathPtr p_src,
         }
         else if (bytes_processed != blocksize)
         {
-            char retry_msg[128];
+            char retry_msg[128] = {0};
             retry_msg[0] = 0;
             if (retry_count)
                 sprintf(retry_msg, " (retries = %d)", retry_count);
@@ -866,7 +866,7 @@ int compare_file(path_item *src_file,
     char *ibuf;
     char *obuf;
     size_t bytes_processed;
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
     int rc;
     int crc;
     off_t offset = (src_file->chkidx * src_file->chksz);
@@ -902,8 +902,8 @@ int compare_file(path_item *src_file,
             // quick check for non-link dest
             if( !p_dest->is_link() ) { return -1; }
             // allocate buffs to link tgt compare
-            char src_link_path[PATHSIZE_PLUS];
-            char dest_link_path[PATHSIZE_PLUS];
+            char src_link_path[PATHSIZE_PLUS] = {0};
+            char dest_link_path[PATHSIZE_PLUS] = {0};
             int numchars;
             // actually perform readlink ops
             numchars = p_src->readlink(src_link_path, PATHSIZE_PLUS);
@@ -1065,7 +1065,7 @@ int update_stats(PathPtr p_src,
 {
 
     int rc;
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
     int mode;
 
     // don't touch the destination, unless this is a COPY
@@ -1349,7 +1349,7 @@ void send_worker_add_timing(int target_rank, char *repo_name, TimingData *timing
 
     // "metadata buffer" contains metadata so manager can dispatch for import to timing_stats_map.
     static const size_t md_buf_size = MARFS_MAX_REPO_NAME + sizeof(int) + sizeof(ssize_t);
-    char md_buf[md_buf_size];
+    char md_buf[md_buf_size] = {0};
     char *md = md_buf;
 
     memcpy(md, repo_name, MARFS_MAX_REPO_NAME);
@@ -1422,7 +1422,7 @@ void write_output(const char *message, int log)
 //
 void output_fmt(int log, const char *format, ...)
 {
-    char msg[MESSAGESIZE];
+    char msg[MESSAGESIZE] = {0};
     va_list args;
 
     va_start(args, format);
@@ -1505,7 +1505,7 @@ static void errsend_internal(Lethality fatal, const char *errormsg)
 void errsend(Lethality fatal, const char *error_text)
 {
     //send an error message to the outputproc. Die if fatal.
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
 
 #ifdef CONDUIT
     // possibly send a CONDUIT message, as well
@@ -1530,7 +1530,7 @@ void errsend(Lethality fatal, const char *error_text)
 //
 void errsend_fmt(Lethality fatal, const char *format, ...)
 {
-    char errormsg[MESSAGESIZE];
+    char errormsg[MESSAGESIZE] = {0};
     va_list args;
 
 #ifdef CONDUIT
@@ -1584,11 +1584,11 @@ void errsend_fmt(Lethality fatal, const char *format, ...)
 //
 int stat_item(path_item *work_node, struct options &o)
 {
-    char errmsg[MESSAGESIZE];
-    struct stat st;
+    char errmsg[MESSAGESIZE] = {0};
+    struct stat st = {0};
     int rc;
     int numchars;
-    char linkname[PATHSIZE_PLUS];
+    char linkname[PATHSIZE_PLUS] = {0};
 
     // defaults
     work_node->ftype = REGULARFILE;
@@ -1733,9 +1733,9 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
 #ifdef HAVE_SYS_VFS_H
     struct stat st;
     struct statfs stfs;
-    char errortext[MESSAGESIZE];
+    char errortext[MESSAGESIZE] = {0};
     int rc;
-    char use_path[PATHSIZE_PLUS];
+    char use_path[PATHSIZE_PLUS] = {0};
 
     strncpy(use_path, path, PATHSIZE_PLUS);
     if (use_path[PATHSIZE_PLUS - 1])
@@ -2029,7 +2029,7 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
     path_list *iter;
 
     worksize = MESSAGEBUFFER * sizeof(path_item);
-    buffer = (char *)malloc(worksize);
+    buffer = (char *)calloc(worksize, sizeof(char));
     if (!buffer)
     {
         fprintf(stderr, "Failed to allocate %lu bytes for buffer\n", sizeof(worksize));
@@ -2156,8 +2156,8 @@ int epoch_to_string(char *str, size_t size, const time_t *time)
 int check_temporary(PathPtr p_src, path_item *out_node)
 {
     time_t src_mtime = p_src->mtime();
-    char src_mtime_str[DATE_STRING_MAX];
-    char src_to_hash[PATHSIZE_PLUS]; // p_src->path() + mtime string
+    char src_mtime_str[DATE_STRING_MAX] = {0};
+    char src_to_hash[PATHSIZE_PLUS] = {0}; // p_src->path() + mtime string
 
     int rc = epoch_to_string(src_mtime_str, DATE_STRING_MAX, &src_mtime);
     if (rc)

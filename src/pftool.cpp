@@ -84,8 +84,8 @@ int main(int argc, char *argv[])
     int input_queue_count = 0;
 
     //paths
-    char src_path[PATHSIZE_PLUS];
-    char dest_path[PATHSIZE_PLUS];
+    char src_path[PATHSIZE_PLUS] = {0};
+    char dest_path[PATHSIZE_PLUS] = {0};
 
     // should we run (this allows for a clean exit on -h)
     int ret_val = 0;
@@ -519,7 +519,7 @@ int main(int argc, char *argv[])
     if (o.logging && ((rank == OUTPUT_PROC) || (rank == ACCUM_PROC)))
     {
 
-        char sysmsg[MESSAGESIZE + 50];
+        char sysmsg[MESSAGESIZE + 50] = {0};
         sprintf(sysmsg, "pftool: [%s] -- ", o.jid);
         openlog(sysmsg, (LOG_PID | LOG_CONS), LOG_USER);
     }
@@ -574,7 +574,7 @@ int main(int argc, char *argv[])
             //       filesys, so we don't have to add fgets() methods to all
             //       the PATH subclasses.
             FILE *fp;
-            char list_path[PATHSIZE_PLUS];
+            char list_path[PATHSIZE_PLUS] = {0};
             fp = fopen(o.file_list, "r");
             while (fgets(list_path, PATHSIZE_PLUS, fp) != NULL)
             {
@@ -593,7 +593,7 @@ int main(int argc, char *argv[])
         // run realpath on output dir (for types of work that have an output-dir)
         if (o.work_type != LSWORK)
         {
-            char buf[PATHSIZE_PLUS];
+            char buf[PATHSIZE_PLUS] = {0};
             strcpy(buf, dest_path);
             do
             {
@@ -633,7 +633,7 @@ int main(int argc, char *argv[])
         while (head != NULL)
         {
             // realpath the src
-            char buf[PATHSIZE_PLUS];
+            char buf[PATHSIZE_PLUS] = {0};
             strcpy(buf, head->data.path);
             do
             {
@@ -758,7 +758,7 @@ float diff_time(struct timeval *later, struct timeval *earlier)
 void print_pod_stats(struct options &o, const string &repo_name, TimingData *timing)
 {
     const size_t HEADER_SIZE = MARFS_MAX_REPO_NAME + 512;
-    char header[HEADER_SIZE];
+    char header[HEADER_SIZE] = {0};
 
     // print header into msg
     snprintf(header, HEADER_SIZE,
@@ -853,10 +853,10 @@ int manager(int rank,
     char base_path[PATHSIZE_PLUS] = {0};
     char dir_path[PATHSIZE_PLUS] = {0};
 
-    struct stat st;
+    struct stat st = {0};
 
     path_item beginning_node = {0};
-    path_item dest_node;
+    path_item dest_node = {0};
     path_list *iter = NULL;
     int num_copied_files = 0;
     size_t num_copied_bytes = 0;
@@ -886,6 +886,9 @@ int manager(int rank,
     static const size_t output_timeout = 5; // secs per expiration
     timer_t timer;
     struct sigevent event;
+    event.sigev_value.sival_ptr = &timer;
+    event.sigev_signo = SIGALRM;
+    event.sigev_notify = SIGEV_SIGNAL;
     struct itimerspec itspec_new;
     struct itimerspec itspec_cur;
     int timer_count = 0; // timer expirations
@@ -1059,7 +1062,7 @@ int manager(int rank,
     if (o.recurse && strncmp(base_path, ".", PATHSIZE_PLUS) && (o.work_type != LSWORK))
     {
 
-        char iter_base_path[PATHSIZE_PLUS];
+        char iter_base_path[PATHSIZE_PLUS] = {0};
         while (iter != NULL)
         {
             get_base_path(iter_base_path, &(iter->data), wildcard);
@@ -1323,12 +1326,12 @@ int manager(int rank,
 
                 // put numbers into a human-readable format
                 static const size_t BUF_SIZE = 1024;
-                char files[BUF_SIZE];
+                char files[BUF_SIZE] = {0};
                 // char files_ex [BUF_SIZE];
-                char bytes[BUF_SIZE];
-                char bytes_tbd[BUF_SIZE]; // total TBD, including <bytes>
-                char bw[BUF_SIZE];        // for just this interval
-                char bw_avg[BUF_SIZE];
+                char bytes[BUF_SIZE] = {0};
+                char bytes_tbd[BUF_SIZE] = {0}; // total TBD, including <bytes>
+                char bw[BUF_SIZE] = {0};        // for just this interval
+                char bw_avg[BUF_SIZE] = {0};
 
                 // compute BW for this period, and avg over run
                 size_t bytes0 = (num_copied_bytes - num_copied_bytes_prev);
@@ -1453,8 +1456,8 @@ int manager(int rank,
     write_output(message, 1);
 
     static const size_t BUF_SIZE = 1024;
-    char human_val[BUF_SIZE];
-    char bw_avg[BUF_SIZE];
+    char human_val[BUF_SIZE] = {0};
+    char bw_avg[BUF_SIZE] {0};
     human_readable( bw_avg, BUF_SIZE, (float)num_copied_bytes / ( elapsed_time ) );
 
     if (o.work_type == LSWORK)
@@ -1535,7 +1538,7 @@ int manager_add_paths(int rank, int sending_rank, path_list **queue_head, path_l
     MPI_Status status;
     int path_count;
     path_list *work_node = (path_list *)malloc(sizeof(path_list));
-    char path[PATHSIZE_PLUS];
+    char path[PATHSIZE_PLUS] = {0};
     char *workbuf;
     int worksize;
     int position;
@@ -1708,13 +1711,13 @@ void worker_add_timing_data(int sending_rank)
     static const int MD_BUF_SIZE = sizeof(int) + MARFS_MAX_REPO_NAME + sizeof(ssize_t);
 
     int pod_id;
-    char repo_name[MARFS_MAX_REPO_NAME];
+    char repo_name[MARFS_MAX_REPO_NAME] = {0};
     ssize_t data_buf_size;
 
     MPI_Status status;
 
     // recv metadata-bufer, with enough info to dispatch add_to_stat_table()
-    char md_buf[MD_BUF_SIZE];
+    char md_buf[MD_BUF_SIZE] = {0};
     char *cursor = md_buf;
     if (MPI_Recv(md_buf, MD_BUF_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
     {
@@ -1773,8 +1776,8 @@ void worker(int rank, struct options &o)
     char *output_buffer = (char *)NULL;
     int type_cmd;
     int mpi_ret_code;
-    char base_path[PATHSIZE_PLUS];
-    path_item dest_node;
+    char base_path[PATHSIZE_PLUS] = {0};
+    path_item dest_node = {0};
 
     //variables stored by the 'accumulator' proc
     HASHTBL *chunk_hash;
@@ -1978,9 +1981,9 @@ void worker_update_chunk(int rank,
 {
     MPI_Status status;
     int path_count;
-    path_item work_node;
-    path_item out_node;
-    path_item out_node_temp;
+    path_item work_node = {0};
+    path_item out_node = {0};
+    path_item out_node_temp = {0};
     char *workbuf;
     int worksize;
     int position;
@@ -2071,7 +2074,7 @@ void worker_update_chunk(int rank,
             hashdata_update(hash_value, out_node); // this will update the data in the table
             if (IO_DEBUG_ON)
             {
-                char ctm_flags[2048];
+                char ctm_flags[2048] = {0};
                 char *ctmstr = ctm_flags;
                 int ctmlen = 2048;
 
@@ -2112,7 +2115,7 @@ void worker_output(int rank, int sending_rank, int log, char *output_buffer, int
 {
     //have a worker receive and print a single message
     MPI_Status status;
-    char msg[MESSAGESIZE];
+    char msg[MESSAGESIZE] = {0};
 
     //gather the message to print
     if (MPI_Recv(msg, MESSAGESIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
@@ -2147,7 +2150,7 @@ void worker_buffer_output(int rank, int sending_rank, char *output_buffer, int *
     //have a worker receive and print a single message
     MPI_Status status;
     int message_count;
-    char msg[MESSAGESIZE];
+    char msg[MESSAGESIZE] = {0};
     char *buffer;
     int buffersize;
     int position;
@@ -2210,15 +2213,15 @@ void worker_readdir(int rank,
     int worksize;
     int position;
     int read_count;
-    char path[PATHSIZE_PLUS];
-    char full_path[PATHSIZE_PLUS];
-    char errmsg[MESSAGESIZE];
+    char path[PATHSIZE_PLUS] = {0};
+    char full_path[PATHSIZE_PLUS] = {0};
+    char errmsg[MESSAGESIZE] = {0};
 #ifdef CONDUIT
     char message[MESSAGESIZE] = {0};
 #endif
-    path_item mkdir_node;
-    path_item work_node;
-    path_item workbuffer[STATBUFFER];
+    path_item mkdir_node = {0};
+    path_item work_node = {0};
+    path_item workbuffer[STATBUFFER] = {0};
     int buffer_count = 0;
     DIR *dip;
     struct dirent *dit;
@@ -2519,7 +2522,7 @@ int maybe_pre_process(int pre_process,
         // work_node is chunkable, so output goes to a temporary file.
 #ifdef TMPFILE
         // construct temp-file pathname
-        char timestamp_plus[DATE_STRING_MAX + 1];
+        char timestamp_plus[DATE_STRING_MAX + 1] = {0};
         char *timestamp = &timestamp_plus[1];
         timestamp_plus[0] = '+';
         time_t mtime = p_work->mtime();
@@ -2735,10 +2738,11 @@ void process_stat_buffer(path_item *path_buffer,
     size_t num_examined_bytes = 0;
     size_t num_finished_bytes = 0;
     int num_examined_dirs = 0;
-    char message[MESSAGESIZE];
-    char errmsg[MESSAGESIZE];
-    char statrecord[MESSAGESIZE];
+    char message[MESSAGESIZE] = {0};
+    char errmsg[MESSAGESIZE] = {0};
+    char statrecord[MESSAGESIZE] = {0};
     path_item out_node;
+    memset(&out_node, 0, sizeof(path_item));
 
     int process = 0;
     int pre_process = 0;
@@ -2751,12 +2755,12 @@ void process_stat_buffer(path_item *path_buffer,
     int dest_has_temp = -1; // -1=unsure, 0=no, 1=yes
 
     struct tm sttm;
-    char modebuf[15];
-    char timebuf[30];
+    char modebuf[15] = {0};
+    char timebuf[30] = {0};
     int rc;
     int i;
 
-    char timestamp[DATE_STRING_MAX];
+    char timestamp[DATE_STRING_MAX] = {0};
     time_t tp = time(NULL);
 
     //chunks
@@ -2769,9 +2773,9 @@ void process_stat_buffer(path_item *path_buffer,
     int idx = 0;
 
     //classification
-    path_item dirbuffer[DIRBUFFER];
+    path_item dirbuffer[DIRBUFFER] = {0};
     int dir_buffer_count = 0;
-    path_item regbuffer[COPYBUFFER];
+    path_item regbuffer[COPYBUFFER] = {0};
     int reg_buffer_count = 0;
 
     writesize = MESSAGESIZE * MESSAGEBUFFER;
@@ -2985,7 +2989,7 @@ void process_stat_buffer(path_item *path_buffer,
                     // temporary-file may or may not also exist.
 
                     // construct temp-fname with timestamp from CTM
-                    char timestamp_plus[DATE_STRING_MAX + 1];
+                    char timestamp_plus[DATE_STRING_MAX + 1] = {0};
                     char *timestamp = &timestamp_plus[1];
                     timestamp_plus[0] = '+';
 
@@ -3158,7 +3162,7 @@ void process_stat_buffer(path_item *path_buffer,
                                          chunk_size);
                             if (IO_DEBUG_ON)
                             {
-                                char ctm_flags[2048];
+                                char ctm_flags[2048] = {0};
                                 char *ctmstr = ctm_flags;
                                 int ctmlen = 2048;
                                 PRINT_IO_DEBUG("rank %d: process_stat_buffer() "
@@ -3366,6 +3370,7 @@ void worker_copylist(int rank,
     int out_position;
     int read_count;
     path_item work_node;
+    memset(&work_node, 0, sizeof(path_item));
     path_item out_node;
     off_t offset;
     size_t length;
@@ -3499,14 +3504,14 @@ void worker_comparelist(int rank,
     int position;
     int out_position;
     int read_count;
-    path_item work_node;
-    path_item out_node;
-    char copymsg[MESSAGESIZE];
+    path_item work_node = {0};
+    path_item out_node = {0};
+    char copymsg[MESSAGESIZE] = {0};
     off_t offset;
     size_t length;
     int num_compared_files = 0;
     size_t num_compared_bytes = 0;
-    path_item chunks_copied[CHUNKBUFFER];
+    path_item chunks_copied[CHUNKBUFFER] = {0};
     int buffer_count = 0;
     int i;
     int rc;
