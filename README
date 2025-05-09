@@ -29,9 +29,6 @@ From the top-level directory
 #To configure the base version:
 ./configure
 
-#To configure the threaded version:
-#./configure --enable-threads
-
 #Other options:
 #./configure --help
 
@@ -43,18 +40,6 @@ Note that pftool.cfg is created and installed into {install_prefix}/etc
 during the "make install". Setting in this file should be reviewed and 
 modified based on the configuration of the cluster the software is
 running on. 
-
-***************************************************************************
-PFTool RPM
-***************************************************************************
-To build an RPM, from the top-level directory:
-
-cd package
-make rpm
-
-Rpmbuild is used by this make file to generate the RPM. It is assumed that
-the directory/tree $HOME/rpmbuild exists and has the subdirectories SOURCES,
-BUILD, and RPMS. The resulting RPM is written to $HOME/rpmbuild/RPMS.
 
 ***************************************************************************
 Configuration
@@ -85,39 +70,61 @@ scripts located in {install_prefix}/scripts/
 
 -----------
 
-Usage: pfls [options] sourcePath
+usage: pfls [options] source_path
 
-pfls --  list file(s) based on sourcePath in parallel
+List file(s) from source_path in parallel
 
-Options:
-  -h, --help     show this help message and exit
-  -R             list directories recursively
-  -v             verbose result output
-  -i INPUT_LIST  input file list
-
------------
-
-Usage: pfcm [options] sourcePath destinationPath
-
-pfcm -- compare file(s) from sourcePath to destinationPath in parallel
-
-Options:
-  -h, --help  show this help message and exit
-  -R          copy directories recursively
-  -M          changes to Block-by-Block vs Metadata only
-  -v          verbose result output
+optional arguments:
+  -h, --help            show this help message and exit
+  -R, --recursive       Recursive action
+  -v, --verbose         Verbose output
+  -e EXCLUDE, --exclude EXCLUDE
+                        Exclude pattern
+  -s, --symlinks        Do not dereference symlink arguments ( source or dest )
 
 -----------
 
-Usage: pfcp [options] sourcePath destinationPath
+usage: pfcm [options] sourcePath destinationPath
 
-pfcp -- copy file(s) from sourcePath to destinationPath in parallel
+compare file(s) from sourcePath to destinationPath in parallel
 
-Options:
-  -h, --help  show this help message and exit
-  -R          copy directories recursively
-  -v          verbose result output
-  -n          only copy files that have a different date or file size than the
-              same files at the destination or not in the destination
+optional arguments:
+  -h, --help            show this help message and exit
+  -R, --recursive       Recursive action
+  -D, --data            Compare data content of files, in addition to metadata
+  -p, --preserve        Consider user/group ownership when comparing files to
+                        copy
+  -v, --verbose         Verbose output
+  -e EXCLUDE, --exclude EXCLUDE
+                        Exclude pattern
+  -s, --symlinks        Do not dereference symlink arguments ( source or dest )
+
+
+-----------
+
+usage: pfcp [options] source_path dest_path
+
+copy file(s) from source_path to dest_path in parallel
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -R, --recursive       Recursive action
+  -v, --verbose         Verbose output
+  -F, --different       Copy all files even if they do not appear to have
+                        changed
+  -g, --debug           Allows for gdb to attach
+  -p, --preserve        Consider user/group ownership when comparing files to
+                        copy
+  -x SIZE, --syn_size SIZE
+                        development only. Option may be used for future
+                        feature
+  -X PATTERN, --syn_pattern PATTERN
+                        development only. Option may be used for future
+                        feature
+  -e EXCLUDE, --exclude EXCLUDE
+                        Exclude pattern
+  -t TRY_ATTEMPTS, --try_attempts TRY_ATTEMPTS
+                        Number of times to retry on non-fatal errors
+  -s, --symlinks        Do not dereference symlink arguments ( source or dest )
 
 
