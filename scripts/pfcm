@@ -3,6 +3,7 @@ import os.path
 import sys
 import subprocess
 import time
+import math
 import argparse
 from argparse import ArgumentTypeError as ArgError
 import syslog
@@ -67,14 +68,15 @@ def main(parser):
 
     commands.add("-C", config.chunk_at)
     commands.add("-S", config.chunk_size)
-    if config.direct_io_write:
-        commands.add("-W")
     if config.direct_io_read:
         commands.add("-R")
     src_fixed = pfs.get_fixed_source(args.source_path,args.symlinks)
     dest_fixed = pfs.get_fixed_dest(args.dest_path,args.symlinks)
     commands.add("-c", *dest_fixed)
     commands.add("-p", *src_fixed)
+    # limit stat workers to 3/4 of available worker ranks
+    commands.add("-M", math.ceil((config.total_procs - 3)*.75))
+
 
     pfcmd = pfs.Commands()
 

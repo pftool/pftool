@@ -258,7 +258,7 @@ int main(int argc, char *argv[])
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:A:t:X:x:z:e:DorlPM:nhvgWR")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:A:t:X:x:z:e:M:nhvgWRDorlP")) != -1)
         {
             switch (c)
             {

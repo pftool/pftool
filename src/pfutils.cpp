@@ -39,6 +39,7 @@ void usage()
     printf("2. Apply various data moving operations based on the selected options \n");
     printf("\n");
     printf("mpirun -np <totalprocesses> pftool [options]\n");
+    printf("For general use please use the helper scripts (pfcp/pfcm/pfls) located in in {install_prefix}/bin/\n");
     printf("\n");
     printf(" Options\n");
     printf(" [-p]         path to start parallel tree walk (required argument)\n");
@@ -54,12 +55,14 @@ void usage()
     printf(" [-t]         specify file system type of destination file/directory\n");
     printf(" [-l]         turn on logging to syslog\n");
     printf(" [-P]         force destination to be treated as parallel (i.e. assume N:1 support)\n");
-    printf(" [-M]         perform block-compare, default: metadata-compare\n");
+    printf(" [-D]         perform block-compare, default: metadata-compare\n");
     printf(" [-o]         attempt to preserve source ownership (user/group) in COPY\n");
     printf(" [-e]         excludes files that match this pattern\n");
     printf(" [-v]         output verbosity [specify multiple times, to increase]\n");
     printf(" [-g]         debugging-level  [specify multiple times, to increase]\n");
-    printf(" [-D]         The maximum number of readdir ranks, -1 allows all ranks to be used\n");
+    printf(" [-M]         The maximum number of readdir ranks, not limited if not specified (default \"-1\")\n");
+    printf(" [-W]         Attempt O_DIRECT data writes if possible\n");
+    printf(" [-R]         Attempt O_DIRECT data reads if possible\n");
     printf(" [-h]         print Usage information\n");
     printf("\n");
 
