@@ -56,10 +56,6 @@ def main(parser):
     # silence mpirun informational messages
     pfcmd.add("-q")
 
-    # Add darshan logging support if it is available
-    # (this must be called after adding mpi)
-    pfs.add_darshan(config, pfcmd)
-
     # Add in the dangerous flags that are necessary for running in production
     pfcmd.add("--oversubscribe")
     pfcmd.add("--allow-run-as-root")

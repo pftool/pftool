@@ -257,22 +257,6 @@ def is_ssh_running(host):
     return reachable
 
 
-def add_darshan(pfconfig, mpicmd):
-    # If darshan is specified in the environment and valid,
-    # add it to the mpi command line
-    try:
-        darshanlib = pfconfig.get("environment", "darshanlib")
-        if os.access(darshanlib, os.R_OK):
-            new_preload = darshanlib
-            orig_preload = os.environ.get("LD_PRELOAD")
-            if orig_preload:
-                new_preload += ":" + orig_preload
-            darshan_preload = "LD_PRELOAD=" + new_preload
-            mpicmd.add("-x", darshan_preload)
-    except BaseException:
-        pass
-
-
 class Config:
     def __init__(self, prog_name):
         config = configparser.ConfigParser()
@@ -284,8 +268,8 @@ class Config:
             self.mpirun = config.get("environment", "mpirun")
             self.parallel_dest = config.getboolean(
                 "environment", "parallel_dest")
-            self.direct_io = config.getboolean("environment", "direct_io")
-            self.darshan_lib = config.get("environment", "darshanlib")
+            self.direct_io_read = config.getboolean("environment", "direct_io_read")
+            self.direct_io_write = config.getboolean("environment", "direct_io_write")
             # at some point write size chunk_at and chunk_size were optional
             # that is no longer the case
             self.write_size = config.get("options", "writesize")

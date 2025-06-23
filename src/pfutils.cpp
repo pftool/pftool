@@ -529,12 +529,18 @@ int copy_file(PathPtr p_src,
     //symlink
     char link_path[PATHSIZE_PLUS] = {0};
     int numchars;
+    int page_size = getpagesize();
     int read_flags = O_RDONLY;
     int write_flags = O_WRONLY | O_CREAT;
 
-    if (o.direct && (((length / 4096) * 4096) == length)) {
-        read_flags |= O_DIRECT;
+    // only write O_DIRECT if requested *and* page-aligned
+    if (o.direct_write && (((length / page_size) * page_size) == length)) {
         write_flags |= O_DIRECT;
+    }
+
+    // only read O_DIRECT if requested, handle block sizes below in read path for alignment
+    if (o.direct_read) {
+        read_flags |= O_DIRECT;
     }
 
     // If source is a link, create similar link on the destination-side.
@@ -576,14 +582,14 @@ int copy_file(PathPtr p_src,
         return 0;
     }
 
-    //a file less than 1 MB
+    //a file less than configured I/O size
     if (length < blocksize)
     { // a file < blocksize in size
         blocksize = length;
     }
     if (blocksize)
     {
-        rc = posix_memalign((void **)&buf, 4096, blocksize * sizeof(char));
+        rc = posix_memalign((void **)&buf, page_size, blocksize * sizeof(char));
         if (!buf || rc)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
@@ -646,48 +652,18 @@ int copy_file(PathPtr p_src,
     while (completed != length)
     {
         // .................................................................
-        // READ data from source (or generate it synthetically)
+        // READ data from source
         // .................................................................
-        //1 MB is too big
+        // remaining file data is smaller than configured I/O size
         if ((length - completed) < blocksize)
         {
             blocksize = (length - completed);
         }
 
-        // Wasteful?  If we fail to read blocksize, we'll have a problem
-        // anyhow.  And if we succeed, then we'll wipe this all out with
-        // the data, anyhow.  [See also memsets in compare_file()]
-        //
-        //        memset(buf, '\0', blocksize);
-
         bytes_processed = p_src->read(buf, blocksize, offset + completed);
 
         PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
                        rank, bytes_processed, p_dest->path());
-
-        // ---------------------------------------------------------------------------
-        // MARFS EXPERIMENT.  We are seeing stalls on some reads from
-        // object-servers, in the case of many concurrent requests.  To
-        // deal with that, we'll try sending a new request for the part
-        // of the data we haven't received.  Large number of retries
-        // allows more-aggressive (i.e. shorter) timeouts waiting for a
-        // blocksize read from the stream.
-        //
-        // This problem could also be a single object-server that is
-        // unresponsive.  In the case of a MarFS configuration using
-        // host-randomization, retrying the read will also have the
-        // chance of targeting a different server.
-        //
-        // TBD: In a POSIX context, this is overkill.  You'd rather just
-        // retry the read.  For the case we're seeing with
-        // object-servers, we're skipping straight to what the problem
-        // seems to be, there, which is that we need to issue a fresh
-        // request, which is done implicitly by closing and re-opening.
-        //
-        // UPDATE: don't print warnings (or count non-fatal errors) for
-        // every retry.  If the set of retries fail, register one
-        // non-fatal error.  Otherwise, keep quiet.
-        // ---------------------------------------------------------------------------
 
         retry_count = 0;
         while ((bytes_processed != blocksize) && (retry_count < 5))
@@ -706,7 +682,6 @@ int copy_file(PathPtr p_src,
             bytes_processed = p_src->read(buf, blocksize, offset + completed);
             retry_count++;
         }
-        // END of EXPERIMENT
 
         if (bytes_processed != blocksize)
         {
@@ -732,40 +707,6 @@ int copy_file(PathPtr p_src,
 
         bytes_processed = p_dest->write(buf, blocksize, offset + completed);
 
-        // ---------------------------------------------------------------------------
-        // MARFS EXPERIMENT.  As with reads, we may see stalled writes to
-        // object-servers.  However, in the case of writes, we can't assume
-        // that a retry is even feasible.  For example, if some data was
-        // successfully written, then we can't necessarily resume writing
-        // after that.  pftool arranges with MarFS that N:1 writes will all
-        // start on object boundaries.  Therefore, *IFF* we are on the very
-        // first write, we can conceivably close, re-open, and retry.
-        //
-        // This approach will at least allow host-randomization to make us
-        // robust against unresponsive individual servers, provided they
-        // are unresponsive when we first try to write to them.
-        //
-        // DEEMED SUCCESS: Another thing that could be going on is a
-        // restart of an N:1 copy, where the destination is a newer Scality
-        // sproxyd install, where overwrites of an existing object-ID are
-        // forbidden.  In this case, the CTM bitmap, which is only updated
-        // periodically, might not yet know that this particular chunk was
-        // already written successfully.  In that case, provided the
-        // existing object has the correct length, we "deem" the write a
-        // success despite the fact that it failed.  Note that the error is
-        // not reported (i.e. the PUT doesn't fail, and writes appear to be
-        // succeeding) until we've written the LAST byte, perhaps because
-        // PUTs from pftool have a length field, and the server doesn't
-        // bother complaining about anything until the full-length request
-        // has been received.
-        //
-        // TBD: In a POSIX context, this is overkill.  You'd rather just
-        // retry the write.  For the case we're seeing with object-servers,
-        // we're skipping straight to what the problem seems to be, there,
-        // which is that we need to issue a fresh request, which is done
-        // implicitly by closing and re-opening.
-        // ---------------------------------------------------------------------------
-
         retry_count = 0;
         while ((bytes_processed != blocksize) && (retry_count < 5) && (completed == 0))
         {
@@ -786,7 +727,6 @@ int copy_file(PathPtr p_src,
             bytes_processed = p_dest->write(buf, blocksize, offset + completed);
             retry_count++;
         }
-        // END of EXPERIMENT
 
         if ((bytes_processed == -blocksize) && (blocksize != 1) // TBD: how to distinguish this from an error?
             && ((completed + blocksize) == length))
@@ -869,6 +809,7 @@ int compare_file(path_item *src_file,
     char errormsg[MESSAGESIZE] = {0};
     int rc;
     int crc;
+    int page_size = getpagesize();
     off_t offset = (src_file->chkidx * src_file->chksz);
     off_t length = (((offset + src_file->chksz) > src_file->st.st_size)
                         ? (src_file->st.st_size - offset)
@@ -876,7 +817,9 @@ int compare_file(path_item *src_file,
 
     int read_flags = O_RDONLY;
 
-    if (o.direct && (((length / 4096) * 4096) == length)) {
+    // for now just do O_DIRECT only when asked and the page sizes line up
+    // can be optimized further like copy_file for ragged edges
+    if (o.direct_read && (((length / page_size) * page_size) == length)) {
         read_flags |= O_DIRECT;
     }
 
