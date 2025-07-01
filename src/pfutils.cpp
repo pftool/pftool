@@ -22,6 +22,7 @@
 
 #include <syslog.h>
 #include <signal.h>
+#include <math.h>
 
 #include <pthread.h> // manager_sig_handler()
 
@@ -526,22 +527,24 @@ int copy_file(PathPtr p_src,
                         ? (p_src->size() - offset)
                         : p_src->node().chksz);
     ssize_t bytes_processed = 0;
-    int retry_count;
-    int success = 0;
 
     //symlink
     char link_path[PATHSIZE_PLUS] = {0};
     int numchars;
     int page_size = getpagesize();
     int read_flags = O_RDONLY;
+    off_t aligned_read_size = 0;
+    off_t aligned_read_offset = 0;
+    off_t aligned_read_offset_adjust = 0;
     int write_flags = O_WRONLY | O_CREAT;
 
-    // only write O_DIRECT if requested *and* page-aligned
-    if (o.direct_write && (((length / page_size) * page_size) == length)) {
+    // only write O_DIRECT if requested *and* page-aligned *and* blocksize is aligned
+    if (o.direct_write && (((length / page_size) * page_size) == length) && (((blocksize / page_size) * page_size) == blocksize)) {
         write_flags |= O_DIRECT;
     }
 
-    // only read O_DIRECT if requested, handle block sizes below in read path for alignment
+    // only read O_DIRECT if requested, handle block size and offset below in read path for alignment
+    // read blocksize will be adjusted to be page aligned no matter what in the read loop
     if (o.direct_read) {
         read_flags |= O_DIRECT;
     }
@@ -590,17 +593,20 @@ int copy_file(PathPtr p_src,
     { // a file < blocksize in size
         blocksize = length;
     }
+
+    // round up to the nearest page size for read size, plus one page in case we have to shift the starting offset
+    aligned_read_size = ((ceil((double)blocksize / (double)page_size) + 1) * page_size);
     if (blocksize)
     {
-        rc = posix_memalign((void **)&buf, page_size, blocksize * sizeof(char));
+        rc = posix_memalign((void **)&buf, page_size, aligned_read_size * sizeof(char));
         if (!buf || rc)
         {
             errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
-                        blocksize, p_src->path());
+                        aligned_read_size, p_src->path());
             return -1;
         }
 
-        memset(buf, '\0', blocksize);
+        memset(buf, '\0', aligned_read_size);
     }
 
     // OPEN source for reading (binary mode)
@@ -663,100 +669,50 @@ int copy_file(PathPtr p_src,
             blocksize = (length - completed);
         }
 
-        bytes_processed = p_src->read(buf, blocksize, offset + completed);
+        // round up to the nearest page size for the current I/O
+        // align read offset to nearest page
+        // track alignement offset so we can jump forward in the read buffer for the write call
+        aligned_read_size = ((ceil((double)blocksize / (double)page_size)) * page_size);
+        aligned_read_offset = ((floor((double)(offset + completed) / (double)page_size)) * page_size);
+        aligned_read_offset_adjust = (offset + completed) - aligned_read_offset;
+
+        // read an extra page if we're shifting the starting offset
+        if (aligned_read_offset_adjust)
+            aligned_read_size += page_size;
+
+
+        bytes_processed = p_src->read(buf, aligned_read_size, aligned_read_offset);
+        if (aligned_read_offset)
+            PRINT_IO_DEBUG("Reading offset: %d instead of %d, %d bytes instead of %d bytes, adjust output by %d bytes\n", 
+                           aligned_read_offset, (offset+completed), aligned_read_size, blocksize, aligned_read_offset_adjust);
+
+        // if we didn't overread AND we didn't read to EOF, something is wrong
+        if ((bytes_processed < 0) || (bytes_processed != aligned_read_size) && (bytes_processed < (blocksize+aligned_read_offset_adjust)))
+        {
+            errsend_fmt(NONFATAL, "Failed %s offs %ld read %ld bytes instead of %zd: %s\n",
+                        p_src->path(), aligned_read_offset, bytes_processed, blocksize, p_src->strerror());
+            err = 1;
+            break; // return -1;
+        }
 
         PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
                        rank, bytes_processed, p_dest->path());
 
-        retry_count = 0;
-        while ((bytes_processed != blocksize) && (retry_count < 5))
-        {
-            p_src->close(); // best effort
-            if (!p_src->open(read_flags, p_src->mode(), offset + completed, length - completed) && !p_src->open(read_flags & ~O_DIRECT, p_src->mode(), offset + completed, length - completed))
-            {
-                errsend_fmt(NONFATAL, "(read-RETRY) Failed to open %s for read, off %lu+%lu\n",
-                            p_src->path(), offset, completed);
-                if (buf)
-                    free(buf);
-                return -1;
-            }
-
-            // try again ...
-            bytes_processed = p_src->read(buf, blocksize, offset + completed);
-            retry_count++;
-        }
-
-        if (bytes_processed != blocksize)
-        {
-            char retry_msg[128] = {0};
-            retry_msg[0] = 0;
-            if (retry_count)
-                sprintf(retry_msg, " (retries = %d)", retry_count);
-
-            errsend_fmt(NONFATAL, "%s: Read %ld bytes instead of %zd%s: %s\n",
-                        p_src->path(), bytes_processed, blocksize, retry_msg, p_src->strerror());
-            err = 1;
-            break; // return -1
-        }
-        else if (retry_count)
-        {
-            output_fmt(2, "(read-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                       p_dest->path(), offset, completed, retry_count);
-        }
 
         // .................................................................
         // WRITE data to destination
         // .................................................................
 
-        bytes_processed = p_dest->write(buf, blocksize, offset + completed);
+        // shift the output buffer to compensate for the alignment on the read
+        bytes_processed = p_dest->write(buf+aligned_read_offset_adjust, blocksize, offset + completed);
 
-        retry_count = 0;
-        while ((bytes_processed != blocksize) && (retry_count < 5) && (completed == 0))
+        if (bytes_processed != blocksize)
         {
-            p_dest->close(); // best effort
-
-            if (!p_dest->open(flags, 0600, offset, length))
-            {
-                errsend_fmt(NONFATAL, "(write-RETRY) Failed to open file %s for write, off %lu+%lu (%s)\n",
-                            p_dest->path(), offset, completed, p_dest->strerror());
-
-                p_src->close();
-                if (buf)
-                    free(buf);
-                return -1;
-            }
-
-            // try again ...
-            bytes_processed = p_dest->write(buf, blocksize, offset + completed);
-            retry_count++;
-        }
-
-        if ((bytes_processed == -blocksize) && (blocksize != 1) // TBD: how to distinguish this from an error?
-            && ((completed + blocksize) == length))
-        {
-
-            bytes_processed = -bytes_processed; // "deemed success"
-            success = 1;                        // caller can distinguish actual/deemed success
-                                                // err = 0; break;  // return -1;
-        }
-        else if (bytes_processed != blocksize)
-        {
-            char retry_msg[128] = {0};
-            retry_msg[0] = 0;
-            if (retry_count)
-                sprintf(retry_msg, " (retries = %d)", retry_count);
-
-            errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd%s: %s\n",
-                        p_dest->path(), offset, bytes_processed, blocksize, retry_msg, p_dest->strerror());
+            errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd: %s\n",
+                        p_dest->path(), offset + completed, bytes_processed, blocksize, p_dest->strerror());
             err = 1;
             break; // return -1;
         }
-        else if (retry_count)
-        {
-            output_fmt(2, "(write-RETRY) success for %s, off %lu+%lu (retries = %d)\n",
-                       p_dest->path(), offset, completed, retry_count);
-        }
-
         completed += blocksize;
     }
 
@@ -794,7 +750,7 @@ int copy_file(PathPtr p_src,
         }
     }
 
-    return success; // 0: copied, 1: deemed copy
+    return 0;
 }
 
 int compare_file(path_item *src_file,
@@ -821,8 +777,8 @@ int compare_file(path_item *src_file,
     int read_flags = O_RDONLY;
 
     // for now just do O_DIRECT only when asked and the page sizes line up
-    // can be optimized further like copy_file for ragged edges
-    if (o.direct_read && (((length / page_size) * page_size) == length)) {
+    // can be optimized further like copy_file for ragged edges but probably not worth the complexity
+    if (o.direct_read && (((length / page_size) * page_size) == length) && (((blocksize / page_size) * page_size) == blocksize)) {
         read_flags |= O_DIRECT;
     }
 
