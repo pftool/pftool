@@ -3,6 +3,7 @@ import os.path
 import sys
 import subprocess
 import time
+import math
 import argparse
 from argparse import ArgumentTypeError as ArgError
 import syslog
@@ -89,8 +90,13 @@ def main(parser):
         commands.add("-e")
         commands.add(args.exclude)
 
-    if config.direct_io:
-            commands.add("-B")
+    if config.direct_io_write:
+        commands.add("-W")
+    if config.direct_io_read:
+        commands.add("-R")
+    # limit stat workers to 3/4 of available worker ranks
+    commands.add("-M", math.ceil((config.total_procs - 3)*.75))
+
 
     try:
         if config.parallel_dest:
@@ -136,10 +142,6 @@ def main(parser):
 
     # silence mpirun informational messages
     pfcmd.add("-q")
-
-    # Add darshan logging support if its available
-    # (this must be called after adding mpi)
-    pfs.add_darshan(config, pfcmd)
 
     # Add in the dangerous flags that are necessary for running in production
     pfcmd.add("--oversubscribe")

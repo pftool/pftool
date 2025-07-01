@@ -235,7 +235,8 @@ int main(int argc, char *argv[])
         o.dest_fstype = UNKNOWN_FS;
         strncpy(o.jid, "TestJob", 128);
         o.parallel_dest = 0;
-        o.direct = 0;
+	o.direct_write = 0;
+        o.direct_read = 0;
         o.blocksize = (1024 * 1024);
         o.chunk_at = (10ULL * 1024 * 1024 * 1024); // 10737418240
         o.chunksize = (10ULL * 1024 * 1024 * 1024);
@@ -257,7 +258,7 @@ int main(int argc, char *argv[])
 #endif
 
         // start MPI - if this fails we cant send the error to thtooloutput proc so we just die now
-        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:W:A:t:X:x:z:e:DorlPM:nhvgB")) != -1)
+        while ((c = getopt(argc, argv, "p:c:j:w:i:s:C:S:a:f:d:A:t:X:x:z:e:M:nhvgWRDorlP")) != -1)
         {
             switch (c)
             {
@@ -409,8 +410,11 @@ int main(int argc, char *argv[])
                 o.exclude[PATHSIZE_PLUS - 1] = '\0';
                 break;
 
-            case 'B':
-		o.direct = 1; // use direct IO / O_DIRECT
+            case 'W':
+		o.direct_write = 1; // use direct IO / O_DIRECT
+		break;
+            case 'R':
+		o.direct_read = 1;
 		break;
 
             case 'h':
@@ -498,7 +502,8 @@ int main(int argc, char *argv[])
     MPI_Bcast(&o.dest_fstype, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.different, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.parallel_dest, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
-    MPI_Bcast(&o.direct, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.direct_write, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
+    MPI_Bcast(&o.direct_read, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.work_type, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.meta_data_only, 1, MPI_INT, MANAGER_PROC, MPI_COMM_WORLD);
     MPI_Bcast(&o.blocksize, 1, MPI_DOUBLE, MANAGER_PROC, MPI_COMM_WORLD);
