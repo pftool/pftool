@@ -694,10 +694,8 @@ int copy_file(PathPtr p_src,
             err = 1;
             break; // return -1;
         }
-
-        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %d bytes complete for file %s\n",
-                       rank, bytes_processed, p_dest->path());
-
+        PRINT_IO_DEBUG("rank %d: copy_file() Read of %zd bytes ( offset adjust = %zd ) complete for file %s\n",
+                       rank, bytes_processed, aligned_read_offset_adjust, p_dest->path());
 
         // .................................................................
         // WRITE data to destination
@@ -714,6 +712,8 @@ int copy_file(PathPtr p_src,
             break; // return -1;
         }
         completed += blocksize;
+        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %zd bytes complete for file %s\n",
+                       rank, bytes_processed, p_dest->path());
     }
 
     // .................................................................
