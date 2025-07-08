@@ -80,13 +80,14 @@ typedef void *SyndataBufPtr; /* eliminates some need for #ifdefs */
 #define MAXREADDIRRANKS (-1)
 
 // Soft limit of the amount of accumulated work on the manager rank
-// 10 million by default as a sum of the linked list counts
+// 1 million by default for each queue, and soft limits handing out readdir 
+// work at this threshold
 #define MAXWORKACCUM 1000000
 
-// tag for anything sending *more work* to the manager so it can throttle
+// tag for anything sending *more work* that can increase manager memory pressure
 #define MPI_TAG_MORE_WORK 65535
 
-// tag for anything *not* sending more work to the manager
+// tag for anything that does not generate more work for the manager
 #define MPI_TAG_NOT_MORE_WORK 65536
 
 // <sys/vfs.h> provides statfs(), which operates on a struct statfs,
