@@ -28,18 +28,10 @@ AC_ARG_ENABLE(syndata,
    AS_HELP_STRING([  --enable-syndata], [enable synthetic data generation support]))
 AM_CONDITIONAL([SYNDATA], [test x$enable_syndata = xyes])
 
-AC_ARG_ENABLE(s3,
-   AS_HELP_STRING([  --enable-s3], [enable S3 support]))
-AM_CONDITIONAL([S3], [test x$enable_s3 = xyes])
-
 MARFS_ENABLED="DISABLED"
 AC_ARG_ENABLE(marfs,
    AS_HELP_STRING([  --enable-marfs], [enable marfs support]))
 AM_CONDITIONAL([MARFS], [test x$enable_marfs = xyes]  &&  MARFS_ENABLED="ENABLED")
-
-AC_ARG_ENABLE(old_marfs,
-   AS_HELP_STRING([  --enable-old_marfs], [enable old_marfs support]))
-AM_CONDITIONAL([OLD_MARFS], [test x$enable_old_marfs = xyes])
 
 AC_ARG_ENABLE(gprof,
    AS_HELP_STRING([  --enable-gprof], [enable run-time profiling with gprof]))
@@ -82,10 +74,6 @@ AC_LANG(C++)
 AC_PROG_CXX([mpic++ mpicxx mpig++ c++ g++])
 
 
-# jti experiments
-AC_SUBST([_s3_cflags],  ${S3_CFLAGS})
-AC_SUBST([_s3_ldflags], ${S3_LDFLAGS})
-
 # dejager experiments
 AC_SUBST([_marfs_cflags],  ${MARFS_CFLAGS})
 AC_SUBST([_marfs_ldflags], ${MARFS_LDFLAGS})
@@ -117,20 +105,8 @@ AS_IF([test x$enable_CTM == xxattrs],
 
 # checks for header files.
 AC_CHECK_HEADERS([sys/vfs.h gpfs.h gpfs_fcntl.h dmapi.h xattr.h])
-AS_IF([test x$enable_s3 == xyes],
-  [AC_CHECK_HEADERS([aws4c.h aws4c_extra.h])]
-)
 AS_IF([test x$enable_marfs == xyes],
   [AC_CHECK_HEADERS([marfs.h])]
-)
-AS_IF([test x$enable_old_marfs == xyes],
-  [AC_CHECK_HEADERS([common.h marfs_ops.h aws4c.h aws4c_extra.h])]
-)
-AS_IF([test x$enable_s3 == xyes  ||  test x$enable_old_marfs == xyes], [
-  PKG_CHECK_MODULES(AWSXML, libxml-2.0)
-  AC_SUBST(AWSXML_CFLAGS)
-  AC_SUBST(AWSCML_LIBS)
-  ]
 )
 
 # # check for adequate mpi support
@@ -169,25 +145,6 @@ AC_CHECK_LIB([rt], [timer_settime])
 AS_IF([test x"$enable_marfs" == xyes],
    [AC_CHECK_LIB([marfs], [marfs_init], [], [AC_ERROR([could not find libmarfs])])])
 
-AS_IF([test x"$enable_old_marfs" == xyes],
-  [AC_CHECK_LIB([xml2], [xmlSAX2GetEntity])
-   AC_CHECK_LIB([curl], [curl_easy_cleanup])
-   AC_CHECK_LIB([aws4c], [s3_enable_Scality_extensions])
-   AC_CHECK_LIB([aws4c_extra], [s3_create_bucket])
-   AC_CHECK_LIB([pthread], [pthread_tryjoin_np] )
-   AC_CHECK_LIB([rdmacm], [rdma_getaddrinfo] )
-   AC_CHECK_LIB([ft],   [fast_timer_inits])
-   AC_CHECK_LIB([rdma_sockets], [skt_open])
-   AC_CHECK_LIB([isal], [ec_encode_data])
-   AC_CHECK_LIB([rt],   [timer_settime])
-   AC_CHECK_LIB([dl],   [dlclose])
-   AC_CHECK_LIB([ne],   [ne_write])
-   AC_CHECK_LIB([dl], [dlclose])
-   AC_CHECK_LIB([marfs], [mc_put], [],
-                [AC_CHECK_LIB([marfs], [marfs_open], [],
-                              [AC_ERROR([could not find libmarfs])])])
-   #AC_CHECK_LIB([crypto], [EVP_DigestInit_ex])
-  ])
 
 # checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_PID_T

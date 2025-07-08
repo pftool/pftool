@@ -1067,7 +1067,7 @@ int request_response(int type_cmd)
 {
     MPI_Status status;
     int response;
-    send_command(MANAGER_PROC, type_cmd);
+    send_command(MANAGER_PROC, type_cmd, MPI_TAG_NOT_MORE_WORK);
     if (MPI_Recv(&response, 1, MPI_INT, MANAGER_PROC, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
     {
         errsend(FATAL, "Failed to receive response\n");
@@ -1080,7 +1080,7 @@ int request_input_queuesize()
     return request_response(QUEUESIZECMD);
 }
 
-void send_command(int target_rank, int type_cmd)
+void send_command(int target_rank, int type_cmd, int mpi_tag)
 {
 #ifdef MPI_DEBUG
     int rank;
@@ -1090,7 +1090,7 @@ void send_command(int target_rank, int type_cmd)
 #endif
 
     // Send a simple CMD (without args) to a rank
-    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&type_cmd, 1, MPI_INT, target_rank, mpi_tag, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send command %d to rank %d\n", type_cmd, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1118,13 +1118,13 @@ void send_path_buffer(int target_rank, int command, path_item *buffer, int *buff
         work_node_ptr = &buffer[i];
         MPI_Pack(work_node_ptr, sizeof(path_item), MPI_CHAR, workbuf, worksize, &position, MPI_COMM_WORLD);
     }
-    send_command(target_rank, command);
-    if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    send_command(target_rank, command, MPI_TAG_MORE_WORK);
+    if (MPI_Send(buffer_count, 1, MPI_INT, target_rank, MPI_TAG_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send buffer_count %d to rank %d\n", *buffer_count, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(workbuf, worksize, MPI_PACKED, target_rank, MPI_TAG_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send workbuf to rank %d\n", target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1137,13 +1137,13 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 {
     int size = (*workbuflist)->size;
     int worksize = sizeof(path_item) * size;
-    send_command(target_rank, command);
-    if (MPI_Send(&size, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    send_command(target_rank, command, MPI_TAG_NOT_MORE_WORK);
+    if (MPI_Send(&size, 1, MPI_INT, target_rank, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send workbuflist size %d to rank %d\n", size, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send((*workbuflist)->buf, worksize, MPI_PACKED, target_rank, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send workbuflist buf to rank %d\n", target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1154,25 +1154,25 @@ void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist,
 //manager
 void send_manager_nonfatal_inc()
 {
-    send_command(MANAGER_PROC, NONFATALINCCMD);
+    send_command(MANAGER_PROC, NONFATALINCCMD, MPI_TAG_NOT_MORE_WORK);
 }
 
 void send_manager_chunk_busy()
 {
-    send_command(MANAGER_PROC, CHUNKBUSYCMD);
+    send_command(MANAGER_PROC, CHUNKBUSYCMD, MPI_TAG_NOT_MORE_WORK);
 }
 
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes)
 {
-    send_command(MANAGER_PROC, COPYSTATSCMD);
+    send_command(MANAGER_PROC, COPYSTATSCMD, MPI_TAG_NOT_MORE_WORK);
     //send the # of paths
-    if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_copied_files, 1, MPI_INT, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_copied_files %d to rank %d\n", num_copied_files, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     //send the # of paths
-    if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_copied_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_copied_byes %zd to rank %d\n", num_copied_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1181,24 +1181,24 @@ void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes)
 
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs, size_t num_finished_bytes)
 {
-    send_command(MANAGER_PROC, EXAMINEDSTATSCMD);
+    send_command(MANAGER_PROC, EXAMINEDSTATSCMD, MPI_TAG_NOT_MORE_WORK);
     //send the # of paths
-    if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_examined_files, 1, MPI_INT, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_examined_files %d to rank %d\n", num_examined_files, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_examined_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_examined_bytes %zd to rank %d\n", num_examined_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_examined_dirs, 1, MPI_INT, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_examined_dirs %d to rank %d\n", num_examined_dirs, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send(&num_finished_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&num_finished_bytes, 1, MPI_DOUBLE, MANAGER_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to send num_finished_bytes %zd to rank %d\n", num_finished_bytes, MANAGER_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1226,65 +1226,8 @@ void send_manager_new_buffer(path_item *buffer, int *buffer_count)
 void send_manager_work_done(int ignored)
 {
     //the worker is finished processing, notify the manager
-    send_command(MANAGER_PROC, WORKDONECMD);
+    send_command(MANAGER_PROC, WORKDONECMD, MPI_TAG_NOT_MORE_WORK);
 }
-
-#ifdef OLD_MARFS
-// MarFS filehandles can accumulate TimingData during low-level operations.
-void send_worker_add_timing(int target_rank, char *repo_name, TimingData *timing)
-{
-    if (!(timing->flags & ~(TF_SIMPLE)))
-        return;
-
-    // "data buffer" contains raw values, pulled from <timing>
-    TimingData dummy; // (aligned)
-    char *data_buf = (char *)&dummy;
-    ssize_t data_buf_size = export_timing_data(timing, data_buf, sizeof(TimingData));
-
-    if (data_buf_size == 0)
-        return;
-    if (data_buf_size < 0)
-    {
-        fprintf(stderr, "Failed to export timing-data\n", MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-
-    // "metadata buffer" contains metadata so manager can dispatch for import to timing_stats_map.
-    static const size_t md_buf_size = MARFS_MAX_REPO_NAME + sizeof(int) + sizeof(ssize_t);
-    char md_buf[md_buf_size] = {0};
-    char *md = md_buf;
-
-    memcpy(md, repo_name, MARFS_MAX_REPO_NAME);
-    md += MARFS_MAX_REPO_NAME;
-
-    memcpy(md, (char *)&timing->pod_id, sizeof(int));
-    md += sizeof(int);
-
-    memcpy(md, &data_buf_size, sizeof(ssize_t));
-
-    // send command
-    send_command(target_rank, ADDTIMINGCMD);
-
-    // send metadata-buffer
-    if (MPI_Send(md_buf, md_buf_size, MPI_CHAR, target_rank, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-    {
-        fprintf(stderr, "Failed to send timning-stats md-buffer to rank %d\n", MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-
-    //send data-buffer
-    if (MPI_Send(data_buf, data_buf_size, MPI_CHAR, target_rank, MANAGER_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
-    {
-        fprintf(stderr, "Failed to send timing stats data-buffer to rank %d\n", MANAGER_PROC);
-        MPI_Abort(MPI_COMM_WORLD, -1);
-    }
-}
-
-void send_worker_show_timing(int target_rank)
-{
-    send_command(target_rank, SHOWTIMINGCMD);
-}
-#endif
 
 //worker
 void update_chunk(path_item *buffer, int *buffer_count)
@@ -1298,19 +1241,19 @@ void write_output(const char *message, int log)
     //set the command type
     if (log == 0)
     {
-        send_command(OUTPUT_PROC, OUTCMD);
+        send_command(OUTPUT_PROC, OUTCMD, MPI_TAG_NOT_MORE_WORK);
     }
     else if (log == 1)
     {
-        send_command(OUTPUT_PROC, LOGCMD);
+        send_command(OUTPUT_PROC, LOGCMD, MPI_TAG_NOT_MORE_WORK);
     }
     else if (log == 2)
     {
-        send_command(OUTPUT_PROC, LOGONLYCMD);
+        send_command(OUTPUT_PROC, LOGONLYCMD, MPI_TAG_NOT_MORE_WORK);
     }
 
     //send the message
-    if (MPI_Send((void *)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send((void *)message, MESSAGESIZE, MPI_CHAR, OUTPUT_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1340,15 +1283,15 @@ void write_buffer_output(char *buffer, int buffer_size, int buffer_count)
 
     //write a buffer to the output proc
     //set the command type
-    send_command(OUTPUT_PROC, BUFFEROUTCMD);
+    send_command(OUTPUT_PROC, BUFFEROUTCMD, MPI_TAG_NOT_MORE_WORK);
 
     //send the size of the buffer
-    if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&buffer_count, 1, MPI_INT, OUTPUT_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to buffer_count %d to rank %d\n", buffer_count, OUTPUT_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
-    if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, OUTPUT_PROC, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(buffer, buffer_size, MPI_PACKED, OUTPUT_PROC, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to message to rank %d\n", OUTPUT_PROC);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1357,7 +1300,7 @@ void write_buffer_output(char *buffer, int buffer_size, int buffer_count)
 
 void send_worker_queue_count(int target_rank, int queue_count)
 {
-    if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, target_rank, MPI_COMM_WORLD) != MPI_SUCCESS)
+    if (MPI_Send(&queue_count, 1, MPI_INT, target_rank, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
         fprintf(stderr, "Failed to queue_count %d to rank %d\n", queue_count, target_rank);
         MPI_Abort(MPI_COMM_WORLD, -1);
@@ -1385,7 +1328,7 @@ void send_worker_compare_path(int target_rank, work_buf_list **workbuflist, work
 void send_worker_exit(int target_rank)
 {
     //order a rank to exit
-    send_command(target_rank, EXITCMD);
+    send_command(target_rank, EXITCMD, MPI_TAG_NOT_MORE_WORK);
 }
 
 static void errsend_internal(Lethality fatal, const char *errormsg)
@@ -1498,24 +1441,6 @@ int stat_item(path_item *work_node, struct options &o)
 
     bool got_type = false;
 
-#ifdef S3
-    // --- is it an S3 path?
-    if ((!strncmp(work_node->path, "http://", 7)) ||
-        (!strncmp(work_node->path, "https://", 8)))
-    {
-
-        // if it matches the prefixes, it *is* an S3-path, whether it exists or not
-        work_node->ftype = S3FILE;
-        got_type = true;
-
-        bool okay = S3_Path::fake_stat(work_node->path, &st); // return non-zero for success
-        if (!okay)
-        {
-            return -1;
-        }
-    }
-#endif
-
 #ifdef MARFS
     if (!got_type)
     {
@@ -1526,30 +1451,6 @@ int stat_item(path_item *work_node, struct options &o)
             // only failure w/ EINVAL indicates an invalid path
             work_node->ftype = MARFSFILE;
             got_type = true;
-        }
-    }
-#endif
-
-#ifdef OLD_MARFS
-    // --- is it a MARFS path?
-    if (!got_type)
-    {
-        if (under_mdfs_top(work_node->path))
-        {
-            return -1;
-        }
-
-        if ((!strncmp(work_node->path, marfs_config->mnt_top, marfs_config->mnt_top_len)) && ((work_node->path[marfs_config->mnt_top_len] == 0) || (work_node->path[marfs_config->mnt_top_len] == '/')))
-        {
-
-            work_node->ftype = OLD_MARFSFILE;
-            got_type = true;
-
-            bool okay = OLD_MARFS_Path::mar_stat(work_node->path, &st);
-            if (!okay)
-            {
-                return -1;
-            }
         }
     }
 #endif
@@ -1681,11 +1582,6 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
             *fs = NULLFS;
             return;
         }
-        else if (p->node().ftype == S3FILE)
-        {
-            *fs = S3FS;
-            return;
-        }
         else if (p->node().ftype == SYNDATA)
         {
             *fs = SYNDATAFS;
@@ -1699,11 +1595,6 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
         else if (p->node().ftype == MARFSFILE)
         {
             *fs = MARFSFS;
-            return;
-        }
-        else if (p->node().ftype == OLD_MARFSFILE)
-        {
-            *fs = OLD_MARFSFS;
             return;
         }
 
@@ -1970,14 +1861,6 @@ void pack_list(path_list *head, int count, work_buf_list **workbuflist, work_buf
  * an aborted transfer, and the files are NOT the same!
  *
  * check size, mtime, mode, and owners
- *
- * NOTE: S3 objects DO NOT HAVE create-time or access-time.  Therefore,
- *    their metadata is initialized with ctime=mtime, and atime=mtime.
- *    Therefore, if you compare a POSIX file having values for ctime,
- *    atime, and mtime that are not all the same, with any S3 object, the
- *    two sets of metadata will *always* differ in these values, even if
- *    you freshly create them and set all these values to match the
- *    original.  Therefore, it might make sense to reconsider this test.
  *
  * In order to avoid a redundant stat of the CTM file, we now have the
  * caller pass that information in through <dst_has_ctm>, because the
