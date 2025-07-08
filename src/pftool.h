@@ -29,10 +29,6 @@ void manager_add_copy_stats(int rank, int sending_rank, int *num_copied_files, s
 void manager_add_examined_stats(int rank, int sending_rank, int *num_examined_files, size_t *num_examined_bytes, int *num_examined_dirs, size_t *num_finished_bytes);
 void send_manager_examined_stats(int num_examined_files, size_t num_examined_bytes, int num_examined_dirs);
 
-#ifdef OLD_MARFS
-void manager_add_timing_data(int sending_rank);
-#endif
-
 //worker rank operations
 void worker(int rank, struct options &o);
 void worker_check_chunk(int rank, int sending_rank, HASHTBL **chunk_hash);

@@ -91,29 +91,12 @@ int main(int argc, char *argv[])
     int ret_val = 0;
     int run = 1;
 
-    //char* temp_file = NULL;
-#ifdef S3
-    // aws_init() -- actually, curl_global_init() -- is supposed to be
-    // called before *any* threads are created.  Could MPI_Init() create
-    // threads (or call multi-threaded libraries)?  We'll assume so.
-    AWS4C_CHECK(aws_init());
-    s3_enable_EMC_extensions(1);
-#endif
-
-#if defined(OLD_MARFS)  ||  defined(MARFS)
+#if defined(MARFS)
 #ifdef MARFS
     if ( initialize_marfs_context() ) {
         fprintf( stderr, "Failed to initialize MarFS Context!\n" );
         exit(1);
     }
-#endif
-#ifdef OLD_MARFS
-    // aws_init() (actually, curl_global_init()) is supposed to be done
-    // before *any* threads are created.  Could MPI_Init() create threads
-    // (or call multi-threaded libraries)?  We'll assume so.
-    AWS4C_CHECK(aws_init());
-    //s3_enable_EMC_extensions(1); TODO: Where does this need to be set
-    //
 #endif
     {
         int setuidbinary = 0;
@@ -123,15 +106,6 @@ int main(int argc, char *argv[])
         {
             setuidbinary = 1;
         }
-
-#ifdef OLD_MARFS
-        char *const user_name = (char *)"root";
-        if (aws_read_config(user_name))
-        {
-            fprintf(stderr, "unable to load AWS4C config\n");
-            exit(1);
-        }
-#endif
 
         if ( setuidbinary )
         {
@@ -149,41 +123,7 @@ int main(int argc, char *argv[])
         }
     }
 
-#ifdef OLD_MARFS
-    if (read_configuration())
-    {
-        fprintf(stderr, "unable to load MarFS config\n");
-        exit(1);
-    }
-    if (validate_configuration())
-    {
-        fprintf(stderr, "MarFS config failed validation-tests\n");
-        exit(1);
-    }
-
-    init_xattr_specs();
-
-#ifdef USE_SPROXYD
-    // NOTE: sproxyd doesn't require authentication, and so it could work on
-    //     an installation without a ~/.awsAuth file.  But suppose we're
-    //     supporting some repos that use S3 and some that use sproxyd?  In
-    //     that case, the s3 requests will need this.  Loading it once
-    //     up-front, like this, at start-time, means we don't have to reload
-    //     it inside marfs_open(), for every S3 open, but it also means we
-    //     don't know whether we really need it.
-    //
-    // ALSO: At start-up time, $USER is "root".  If we want per-user S3 IDs,
-    //     then we would have to either (a) load them all now, and
-    //     dynamically pick the one we want inside marfs_open(), or (b) call
-    //     aws_read_config() inside marfs_open(), using the euid of the user
-    //     to find ~/.awsAuth.
-    int config_fail_ok = 1;
-#else
-    int config_fail_ok = 0;
-#endif
-#endif //OLD_MARFS
-
-#endif //OLD_MARFS  OR  MARFS
+#endif //  MARFS
 
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS)
     {
@@ -396,7 +336,6 @@ int main(int argc, char *argv[])
             case 'g':
                 // each '-g' increases diagnostics level, as follows
                 //  = 1  means make a runtime infinite loop, for gdb
-                //  = 2  means show S3 client/server interaction
                 o.debug += 1;
                 break;
 
@@ -533,13 +472,6 @@ int main(int argc, char *argv[])
     // TBD: Maybe we also want the src files processed via enqueue_path(), below.
     //
     PathFactory::initialize(&o, rank, nproc, src_path, dest_path);
-
-#ifdef OLD_MARFS
-    if (o.debug == 2)
-    {
-        aws_set_debug(1);
-    }
-#endif
 
     //Modifies the path based on recursion/wildcards
     //wildcard
@@ -748,79 +680,6 @@ float diff_time(struct timeval *later, struct timeval *earlier)
     n -= (earlier->tv_usec / MILLION);
     return n;
 }
-
-// we assume a pod has histogram data for <tot_stats> different statistics.
-// For each statistic, there are <total_blk> histograms (i.e. 1 histogram
-// for each block in the pod).  Each histogram consists of 65 sequential
-// doubles stored in host-order.
-//
-// TBD: This code uses unaligned accesses to doubles in the buffer.  In a
-//    careful test, we found that unaligned access to doubles costs < 1% of
-//    performance (versus aligned access), on a Xeon(R) CPU E5-2407 v2
-//    @2.40GHz.  Good enough, for now.
-
-#ifdef OLD_MARFS
-void print_pod_stats(struct options &o, const string &repo_name, TimingData *timing)
-{
-    const size_t HEADER_SIZE = MARFS_MAX_REPO_NAME + 512;
-    char header[HEADER_SIZE] = {0};
-
-    // print header into msg
-    snprintf(header, HEADER_SIZE,
-             "INFO TIMING  %s pod %d ",
-             repo_name.c_str(), timing->pod_id);
-
-    print_timing_data(timing, header, 1, o.logging);
-}
-
-//print accumulated marfs-internals performance-data and send it to syslog
-//
-// NOTE: If the pftool logging-option is enabled (presence of the
-//       command-line '-l' option is represented in o.logging), you still
-//       won't get timing output to syslog unless (a) libne was built with
-//       --enable-syslog, and (b) the MarFS repo/namespace being used (for
-//       source or destination) has timing_flags specified.
-//
-//       On the other hand, if you don't provide '-l', but you do have a
-//       repo/namesapce with timing flags, you will get timing-output date
-//       to stdout.  '-l' just controls whether syslog is involved.
-void show_statistics(struct options &o)
-{
-    // go through per-repo statistics
-    RepoPodMapIt repo_it;
-    for (repo_it = timing_stats_map.begin();
-         repo_it != timing_stats_map.end();
-         repo_it++)
-    {
-
-        string repo_name(repo_it->first);
-        PodTimingMap &pod_timing(repo_it->second);
-
-        // go through per-pod stats for this repo
-        PodTimingMapIt it_pods;
-        for (it_pods = pod_timing.begin();
-             it_pods != pod_timing.end();
-             it_pods++)
-        {
-
-            int pod_id(it_pods->first);
-            TimingData &timing(it_pods->second);
-
-            if (timing.flags)
-            { // we wipe this, each iteration
-
-                //this pod has valid data
-                print_pod_stats(o, repo_name, &timing);
-
-                // after we are done sending stats to syslog, we clear the
-                // buffer so that it is ready for next interval's
-                // accumulation
-                memset(&timing, 0, sizeof(TimingData));
-            }
-        }
-    }
-}
-#endif
 
 int manager(int rank,
             struct options &o,
@@ -1209,7 +1068,8 @@ int manager(int rank,
                 }
             }
 
-            if (dir_buf_list_size && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks)))
+            // stop handing out new readdir/stat work if we're over MAXWORKACCUM soft threshold
+            if (dir_buf_list_size && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks)) && process_buf_list_size <= MAXWORKACCUM)
             {
 
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
@@ -1239,9 +1099,6 @@ int manager(int rank,
 
                 break;
             }
-
-            if (!message_ready)
-                usleep(1);
         }
 
         // got a message, or nothing left to do
@@ -1253,12 +1110,15 @@ int manager(int rank,
 
         if (message_ready)
         {
-
-            // got a message, get message type
-            if (MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
-            {
+            // we have a message, but maybe not one we want to accept if the queues are too large
+	    // accept only non-work producing messages if the work queue is "full"
+	    int mpi_return = 0;
+	    if (dir_buf_list_size <= MAXWORKACCUM && process_buf_list_size <= MAXWORKACCUM && stat_buf_list_size <= MAXWORKACCUM)
+                mpi_return = MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            else
+		mpi_return = MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD, &status);
+	    if (mpi_return != MPI_SUCCESS)
                 errsend(FATAL, "Failed to receive type_cmd\n");
-            }
 
             sending_rank = status.MPI_SOURCE;
             PRINT_MPI_DEBUG("rank %d: manager() Receiving the command %s from rank %d\n",
@@ -1385,7 +1245,7 @@ int manager(int rank,
 #endif
 
                 // log accumulated performance-statistics for marfs-internals
-                send_command(ACCUM_PROC, SHOWTIMINGCMD);
+                send_command(ACCUM_PROC, SHOWTIMINGCMD, MPI_TAG_NOT_MORE_WORK);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1521,7 +1381,7 @@ int manager(int rank,
 #endif
 
     // (ask ACCUM_PROC to) show statistics accumulated over final period
-    send_command(ACCUM_PROC, SHOWTIMINGCMD);
+    send_command(ACCUM_PROC, SHOWTIMINGCMD, MPI_TAG_NOT_MORE_WORK);
 
     // (3) *now* we're done with OUTPUT_PROC.  All other workers have exited.
     send_worker_exit(OUTPUT_PROC); // no need for barrier here ...
@@ -1694,79 +1554,9 @@ void manager_workdone(int rank, int sending_rank, struct worker_proc_status *pro
     }
 }
 
-#ifdef OLD_MARFS
-// master has received "exported" TimingData for the given repo and pod, in <buff>.
-// Add this into the appropriate TimingData element in timing_stats_map
-void add_to_stat_table(char *repo_name, int pod_id, char *data_buff, size_t data_buff_size)
-{
-    string repo(repo_name);
-    TimingData &timing(timing_stats_map[repo][pod_id]); // default-constructed, if nec
-
-    // import serialized TimingData to new struct
-    TimingData timing_new;
-    if (import_timing_data(&timing_new, data_buff, data_buff_size) < 0)
-        errsend_fmt(FATAL, "Failed to import timing data for repo '%s', pod %d\n", repo_name, pod_id);
-
-    // add new fields into record
-    accumulate_timing_data(&timing, &timing_new);
-}
-
-void worker_add_timing_data(int sending_rank)
-{
-    static const int MD_BUF_SIZE = sizeof(int) + MARFS_MAX_REPO_NAME + sizeof(ssize_t);
-
-    int pod_id;
-    char repo_name[MARFS_MAX_REPO_NAME] = {0};
-    ssize_t data_buf_size;
-
-    MPI_Status status;
-
-    // recv metadata-bufer, with enough info to dispatch add_to_stat_table()
-    char md_buf[MD_BUF_SIZE] = {0};
-    char *cursor = md_buf;
-    if (MPI_Recv(md_buf, MD_BUF_SIZE, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
-    {
-        errsend(FATAL, "Failed to receive meta data of timing stats\n");
-    }
-
-    //copy meta-data from buffer to variables
-    memcpy(repo_name, cursor, MARFS_MAX_REPO_NAME);
-    cursor += MARFS_MAX_REPO_NAME;
-
-    memcpy(&pod_id, cursor, sizeof(int));
-    cursor += sizeof(int);
-
-    memcpy(&data_buf_size, cursor, sizeof(ssize_t));
-    if ((data_buf_size < 0) || (data_buf_size > sizeof(TimingData)))
-    {
-        errsend_fmt(FATAL, "Unexpected size fo serialized timing-data %lld\n", data_buf_size);
-    }
-
-    // receive data-buffer containing exported TimingData contents
-    TimingData dummy; // reliably big-enough
-    char *data_buf = (char *)&dummy;
-    if (MPI_Recv(data_buf, data_buf_size, MPI_CHAR, sending_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status) != MPI_SUCCESS)
-    {
-        errsend(FATAL, "Failed to receive timing stats\n");
-    }
-
-    // accumulate received timing data
-    add_to_stat_table(repo_name, pod_id, data_buf, data_buf_size);
-}
-
-// write accumulated timing-data to syslog
-void worker_show_timing_data(int sending_rank, struct options &o)
-{
-    show_statistics(o);
-}
-
-#else
-void worker_add_timing_data(int sending_rank)
-{
-}
+void worker_add_timing_data(int sending_rank) {}
 void worker_show_timing_data(int sending_rank, struct options &o) {}
 
-#endif
 
 //worker
 void worker(int rank, struct options &o)
@@ -3482,12 +3272,6 @@ void worker_copylist(int rank,
     {
         send_manager_copy_stats(num_copied_files, num_copied_bytes);
     }
-#ifdef OLD_MARFS
-    if (!OLD_MARFS_Path::close_fh())
-    {
-        errsend_fmt(NONFATAL, "Failed to close file handle\n");
-    }
-#endif
     send_manager_work_done(rank);
     free(workbuf);
     free(writebuf);
