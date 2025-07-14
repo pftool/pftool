@@ -123,8 +123,6 @@ optional arguments:
                         feature
   -e EXCLUDE, --exclude EXCLUDE
                         Exclude pattern
-  -t TRY_ATTEMPTS, --try_attempts TRY_ATTEMPTS
-                        Number of times to retry on non-fatal errors
   -s, --symlinks        Do not dereference symlink arguments ( source or dest )
 
 
