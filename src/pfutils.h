@@ -41,13 +41,9 @@
 //mpi
 #include "mpi.h"
 
-#ifdef OLD_MARFS
-#include "erasure.h" /* utils for manipulation of TimingData */
-#else
 typedef struct
 {
 } TimingData;
-#endif
 
 //synthetic data generation
 #ifdef GEN_SYNDATA
@@ -83,6 +79,17 @@ typedef void *SyndataBufPtr; /* eliminates some need for #ifdefs */
 // The number of stat processes to default to, -1 is infinate
 #define MAXREADDIRRANKS (-1)
 
+// Soft limit of the amount of accumulated work on the manager rank
+// 1 million by default for each queue, and soft limits handing out readdir 
+// work at this threshold
+#define MAXWORKACCUM 1000000
+
+// tag for anything sending *more work* that can increase manager memory pressure
+#define MPI_TAG_MORE_WORK 65535
+
+// tag for anything that does not generate more work for the manager
+#define MPI_TAG_NOT_MORE_WORK 65536
+
 // <sys/vfs.h> provides statfs(), which operates on a struct statfs,
 // similarly to what stat() does with struct fs.  statfs.f_type identifies
 // various known file-system types.  Ours also includes these:
@@ -106,9 +113,6 @@ typedef void *SyndataBufPtr; /* eliminates some need for #ifdefs */
 // changing that test to look at whether options.destfs > PARALLEL_DESTFS.
 // So, if you are extending this list, and your FS is not a parallel
 // destination (i.e. capable of N:1), then put it before PARALLEL_DESTFS.
-// Similarly, with REST_FS.  (If you ever find a REST-ful fs that is not
-// parallel, we'll have to replace PARALLEL_FS and REST_FS with functions
-// to check any given FS value for membership.)
 //
 // We're converting to an enum, so it will be obvious where these things
 // are (not) used.
@@ -125,13 +129,10 @@ enum SrcDstFSType
     SYNDATAFS = 4,
     FUSEFS = 5,
 
-    S3FS = 6, // everything after here is REST-ful (see REST_FS)
     PLFSFS = 7,
     MARFSFS = 8,
-    OLD_MARFSFS = 9
 };
 #define PARALLEL_DESTFS PANASASFS /* beginning of SrcDstFSTypes supporting N:1 writes */
-#define REST_FS S3FS              /* beginning of SrcDstFSTypes that are RESTful */
 
 // special open flags, specific to the Pftool Path class
 #define O_CONCURRENT_WRITE 020000000000
@@ -239,9 +240,7 @@ enum FileType
     REGULARFILE,
     FUSEFILE,
     PLFSFILE,
-    S3FILE,
     MARFSFILE,
-    OLD_MARFSFILE,
 
     SYNDATA, // synthetic data (no file - in memory read)
     NULLFILE,
@@ -362,7 +361,7 @@ int compare_file(path_item *src_file, path_item *dest_file, size_t blocksize, in
 //local functions
 int request_response(int type_cmd);
 int request_input_queuesize();
-void send_command(int target_rank, int type_cmd);
+void send_command(int target_rank, int type_cmd, int mpi_tag);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
 void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
 
