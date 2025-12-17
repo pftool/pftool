@@ -982,8 +982,8 @@ int update_stats(PathPtr p_src,
     PathPtr p_dest = p_dst;
 
     // if running as root, always update <dest_file> owner  (without following links)
-    // non-root user can also attempt this, by setting "preserve" (with -o)
-    if (0 == geteuid())
+    // always attempt to chown group
+    if (o.preserve > 1)
     {
         if (!p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid))
         {
@@ -991,7 +991,7 @@ int update_stats(PathPtr p_src,
                         p_dest->path(), p_dest->strerror());
         }
     }
-    else if (o.preserve)
+    else
     {
         if (!p_dest->lchown(geteuid(), p_src->st().st_gid))
         {
@@ -1890,8 +1890,8 @@ int samefile(PathPtr p_src, PathPtr p_dst, const struct options &o, int dst_has_
     // (satisfied conditions -> "same" file)
 
     if (src.st.st_size == dst.st.st_size && (src.st.st_mtime == dst.st.st_mtime || S_ISLNK(src.st.st_mode))
-        // only chown if preserve set
-        && (((src.st.st_uid == dst.st.st_uid) && (src.st.st_gid == dst.st.st_gid)) || !o.preserve)
+        // only consider gid a 'difference' if preserve set, only check uid if running as root ( o.preserve > 1 )
+        && (!o.preserve  ||  ((src.st.st_gid == dst.st.st_gid)  &&  (o.preserve <= 1  ||  src.st.st_uid == dst.st.st_uid)))
     )
     {
         // class-specific techniques (e.g. MarFS file has RESTART?)
