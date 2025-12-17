@@ -383,6 +383,10 @@ int main(int argc, char *argv[])
             fprintf(stderr, "'-n' can't be used with '-w 2'\n");
             return -1;
         }
+        if ( geteuid() == 0 )
+        {
+            o.preserve = 2; // default to 'preserve' + ownership checks for root, always
+        }
 
         // '-g' allows controlled debugging.
         // Wait for someone to attach gdb, before proceeding.
@@ -2110,10 +2114,10 @@ void worker_readdir(int rank,
                 }
 
                 // if running as root, always update destination dir with original ownership
-                // non-root user can also attempt this, by setting "preserve" (with -o)
+                // otherwise, allways attempt to preserve group
                 PRINT_IO_DEBUG("Creating dir (%s) for input dir (%s) with perms (%d) and gid (%d)\n",
                                p_dir->path(), p_work->path(), p_work->node().st.st_mode, p_work->node().st.st_gid);
-                if (geteuid() == 0)
+                if (o.preserve > 1)
                 {
                     if (!p_dir->lchown(p_work->node().st.st_uid, p_work->node().st.st_gid))
                     {
@@ -2121,7 +2125,7 @@ void worker_readdir(int rank,
                                     p_dir->path(), p_dir->strerror());
                     }
                 }
-                else if (o.preserve)
+                else
                 {
                     if (!p_dir->lchown(geteuid(), p_work->node().st.st_gid))
                     {
