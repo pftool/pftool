@@ -87,9 +87,9 @@ void usage()
 const char *cmd2str(OpCode cmdidx)
 {
     static const char *CMDSTR[] = {
-        "EXITCMD", "UPDCHUNKCMD", "BUFFEROUTCMD", "OUTCMD", "LOGCMD", "LOGONLYCMD", "QUEUESIZECMD", "STATCMD", "COMPARECMD", "COPYCMD", "PROCESSCMD", "INPUTCMD", "DIRCMD", "WORKDONECMD", "NONFATALINCCMD", "CHUNKBUSYCMD", "COPYSTATSCMD", "EXAMINEDSTATSCMD", "ADDTIMINGCMD", "SHOWTIMINGCMD"};
+        "EXITCMD", "UPDCHUNKCMD", "BUFFEROUTCMD", "OUTCMD", "LOGCMD", "LOGONLYCMD", "COMPARECMD", "COPYCMD", "PROCESSCMD", "DIRCMD", "WORKDONECMD", "NONFATALINCCMD", "CHUNKBUSYCMD", "COPYSTATSCMD", "EXAMINEDSTATSCMD"};
 
-    return ((cmdidx > SHOWTIMINGCMD) ? "Invalid Command" : CMDSTR[cmdidx]);
+    return ((cmdidx > EXAMINEDSTATSCMD) ? "Invalid Command" : CMDSTR[cmdidx]);
 }
 
 // print the mode <aflag> into buffer <buf> in a regular 'pretty' format
@@ -1075,11 +1075,6 @@ int request_response(int type_cmd)
     return response;
 }
 
-int request_input_queuesize()
-{
-    return request_response(QUEUESIZECMD);
-}
-
 void send_command(int target_rank, int type_cmd, int mpi_tag)
 {
 #ifdef MPI_DEBUG
@@ -1215,12 +1210,6 @@ void send_manager_dirs_buffer(path_item *buffer, int *buffer_count)
 {
     //sends a chunk of regular files to the manager
     send_path_buffer(MANAGER_PROC, DIRCMD, buffer, buffer_count);
-}
-
-void send_manager_new_buffer(path_item *buffer, int *buffer_count)
-{
-    //send manager new inputs
-    send_path_buffer(MANAGER_PROC, INPUTCMD, buffer, buffer_count);
 }
 
 void send_manager_work_done(int ignored)
