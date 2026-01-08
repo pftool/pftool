@@ -186,8 +186,6 @@ enum cmd_opcode
     OUTCMD,
     LOGCMD,
     LOGONLYCMD,
-    QUEUESIZECMD,
-    STATCMD,
     COMPARECMD,
     COPYCMD,
     PROCESSCMD,
@@ -198,8 +196,6 @@ enum cmd_opcode
     CHUNKBUSYCMD,
     COPYSTATSCMD,
     EXAMINEDSTATSCMD,
-    ADDTIMINGCMD,
-    SHOWTIMINGCMD,
 };
 typedef enum cmd_opcode OpCode;
 
@@ -360,7 +356,6 @@ int compare_file(path_item *src_file, path_item *dest_file, size_t blocksize, in
 
 //local functions
 int request_response(int type_cmd);
-int request_input_queuesize();
 void send_command(int target_rank, int type_cmd, int mpi_tag);
 void send_path_buffer(int target_rank, int command, path_item *buffer, int *buffer_count);
 void send_buffer_list(int target_rank, int command, work_buf_list **workbuflist, work_buf_list **workbuftail, int *workbufsize);
@@ -378,7 +373,6 @@ int processing_complete(struct worker_proc_status *proc_status, int free_worker_
 //function definitions for manager
 void send_manager_regs_buffer(path_item *buffer, int *buffer_count);
 void send_manager_dirs_buffer(path_item *buffer, int *buffer_count);
-void send_manager_new_buffer(path_item *buffer, int *buffer_count);
 void send_manager_nonfatal_inc();
 void send_manager_chunk_busy();
 void send_manager_copy_stats(int num_copied_files, size_t num_copied_bytes);

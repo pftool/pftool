@@ -730,10 +730,6 @@ int manager(int rank,
     size_t num_copied_bytes = 0;
     size_t num_copied_bytes_prev = 0; // captured at previous timer
 
-    work_buf_list *stat_buf_list = NULL;
-    work_buf_list *stat_buf_list_tail = NULL;
-    int stat_buf_list_size = 0;
-
     work_buf_list *process_buf_list = NULL;
     work_buf_list *process_buf_list_tail = NULL;
     int process_buf_list_size = 0;
@@ -1006,7 +1002,6 @@ int manager(int rank,
             {
                 PRINT_POLL_DEBUG("Rank %d: Waiting for a message\n", rank);
                 PRINT_POLL_DEBUG("process_buf_list_size = %d\n", process_buf_list_size);
-                PRINT_POLL_DEBUG("stat_buf_list_size = %d\n", stat_buf_list_size);
                 PRINT_POLL_DEBUG("dir_buf_list_size = %d\n", dir_buf_list_size);
 
                 // maybe break out of the probe loop, to provide timely output
@@ -1072,10 +1067,9 @@ int manager(int rank,
                 }
             }
 
-            // stop handing out new readdir/stat work if we're over MAXWORKACCUM soft threshold
-            if (dir_buf_list_size && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks)) && process_buf_list_size <= MAXWORKACCUM)
+            // stop handing out new readdir/stat work if we're over readdir_rank max
+            if (dir_buf_list_size && ((-1 == o.max_readdir_ranks) || (readdir_rank_count < o.max_readdir_ranks)))
             {
-
                 work_rank = get_free_rank(proc_status, START_PROC, nproc - 1);
                 if (work_rank >= 0)
                 {
@@ -1098,7 +1092,7 @@ int manager(int rank,
             }
 
             //are we finished?
-            if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, free_worker_count, nproc))
+            if (process_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, free_worker_count, nproc))
             {
 
                 break;
@@ -1106,7 +1100,7 @@ int manager(int rank,
         }
 
         // got a message, or nothing left to do
-        if (process_buf_list_size == 0 && stat_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, free_worker_count, nproc))
+        if (process_buf_list_size == 0 && dir_buf_list_size == 0 && processing_complete(proc_status, free_worker_count, nproc))
         {
 
             break;
@@ -1117,7 +1111,8 @@ int manager(int rank,
             // we have a message, but maybe not one we want to accept if the queues are too large
 	    // accept only non-work producing messages if the work queue is "full"
 	    int mpi_return = 0;
-	    if (dir_buf_list_size <= MAXWORKACCUM && process_buf_list_size <= MAXWORKACCUM && stat_buf_list_size <= MAXWORKACCUM)
+
+	    if (process_buf_list_size <= MAXWORKACCUM)
                 mpi_return = MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             else
 		mpi_return = MPI_Recv(&type_cmd, 1, MPI_INT, MPI_ANY_SOURCE, MPI_TAG_NOT_MORE_WORK, MPI_COMM_WORLD, &status);
@@ -1153,12 +1148,6 @@ int manager(int rank,
                 break;
             case DIRCMD:
                 manager_add_buffs(rank, sending_rank, &dir_buf_list, &dir_buf_list_tail, &dir_buf_list_size);
-                break;
-            case INPUTCMD:
-                manager_add_buffs(rank, sending_rank, &stat_buf_list, &stat_buf_list_tail, &stat_buf_list_size);
-                break;
-            case QUEUESIZECMD:
-                send_worker_queue_count(sending_rank, stat_buf_list_size);
                 break;
 
             default:
@@ -1247,9 +1236,6 @@ int manager(int rank,
                          num_copied_files, bytes, bw_avg );
                 write_output(message, 1);
 #endif
-
-                // log accumulated performance-statistics for marfs-internals
-                send_command(ACCUM_PROC, SHOWTIMINGCMD, MPI_TAG_NOT_MORE_WORK);
 
                 // save current byte-count, so we can see incremental changes
                 num_copied_bytes_prev = num_copied_bytes; // measure BW per-timer
@@ -1383,9 +1369,6 @@ int manager(int rank,
              num_copied_files, human_val, bw_avg, examined_file_count, examined_dir_count );
     write_output(message, 1);
 #endif
-
-    // (ask ACCUM_PROC to) show statistics accumulated over final period
-    send_command(ACCUM_PROC, SHOWTIMINGCMD, MPI_TAG_NOT_MORE_WORK);
 
     // (3) *now* we're done with OUTPUT_PROC.  All other workers have exited.
     send_worker_exit(OUTPUT_PROC); // no need for barrier here ...
@@ -1702,12 +1685,6 @@ void worker(int rank, struct options &o)
             break;
         case COMPARECMD:
             worker_comparelist(rank, sending_rank, base_path, &dest_node, o);
-            break;
-        case ADDTIMINGCMD:
-            worker_add_timing_data(sending_rank);
-            break;
-        case SHOWTIMINGCMD:
-            worker_show_timing_data(sending_rank, o);
             break;
 
         case EXITCMD:
