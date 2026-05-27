@@ -243,7 +243,7 @@ def get_nodeallocation():
 
     return(nodelist, numprocs)
 
-
+# check if ssh is responding or deeper check for marfs nodes
 def is_ssh_running(host):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(.1)
@@ -254,6 +254,16 @@ def is_ssh_running(host):
     except socket.error:
         reachable = False
     s.close()
+    return reachable
+
+
+def is_fta_booted(host)
+    output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | grep campaign | wc -l"'], stderr=subprocess.DEVNULL)
+
+    if int(output) == 1:
+        reachable = True
+    else:
+        reachable = False
     return reachable
 
 
@@ -291,8 +301,12 @@ class Config:
                     # are reachable through ssh
                     up_host = []
                     for host in nodelist:
-                        if is_ssh_running(host):
-                            up_host.append(host)
+                        if config.getboolean("environment", "fta_check"):
+                            if is_fta_booted(host):
+                                up_host.append(host)
+                        else:
+                            if is_ssh_running(host):
+                                up_host.append(host)
                     # We want to meet the minimum per node for processes
                     calc_procs = self.min_per_node * len(up_host)
                     # pftool requires 4 processes minimum
@@ -312,15 +326,3 @@ class Config:
         except configparser.NoOptionError as e:
             print(e)
             sys.exit("Config read error. Missing a value.")
-
-
-def busy():
-    print("""
-*******************************************************************
-*                                                                 *
-* The Parallel Archive System is busy now. There is no available  *
-* host machine to run your pfcm job now.  Please try it later.    *
-*                                                                 *
-* Contact:  ICN Consulting Office (5-4444 option 3)               *
-*******************************************************************
-""")
