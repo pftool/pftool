@@ -9,6 +9,7 @@ from socket import gethostname
 import syslog
 import configparser
 import socket
+import subprocess
 
 
 class PF:
