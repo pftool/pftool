@@ -257,7 +257,7 @@ def is_ssh_running(host):
     return reachable
 
 
-def is_fta_booted(host)
+def is_fta_booted(host):
     output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | grep campaign | wc -l"'], stderr=subprocess.DEVNULL)
 
     if int(output) == 1:
