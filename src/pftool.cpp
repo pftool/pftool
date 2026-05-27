@@ -2104,8 +2104,8 @@ void worker_readdir(int rank,
                 }
                 else
                 {
-                    if (!p_dir->lchown(geteuid(), p_work->node().st.st_gid))
-                    {
+                    if (!p_dir->lchown(geteuid(), p_work->node().st.st_gid) && o.preserve)
+                    {   // only report a failure if 'preserve' option was explicitly set
                         errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership %s: %s\n",
                                     p_dir->path(), p_dir->strerror());
                     }
