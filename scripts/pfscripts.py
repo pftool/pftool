@@ -244,7 +244,7 @@ def get_nodeallocation():
 
     return(nodelist, numprocs)
 
-# check if ssh is responding or deeper check for marfs nodes
+
 def is_ssh_running(host):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(.1)
@@ -257,16 +257,13 @@ def is_ssh_running(host):
     s.close()
     return reachable
 
-
 def is_fta_booted(host):
-    output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | grep campaign | wc -l"'], stderr=subprocess.DEVNULL)
-
-    if int(output) == 1:
+    output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | wc -l"'], stderr=subprocess.DEVNULL)
+    if int(output) >= 1:
         reachable = True
     else:
         reachable = False
     return reachable
-
 
 class Config:
     def __init__(self, prog_name):
@@ -289,41 +286,42 @@ class Config:
             # Prefer getting a nodelist from a WLM manager like SLURM
             # Fall back on the nodes set to ON in pftool.cfg
             nodelist, total_procs = get_nodeallocation()
-            if nodelist and total_procs:
-                self.node_list = nodelist
-                self.total_procs = total_procs
-            else:
-                # get hosts from node list in pftool.cfg
-                try:
+            try:
+                if nodelist and total_procs:
+                    self.node_list = nodelist
+                    self.total_procs = total_procs
+                else:
+                    # get hosts from node list in pftool.cfg
                     nodes = config.items("active_nodes")
                     nodelist = [x[0].lower() for x in
                                 [x for x in nodes if x[1] == "ON"]]
-                    # Without a WLM allocation we need to check if our hosts
-                    # are reachable through ssh
-                    up_host = []
-                    for host in nodelist:
+                # check if our hosts are reachable regardless of host generation method
+                up_host = []
+                for host in nodelist:
                         if config.getboolean("environment", "fta_check"):
                             if is_fta_booted(host):
                                 up_host.append(host)
                         else:
                             if is_ssh_running(host):
                                 up_host.append(host)
-                    # We want to meet the minimum per node for processes
-                    calc_procs = self.min_per_node * len(up_host)
-                    # pftool requires 4 processes minimum
-                    if calc_procs < 4:
-                        calc_procs = 4
-                    procs = (calc_procs, self.config_procs)
-                    procs = max(procs)
-                    # don't know why we're shuffling this but I'm leaving it in
-                    random.shuffle(up_host)
-                    self.node_list = up_host
-                    self.total_procs = procs
-                except BaseException as e:
-                    print(e)
-                    sys.exit(
-                        "Need at least one node in config " +
-                        "file set to on (e.g. localhost: ON)")
+                # We want to meet the minimum per node for processes
+                calc_procs = self.min_per_node * len(up_host)
+                # pftool requires 4 processes minimum
+                if calc_procs < 4:
+                    calc_procs = 4
+                procs = (calc_procs, self.config_procs)
+                procs = max(procs)
+                if len(up_host) == 0:
+                    raise ValueError(f"Need at least 1 node to run.")
+                # shuffle starting host to keep memory pressure off of the first node
+                random.shuffle(up_host)
+                self.node_list = up_host
+                self.total_procs = procs
+            except BaseException as e:
+                print(e)
+                sys.exit(
+                    "Need at least one node in config " +
+                    "file set to on (e.g. localhost: ON)")
         except configparser.NoOptionError as e:
             print(e)
             sys.exit("Config read error. Missing a value.")
