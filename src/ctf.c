@@ -321,7 +321,7 @@ int populateCTF(CTM *ctmptr, long numchunks, size_t chunksize) {
 
 	// Manage CTF file
 	stat(ctmptr->chnkfname,&sbuf);
-#ifdef CONDUIT
+#ifndef RESTART
 	if(TRUE)	// fake a stub file so we get an allocated structure back
 #else
 	if(sbuf.st_size <= SIG_DIGEST_LENGTH * 2 + 1 + DATE_STRING_MAX)

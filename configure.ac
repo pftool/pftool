@@ -56,12 +56,12 @@ AM_CONDITIONAL([CONDUIT], [test x$enable_conduit = xyes]  &&  CONDUIT_ENABLED="E
 TMPFILE_ENABLED="DISABLED"
 AC_ARG_ENABLE([tmpfile],
               AS_HELP_STRING( [--disable-tmpfile], [Disable output to temporary file during parallel write @{:@ CONDUIT support forces this off @:}@] ) )
-AM_CONDITIONAL([TMPFILE], [( test "x$enable_tmpfile" = "xyes"  ||  test "x$enable_tmpfile" = "x" )  &&  test "x$CONDUIT_ENABLED" = "xDISABLED"]  &&  TMPFILE_ENABLED="ENABLED")
+AM_CONDITIONAL([TMPFILE], [ test "x$enable_tmpfile" = "xyes"  ||  test "x$enable_tmpfile" = "x" ]  &&  TMPFILE_ENABLED="ENABLED")
 
 RESTART_ENABLED="DISABLED"
 AC_ARG_ENABLE([restart],
               AS_HELP_STRING( [--disable-restart], [Disable restartability of parallel writes and output of CTM info @{:@ CONDUIT support forces this off @:}@] ) )
-AM_CONDITIONAL([RESTART], [( test "x$enable_restart" = "xyes"  ||  test "x$enable_restart" = "x" )  &&  test "x$CONDUIT_ENABLED" = "xDISABLED"]  &&  RESTART_ENABLED="ENABLED")
+AM_CONDITIONAL([RESTART], [ test "x$enable_restart" = "xyes"  ||  test "x$enable_restart" = "x" ]  &&  RESTART_ENABLED="ENABLED")
 
 AC_CONFIG_HEADER([config.h])
 
