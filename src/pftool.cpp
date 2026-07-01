@@ -207,7 +207,7 @@ int main(int argc, char *argv[])
                 strncpy(src_path, optarg, PATHSIZE_PLUS);
                 if (src_path[PATHSIZE_PLUS - 1])
                 {
-                    fprintf(stderr, "Oversize path for src_path %s\n", optarg);
+                    fprintf(stderr, "Oversize path for src_path '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
                 break;
@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
                 strncpy(dest_path, optarg, PATHSIZE_PLUS);
                 if (dest_path[PATHSIZE_PLUS - 1])
                 {
-                    fprintf(stderr, "Oversize path for dest_path %s\n", optarg);
+                    fprintf(stderr, "Oversize path for dest_path '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
                 break;
@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
                 strncpy(o.file_list, optarg, PATHSIZE_PLUS);
                 if (o.file_list[PATHSIZE_PLUS - 1])
                 {
-                    fprintf(stderr, "Oversize path for file_list %s\n", optarg);
+                    fprintf(stderr, "Oversize path for file_list '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
                 o.use_file_list = 1;
@@ -267,7 +267,7 @@ int main(int argc, char *argv[])
                 strncpy(o.syn_pattern, optarg, 128);
                 if (o.syn_pattern[127])
                 {
-                    fprintf(stderr, "Oversize path for syn_pattern %s\n", optarg);
+                    fprintf(stderr, "Oversize path for syn_pattern '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
 #else
@@ -286,7 +286,7 @@ int main(int argc, char *argv[])
                 strncpy(o.syn_suffix, optarg, SYN_SUFFIX_MAX - 2); // two less, so that we can add a 'b' if needed
                 if (o.syn_suffix[SYN_SUFFIX_MAX - 3])
                 {
-                    fprintf(stderr, "Oversize path for syn_suffix %s\n", optarg);
+                    fprintf(stderr, "Oversize path for syn_suffix '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
 
@@ -343,7 +343,7 @@ int main(int argc, char *argv[])
                 strncpy(o.exclude, optarg, PATHSIZE_PLUS);
                 if (o.exclude[PATHSIZE_PLUS - 1])
                 {
-                    fprintf(stderr, "Oversize path for exclude %s\n", optarg);
+                    fprintf(stderr, "Oversize path for exclude '%s'\n", optarg);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
                 o.exclude[PATHSIZE_PLUS - 1] = '\0';
@@ -549,7 +549,7 @@ int main(int argc, char *argv[])
                 }
                 else if ((NULL == p_dest->realpath(buf)) && (ENOENT != errno))
                 {
-                    fprintf(stderr, "Failed to realpath dest_path: %s\n", dest_path);
+                    fprintf(stderr, "Failed to realpath dest_path: '%s'\n", dest_path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
                 // let p_dest setup marfs repo timing stats allocation
@@ -582,7 +582,7 @@ int main(int argc, char *argv[])
                 PathPtr p_src(PathFactory::create(head->data.path));
                 if (NULL == p_src->realpath(buf))
                 {
-                    fprintf(stderr, "Failed to realpath src: %s (%s)\n", p_src->path(),p_src->class_name().get());
+                    fprintf(stderr, "Failed to realpath src: '%s' (%s)\n", p_src->path(),p_src->class_name().get());
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             } while (0 != strcmp(head->data.path, buf));
@@ -592,7 +592,7 @@ int main(int argc, char *argv[])
             {
                 if (0 == strcmp(dest_path, head->data.path))
                 {
-                    printf("The file \"%s\" is both a source and destination\n", dest_path);
+                    printf("The file '%s' is both a source and destination\n", dest_path);
                     MPI_Abort(MPI_COMM_WORLD, -1);
                 }
             }
@@ -603,7 +603,7 @@ int main(int argc, char *argv[])
                 path_list *oldHead;
                 if (o.verbose >= 1)
                 {
-                    printf("Excluding: %s\n", head->data.path);
+                    printf("Excluding: '%s'\n", head->data.path);
                 }
                 if (head == input_queue_head)
                 {
@@ -812,7 +812,7 @@ int manager(int rank,
     rc = stat_item(&beginning_node, o);
     if(!S_ISREG(beginning_node.st.st_mode) && !S_ISDIR(beginning_node.st.st_mode) && !S_ISLNK(beginning_node.st.st_mode))
     {
-        fprintf(stderr, "%s is a special file\n", beginning_node.path);
+        fprintf(stderr, "'%s' is a special file\n", beginning_node.path);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
 
@@ -887,14 +887,14 @@ int manager(int rank,
         PathPtr p_dir(PathFactory::create((char *)dir_path));
         if (!p_dir->exists())
         {
-            fprintf(stderr, "parent doesn't exist: %s\n", dir_path);
+            fprintf(stderr, "parent doesn't exist: '%s'\n", dir_path);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
 
         // check to make sure that if the source is a directory, then -R was specified. If not, error out.
         if (S_ISDIR(beginning_node.st.st_mode) && !o.recurse)
         {
-            fprintf(stderr, "%s is a directory, but no recursive operation specified\n",
+            fprintf(stderr, "'%s' is a directory, but no recursive operation specified\n",
                     beginning_node.path);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
@@ -956,7 +956,7 @@ int manager(int rank,
 
     sprintf(message, "INFO  HEADER   ========================  %s  ============================\n", o.jid);
     write_output(message, 1);
-    sprintf(message, "INFO  HEADER   Starting Path: %s\n", beginning_node.path);
+    sprintf(message, "INFO  HEADER   Starting Path: '%s'\n", beginning_node.path);
     write_output(message, 1);
 
     {
@@ -1791,7 +1791,7 @@ void worker_update_chunk(int rank,
     {
         MPI_Unpack(workbuf, worksize, &position, &work_node, sizeof(path_item), MPI_CHAR, MPI_COMM_WORLD);
 
-        PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file %s)\n", rank, sending_rank, work_node.chkidx, work_node.path);
+        PRINT_MPI_DEBUG("rank %d: worker_update_chunk() Unpacking the work_node from rank %d (chunk %d of file '%s')\n", rank, sending_rank, work_node.chkidx, work_node.path);
 
         // CTM is based off of destination file.
         //original destination path is used to generate CTM, no need for temp file name
@@ -1855,7 +1855,7 @@ void worker_update_chunk(int rank,
                 int ctmlen = 2048;
 
                 PRINT_IO_DEBUG("rank %d: worker_update_chunk() Updating CTM "
-                               "(chunk %d of file %s)\n%s\n",
+                               "(chunk %d of file '%s')\n%s\n",
                                rank, out_node.chkidx, out_node.path,
                                tostringCTM((CTM *)hash_value, &ctmstr, &ctmlen));
             }
@@ -1868,7 +1868,7 @@ void worker_update_chunk(int rank,
         else if (hashdata_filedone(hash_value))
         { // --- File is done transferring
             PRINT_IO_DEBUG("rank %d: worker_update_chunk() Last Chunk transferred. "
-                           "CTM should be removed. (chunk %d of file %s)\n",
+                           "CTM should be removed. (chunk %d of file '%s')\n",
                            rank, out_node.chkidx, out_node.path);
             hash_value = hashtbl_remove(*chunk_hash, out_node.path); // remove structure for File from hash table
             hashdata_destroy(&hash_value);                           // we are done with the data
@@ -2043,7 +2043,7 @@ void worker_readdir(int rank,
             if (!p_work->exists())
             { // performs a stat()
                 errsend_fmt(((o.work_type == LSWORK) ? NONFATAL : FATAL),
-                            "Failed to stat path (1) %s\n", p_work->path());
+                            "Failed to stat path (1) '%s'\n", p_work->path());
                 if (o.work_type == LSWORK)
                     return;
             }
@@ -2058,7 +2058,7 @@ void worker_readdir(int rank,
             // destination-paths.
             if (!p_work->opendir())
             {
-                errsend_fmt(NONFATAL, "Failed to open (%s) dir %s [%s]\n",
+                errsend_fmt(NONFATAL, "Failed to open (%s) dir '%s' [%s]\n",
                             p_work->class_name().get(), p_work->path(), p_work->strerror());
                 break; // if we fail to open here, we'll segfault when we try to readdir.  Likely more to do here.
             }
@@ -2092,13 +2092,13 @@ void worker_readdir(int rank,
 
                 // if running as root, always update destination dir with original ownership
                 // otherwise, allways attempt to preserve group
-                PRINT_IO_DEBUG("Creating dir (%s) for input dir (%s) with perms (%d) and gid (%d)\n",
+                PRINT_IO_DEBUG("Creating dir ('%s') for input dir ('%s') with perms (%d) and gid (%d)\n",
                                p_dir->path(), p_work->path(), p_work->node().st.st_mode, p_work->node().st.st_gid);
                 if (o.preserve > 1)
                 {
                     if (!p_dir->lchown(p_work->node().st.st_uid, p_work->node().st.st_gid))
                     {
-                        errsend_fmt(NONFATAL, "update_stats -- Failed to chown dir %s: %s\n",
+                        errsend_fmt(NONFATAL, "update_stats -- Failed to chown dir '%s': %s\n",
                                     p_dir->path(), p_dir->strerror());
                     }
                 }
@@ -2106,7 +2106,7 @@ void worker_readdir(int rank,
                 {
                     if (!p_dir->lchown(geteuid(), p_work->node().st.st_gid) && o.preserve)
                     {   // only report a failure if 'preserve' option was explicitly set
-                        errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership %s: %s\n",
+                        errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership '%s': %s\n",
                                     p_dir->path(), p_dir->strerror());
                     }
                 }
@@ -2151,7 +2151,7 @@ void worker_readdir(int rank,
                     {
                         if (o.verbose >= 1)
                         {
-                            output_fmt(1, "Excluding: %s\n", path);
+                            output_fmt(1, "Excluding: '%s'\n", path);
                         }
                     }
                     else
@@ -2161,7 +2161,7 @@ void worker_readdir(int rank,
                         if (!p_new->exists())
                         {
                             // GRANSOM EDIT : Altered to make 'stat' failure NONFATAL, even if o.work_type != LSWORK
-                            errsend_fmt( NONFATAL, "Failed to stat path (2) %s\n", p_new->path() );
+                            errsend_fmt( NONFATAL, "Failed to stat path (2) '%s'\n", p_new->path() );
                             break; // why would we return here if doing LSWORK? Live lock if we just return...
                             if (o.work_type == LSWORK)
                                 return;
@@ -2185,13 +2185,13 @@ void worker_readdir(int rank,
             // did the readdir() loop exit because of an error?
             if (!readdir_p)
             {
-                errsend_fmt(NONFATAL, "readdir (entry %d) failed on %s (%s)\n",
+                errsend_fmt(NONFATAL, "readdir (entry %d) failed on '%s' (%s)\n",
                             buffer_count, work_node.path, p_work->strerror());
             }
             // done with
             if (!p_work->closedir())
             {
-                errsend_fmt(NONFATAL, "Failed to close (%s) dir %s [%s]\n",
+                errsend_fmt(NONFATAL, "Failed to close (%s) dir '%s' [%s]\n",
                             p_work->class_name().get(), p_work->path(), p_work->strerror());
             }
         }
@@ -2282,7 +2282,7 @@ int maybe_pre_process(int pre_process,
 
         if (do_unlink && !p_out->unlink() && (errno != ENOENT))
         {
-            errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
+            errsend_fmt(FATAL, "Failed to unlink '%s': %s\n",
                         p_out->path(), p_out->strerror());
         }
         if ( chunk_size  &&  *chunk_size < 1 )
@@ -2308,7 +2308,7 @@ int maybe_pre_process(int pre_process,
             epoch_to_string(timestamp, DATE_STRING_MAX, &mtime);
         }
         else if (get_ctm_timestamp(timestamp, p_out->path()) < 0) {
-            errsend_fmt(FATAL, "Failed to read timestamp for temporary-file %s: %s\n",
+            errsend_fmt(FATAL, "Failed to read timestamp for temporary-file '%s': %s\n",
                 p_out->path(), strerror(errno));
             return -1;
         }
@@ -2327,12 +2327,12 @@ int maybe_pre_process(int pre_process,
             if (do_unlink) {
                 // unlink the temp-file
                 if (!p_temp->unlink() && (errno != ENOENT)) {
-                    errsend_fmt(FATAL, "Failed to unlink temporary-file %s: %s\n",
+                    errsend_fmt(FATAL, "Failed to unlink temporary-file '%s': %s\n",
                         p_temp->path(), strerror(errno));
                 }
 #ifdef RESTART
                 // CTM is obsolete
-                // printf("purging CTM for path: %s\n", p_out->path());
+                // printf("purging CTM for path: '%s'\n", p_out->path());
                 purgeCTM(p_out->path());
 #endif
             }
@@ -2343,7 +2343,7 @@ int maybe_pre_process(int pre_process,
 #ifdef RESTART
             else if (strcmp(p_out->class_name().get(), "NULL_Path")  &&  create_CTM(p_out, p_work))
             {
-                errsend_fmt(NONFATAL, "create_CTM failed for %s, %s: %s\n",
+                errsend_fmt(NONFATAL, "create_CTM failed for '%s', '%s': %s\n",
                             p_out->path(), p_work->path(), strerror(errno));
             }
 #endif
@@ -2355,11 +2355,11 @@ int maybe_pre_process(int pre_process,
         if (do_unlink) {
             // unlink the destination file - we're overwriting it!
             if (!p_temp->unlink() && (errno != ENOENT)) {
-                errsend_fmt(FATAL, "Failed to unlink destination file %s: %s\n", p_temp->path(), strerror(errno));
+                errsend_fmt(FATAL, "Failed to unlink destination file '%s': %s\n", p_temp->path(), strerror(errno));
             }
 #ifdef RESTART
             // CTM is obsolete
-            // printf("purging CTM for path: %s\n", p_out->path());
+            // printf("purging CTM for path: '%s'\n", p_out->path());
             purgeCTM(p_out->path());
 #endif
         }
@@ -2367,7 +2367,7 @@ int maybe_pre_process(int pre_process,
 #ifdef RESTART
         else if (strcmp(p_out->class_name().get(), "NULL_Path")  &&  create_CTM(p_out, p_work))
         {
-            errsend_fmt(NONFATAL, "create_CTM failed for %s, %s: %s\n",
+            errsend_fmt(NONFATAL, "create_CTM failed for '%s', '%s': %s\n",
                         p_out->path(), p_work->path(), strerror(errno));
         }
 #endif
@@ -2376,7 +2376,7 @@ int maybe_pre_process(int pre_process,
         if ( chunk_size  &&  *chunk_size < 1 ) {
             ssize_t chnksztmp = p_temp->chunksize(p_work->st().st_size, o.chunksize);
             if ( chnksztmp < 1 ) {
-                errsend_fmt(NONFATAL, "failed to identify chunk size value for %s, %s: %s\n",
+                errsend_fmt(NONFATAL, "failed to identify chunk size value for '%s', '%s': %s\n",
                             p_out->path(), p_work->path(), strerror(errno));
                 if (do_unlink) { p_temp->unlink(); } // possibly repeat the unlink of our temp file
                 return -1;
@@ -2387,7 +2387,7 @@ int maybe_pre_process(int pre_process,
     else if ( pre_process == 0 ) {
         if (do_unlink && !p_out->unlink() && (errno != ENOENT))
         {
-            errsend_fmt(FATAL, "Failed to unlink %s: %s\n",
+            errsend_fmt(FATAL, "Failed to unlink '%s': %s\n",
                         p_out->path(), p_out->strerror());
         }
         if ( chunk_size  &&  *chunk_size < 1 )
@@ -2581,7 +2581,7 @@ void process_stat_buffer(path_item *path_buffer,
         PathPtr p_dest(PathFactory::create_shallow(dest_node));
         PathPtr p_out;
 
-        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: %s\n",
+        PRINT_IO_DEBUG("rank %d: process_stat_buffer() processing entry %d: '%s'\n",
                        rank, i, work_node.path);
 
         // Are these items *identical* ? (e.g. same POSIX inode)
@@ -2659,7 +2659,7 @@ void process_stat_buffer(path_item *path_buffer,
                     dest_has_temp = 1;
             }
 
-            // printf("dest_exists: %+d -- %s\n", dest_exists, p_work->path());
+            // printf("dest_exists: %+d -- '%s'\n", dest_exists, p_work->path());
             // printf("  has_ctm:   %+d\n", dest_has_ctm);
             // printf("  has_temp:  %+d\n", dest_has_temp);
 
@@ -2699,7 +2699,7 @@ void process_stat_buffer(path_item *path_buffer,
             else if (((o.work_type == COPYWORK) || ((o.work_type == COMPAREWORK) && !o.meta_data_only)) && (!p_work->faccessat(R_OK, AT_SYMLINK_NOFOLLOW)))
             {
 
-                errsend_fmt(NONFATAL, "No read-access to source-file %s: %s\n",
+                errsend_fmt(NONFATAL, "No read-access to source-file '%s': %s\n",
                             p_work->path(), p_work->strerror());
                 process = 0;
             }
@@ -2708,7 +2708,7 @@ void process_stat_buffer(path_item *path_buffer,
             else if ((o.work_type == COMPAREWORK) && (!o.meta_data_only) && (!p_out->faccessat(R_OK, AT_SYMLINK_NOFOLLOW)) && dest_exists)
             {
 
-                errsend_fmt(NONFATAL, "No read-access to dest-file %s: %s\n",
+                errsend_fmt(NONFATAL, "No read-access to dest-file '%s': %s\n",
                             p_out->path(), p_out->strerror());
                 process = 0;
             }
@@ -2802,7 +2802,7 @@ void process_stat_buffer(path_item *path_buffer,
                             {
                                 output_fmt(1,
                                            "INFO  DATASTAT -- Removing old temp-file "
-                                           "with mismatching src-hash: %s\n",
+                                           "with mismatching src-hash: '%s'\n",
                                            p_temp->path());
                             }
                             purgeCTM(p_out->path());
@@ -2818,7 +2818,7 @@ void process_stat_buffer(path_item *path_buffer,
                                 PathPtr p_temp(p_out->path_append(timestamp_plus));
                                 output_fmt(1,
                                            "INFO  DATASTAT -- Starting from 0, "
-                                           "because old temp-file is missing: %s\n",
+                                           "because old temp-file is missing: '%s'\n",
                                            p_temp->path());
                             }
                             purgeCTM(p_out->path());
@@ -2917,7 +2917,7 @@ void process_stat_buffer(path_item *path_buffer,
                             ctmExists = ((dest_has_ctm < 0) ? hasCTM(out_node.path) : dest_has_ctm);
                         }
                     }
-                    //fprintf( stderr, "%s (PreP=%d, UnL=%d, Pack=%d, Tmp=%d, DExist=%d)\n",
+                    //fprintf( stderr, "'%s' (PreP=%d, UnL=%d, Pack=%d, Tmp=%d, DExist=%d)\n",
                     //         p_out->path(), pre_process, do_unlink, work_node.packable, work_node.temp_flag, dest_exists );
 
                     // --- create destination (if needed)
@@ -2953,7 +2953,7 @@ void process_stat_buffer(path_item *path_buffer,
                            purgeCTM(p_out->path());
                            freeCTM( &(ctm) );
                            ctm = NULL;
-                           output_fmt(1, "INFO  PRE-PROCESS -- Starting from 0, due to CTM chunksize mismatch: %s\n",
+                           output_fmt(1, "INFO  PRE-PROCESS -- Starting from 0, due to CTM chunksize mismatch: '%s'\n",
                                       p_out->path());
                         }
 
@@ -3015,7 +3015,7 @@ void process_stat_buffer(path_item *path_buffer,
                             {
                                 if (o.verbose >= 1)
                                 {
-                                    output_fmt(1, "INFO  DATACOPY file %s chunk %d already transferred\n",
+                                    output_fmt(1, "INFO  DATACOPY file '%s' chunk %d already transferred\n",
                                                work_node.path, work_node.chkidx);
                                 }
                                 num_finished_bytes += work_node.chksz;
@@ -3072,7 +3072,7 @@ void process_stat_buffer(path_item *path_buffer,
             printmode(work_node.st.st_mode, modebuf);
             memcpy(&sttm, localtime(&work_node.st.st_mtime), sizeof(sttm));
             strftime(timebuf, sizeof(timebuf), "%a %b %d %Y %H:%M:%S", &sttm);
-            sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s %s\n",
+            sprintf(statrecord, "INFO  DATASTAT - %s %6lu %6d %6d %21zd %s '%s'\n",
                     modebuf, (long unsigned int)work_node.st.st_blocks,
                     work_node.st.st_uid, work_node.st.st_gid,
                     (size_t)work_node.st.st_size, timebuf, work_node.path);
@@ -3217,12 +3217,12 @@ void worker_copylist(int rank,
             {
                 if (S_ISLNK(work_node.st.st_mode))
                 {
-                    output_fmt(0, "INFO  DATACOPY Created symlink %s from %s\n",
+                    output_fmt(0, "INFO  DATACOPY Created symlink '%s' from '%s'\n",
                                out_node.path, work_node.path);
                 }
                 else
                 {
-                    output_fmt(0, "INFO  DATACOPY %sCopied %s chunk %d offs %lld len %lld to %s\n",
+                    output_fmt(0, "INFO  DATACOPY %sCopied '%s' chunk %d offs %lld len %lld to '%s'\n",
                                ((rc == 1) ? "*" : ""),
                                work_node.path, work_node.chkidx, (long long)offset, (long long)length, out_node.path);
                 }
@@ -3330,13 +3330,13 @@ void worker_comparelist(int rank,
         if (o.meta_data_only || S_ISLNK(work_node.st.st_mode))
         {
             snprintf(copymsg, MESSAGESIZE,
-                     "INFO  DATACOMPARE compared %s to %s",
+                     "INFO  DATACOMPARE compared '%s' to '%s'",
                      work_node.path, out_node.path);
         }
         else
         {
             snprintf(copymsg, MESSAGESIZE,
-                     "INFO  DATACOMPARE compared %s offs %lld len %lld to %s",
+                     "INFO  DATACOMPARE compared '%s' offs %lld len %lld to '%s'",
                      work_node.path, (long long)offset, (long long)length, out_node.path);
         }
 

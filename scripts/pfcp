@@ -64,7 +64,7 @@ def main(parser):
     if args.preserve:
         commands.add("-o")
     if args.verbose:
-        commands.add("-v")
+        commands.set_verbose()
     if args.syn_size is not None:
         commands.add("-x")
         commands.add(args.syn_size)
@@ -154,6 +154,8 @@ def main(parser):
 
     # add PFTOOL arguments
     pfcmd.add(*commands.commands)
+    if commands.verbose:
+        pfcmd.set_verbose()
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0],
@@ -169,13 +171,13 @@ def main(parser):
         print(pfcmd.commands)
 
     for i in range(0, args.try_attempts):
-        status = subprocess.call(pfcmd.commands)
+        status = pfcmd.run()
         # if we got nonfatal errors we can continue
         if status != 1:
             break
 
     if status != 0:
-        print("ERROR: %s failed" % sys.argv[0])
+        print("ERROR: %s failed -- Some files have failed to transfer" % sys.argv[0])
         if config.logging:
             pfs.write_log("[pfcp] [%s] PFCP failed." % (jid), syslog.LOG_ERR)
 
@@ -212,7 +214,7 @@ if __name__ == "__main__":
         '-v',
         '--verbose',
         action='store_true',
-        help='Verbose output',
+        help='Verbose error output',
         default=False
     )
 

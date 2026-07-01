@@ -32,15 +32,92 @@ class Work:
 class Commands:
     def __init__(self):
         self.commands = []
+        self.verbose = False
+
+    def __str__(self):
+        return " ".join(self.commands)
 
     def add(self, command, *value):
         self.commands.append(str(command))
         for v in value:
             self.commands.append(str(v))
 
-    def __str__(self):
-        return " ".join(self.commands)
+    def set_verbose(self):
+        self.verbose = True
 
+    def run(self):
+        # start the command subprocess
+        proc = subprocess.Popen(self.commands, stdout=subprocess.PIPE)
+        # initialize our regex sets and error dictionary
+        errdict = {}
+        mpiRE = re.compile(" *[a-zA-Z0-9\.\-_]+:rank[0-9]+\.pftool:")
+        errprefixRE = re.compile(" *RANK +[0-9]+ *: *ERROR +([A-Z]+) *: *")
+        fileRE = re.compile(" +'(/.*)'")
+        offsetRE = re.compile(" offs [0-9]+ ")
+        footerRE = re.compile(" *INFO +FOOTER +")
+        # process stdout lines
+        footer_seen = False
+        for rawline in proc.stdout:
+            # filter any openmpi error messages
+            line = rawline.decode('utf-8')
+            if not mpiRE.match(line):
+                ematch = errprefixRE.match(line)
+                if ematch is not None:
+                    # establish error components from regexes
+                    etype = ematch.group(1)
+                    efile = fileRE.search(line)
+                    if efile is not None:
+                        efile = efile.group(1)
+                    emsg = errprefixRE.sub("", line)
+                    emsg = fileRE.sub("", emsg)
+                    emsg = offsetRE.sub(" ", emsg)
+                    emsg = emsg.rstrip()
+                    # record error info in our dict
+                    if etype not in errdict:
+                        errdict[etype] = {}
+                    if emsg not in errdict[etype]:
+                        errdict[etype][emsg] = { "PRINTED": [], "HIDDEN": 0 }
+                    if len(errdict[etype][emsg]["PRINTED"]) < 5:
+                        sys.stdout.write(line)
+                        errdict[etype][emsg]["PRINTED"].append(str(efile))
+                    elif errdict[etype][emsg]["HIDDEN"] == 0:
+                        if self.verbose:
+                            sys.stdout.write(line)
+                        else:
+                            sys.stdout.write("FILTERING EXCESSIVE \"" + emsg + "\" ERROR OUTPUT\n")
+                        errdict[etype][emsg]["HIDDEN"] += 1
+                    else:
+                        if self.verbose:
+                            sys.stdout.write(line)
+                        errdict[etype][emsg]["HIDDEN"] += 1
+                else:
+                    # omit unrecognized lines beyond pftool FOOTER
+                    if footer_seen:
+                        if "FOOTER" in line:
+                            sys.stdout.write(line)
+                    elif footerRE.match(line):
+                        footer_seen = True
+                        sys.stdout.write(line)
+                    else:
+                        sys.stdout.write(line)
+        # possibly output error summary
+        if errdict:
+            sys.stdout.write("\n-------- ERROR SUMMARY --------\n")
+            for etype in errdict:
+                sys.stdout.write("\n" + etype + " ERRORS:\n")
+                for emsg in errdict[etype]:
+                    ecnt = len(errdict[etype][emsg]["PRINTED"]) + errdict[etype][emsg]["HIDDEN"]
+                    sys.stdout.write("\t\"" + emsg + "\" ( " + str(ecnt) + " Errors ) for paths including...\n")
+                    for efile in errdict[etype][emsg]["PRINTED"]:
+                        sys.stdout.write("\t\t\"" + efile + "\"\n")
+                    if errdict[etype][emsg]["HIDDEN"] > 0:
+                        if self.verbose:
+                            sys.stdout.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors ( SEE VERBOSE ERROR OUTPUT ABOVE )\n")
+                        else:
+                            sys.stdout.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors\n")
+                    sys.stdout.write("\n")
+        # return subprocess result
+        return proc.wait()
 
 def write_log(message, priority=syslog.LOG_ERR | syslog.LOG_USER):
     syslog.openlog("PFTOOL-LOG", syslog.LOG_PID |

@@ -279,7 +279,7 @@ void get_base_path(char *base_path,
     PathPtr p(PathFactory::create(item));
     if (!p->stat())
     {
-        fprintf(stderr, "get_base_path -- Failed to stat path %s\n", path);
+        fprintf(stderr, "get_base_path -- Failed to stat path '%s'\n", path);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     st = p->st();
@@ -485,21 +485,21 @@ int one_byte_read(const char *path)
     fd = open(path, O_RDONLY);
     if (fd < 0)
     {
-        sprintf(errormsg, "Failed to open file %s for read", path);
+        sprintf(errormsg, "Failed to open file '%s' for read", path);
         errsend(NONFATAL, errormsg);
         return -1;
     }
     bytes_processed = read(fd, &data, 1);
     if (bytes_processed != 1)
     {
-        sprintf(errormsg, "%s: Read %d bytes instead of %d", path, bytes_processed, 1);
+        sprintf(errormsg, "'%s': Read %d bytes instead of %d", path, bytes_processed, 1);
         errsend(NONFATAL, errormsg);
         return -1;
     }
     rc = close(fd);
     if (rc != 0)
     {
-        sprintf(errormsg, "Failed to close file: %s", path);
+        sprintf(errormsg, "Failed to close file: '%s'", path);
         errsend(NONFATAL, errormsg);
         return -1;
     }
@@ -563,12 +563,12 @@ int copy_file(PathPtr p_src,
         numchars = p_src->readlink(link_path, PATHSIZE_PLUS);
         if (numchars < 0)
         {
-            errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
+            errsend_fmt(NONFATAL, "Failed to read link '%s'\n", p_src->path());
             return -1;
         }
         else if (numchars >= PATHSIZE_PLUS)
         {
-            errsend_fmt(NONFATAL, "readlink %s, not enough room for '%s'\n", p_src->path());
+            errsend_fmt(NONFATAL, "readlink '%s', not enough room for symlink target path\n", p_src->path());
             return -1;
         }
         link_path[numchars] = '\0';
@@ -577,7 +577,7 @@ int copy_file(PathPtr p_src,
         ////        if (rc < 0)
         if (!p_dest->symlink(link_path) && strcmp(p_dest->class_name().get(), "NULL_Path"))
         {
-            errsend_fmt(NONFATAL, "Failed to create symlink %s -> %s\n", p_dest->path(), link_path);
+            errsend_fmt(NONFATAL, "Failed to create symlink '%s' -> '%s'\n", p_dest->path(), link_path);
             return -1;
         }
 
@@ -601,7 +601,7 @@ int copy_file(PathPtr p_src,
         rc = posix_memalign((void **)&buf, page_size, aligned_read_size * sizeof(char));
         if (!buf || rc)
         {
-            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading '%s'\n",
                         aligned_read_size, p_src->path());
             return -1;
         }
@@ -612,7 +612,7 @@ int copy_file(PathPtr p_src,
     // OPEN source for reading (binary mode)
     if (!p_src->open(read_flags, p_src->mode()) && !p_src->open(read_flags & ~O_DIRECT, p_src->mode()))
     {
-        errsend_fmt(NONFATAL, "copy_file: Failed to open file %s for read\n", p_src->path());
+        errsend_fmt(NONFATAL, "copy_file: Failed to open file '%s' for read\n", p_src->path());
         if (buf)
             free(buf);
         return -1;
@@ -643,12 +643,12 @@ int copy_file(PathPtr p_src,
     {
         if (p_dest->get_errno() == EDQUOT)
         {
-            errsend_fmt(FATAL, "Failed to open file %s for write (%s)\n",
+            errsend_fmt(FATAL, "Failed to open file '%s' for write (%s)\n",
                         p_dest->path(), p_dest->strerror());
         }
         else
         {
-            errsend_fmt(NONFATAL, "Failed to open file %s for write (%s)\n",
+            errsend_fmt(NONFATAL, "Failed to open file '%s' for write (%s)\n",
                         p_dest->path(), p_dest->strerror());
         }
         p_src->close();
@@ -689,12 +689,12 @@ int copy_file(PathPtr p_src,
         // if we didn't overread AND we didn't read to EOF, something is wrong
         if ((bytes_processed < 0) || (bytes_processed != aligned_read_size) && (bytes_processed < (blocksize+aligned_read_offset_adjust)))
         {
-            errsend_fmt(NONFATAL, "Failed %s offs %ld read %ld bytes instead of %zd: %s\n",
+            errsend_fmt(NONFATAL, "Failed '%s' offs %ld read %ld bytes instead of %zd: %s\n",
                         p_src->path(), aligned_read_offset, bytes_processed, blocksize, p_src->strerror());
             err = 1;
             break; // return -1;
         }
-        PRINT_IO_DEBUG("rank %d: copy_file() Read of %zd bytes ( offset adjust = %zd ) complete for file %s\n",
+        PRINT_IO_DEBUG("rank %d: copy_file() Read of %zd bytes ( offset adjust = %zd ) complete for file '%s'\n",
                        rank, bytes_processed, aligned_read_offset_adjust, p_dest->path());
 
         // .................................................................
@@ -706,13 +706,13 @@ int copy_file(PathPtr p_src,
 
         if (bytes_processed != blocksize)
         {
-            errsend_fmt(NONFATAL, "Failed %s offs %ld wrote %ld bytes instead of %zd: %s\n",
+            errsend_fmt(NONFATAL, "Failed '%s' offs %ld wrote %ld bytes instead of %zd: %s\n",
                         p_dest->path(), offset + completed, bytes_processed, blocksize, p_dest->strerror());
             err = 1;
             break; // return -1;
         }
         completed += blocksize;
-        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %zd bytes complete for file %s\n",
+        PRINT_IO_DEBUG("rank %d: copy_file() Copy of %zd bytes complete for file '%s'\n",
                        rank, bytes_processed, p_dest->path());
     }
 
@@ -722,13 +722,13 @@ int copy_file(PathPtr p_src,
 
     if (!p_src->close())
     {
-        errsend_fmt(NONFATAL, "Failed to close src file: %s (%s)\n",
+        errsend_fmt(NONFATAL, "Failed to close src file: '%s' (%s)\n",
                     p_src->path(), p_src->strerror());
     }
 
     if (!p_dest->close())
     {
-        errsend_fmt(NONFATAL, "Failed to close dest file: %s (%s)\n",
+        errsend_fmt(NONFATAL, "Failed to close dest file: '%s' (%s)\n",
                     p_dest->path(), p_dest->strerror());
         err = 1;
     }
@@ -742,7 +742,7 @@ int copy_file(PathPtr p_src,
 
     if (offset == 0 && length == p_src->size())
     {
-        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for %s\n",
+        PRINT_IO_DEBUG("rank %d: copy_file() Updating transfer stats for '%s'\n",
                        rank, p_dest->path());
         if (update_stats(p_src, p_dest, o))
         {
@@ -811,12 +811,12 @@ int compare_file(path_item *src_file,
             numchars = p_src->readlink(src_link_path, PATHSIZE_PLUS);
             if (numchars < 0)
             {
-                errsend_fmt(NONFATAL, "Failed to read link %s\n", p_src->path());
+                errsend_fmt(NONFATAL, "Failed to read link '%s'\n", p_src->path());
                 return -1;
             }
             else if (numchars >= PATHSIZE_PLUS)
             {
-                errsend_fmt(NONFATAL, "readlink %s, not enough room for '%s'\n", p_src->path());
+                errsend_fmt(NONFATAL, "readlink '%s', not enough room for symlink target path\n", p_src->path());
                 return -1;
             }
             else if ( p_dest->readlink(dest_link_path, PATHSIZE_PLUS - 1) != numchars ) {
@@ -840,7 +840,7 @@ int compare_file(path_item *src_file,
         rc = posix_memalign((void **)&ibuf, 4096, blocksize * sizeof(char));
         if (!ibuf || rc)
         {
-            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading '%s'\n",
                         blocksize, src_file->path);
             return -1;
         }
@@ -848,7 +848,7 @@ int compare_file(path_item *src_file,
         rc = posix_memalign((void **)&obuf, 4096, blocksize * sizeof(char));
         if (!obuf || rc)
         {
-            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading %s\n",
+            errsend_fmt(NONFATAL, "Failed to allocate %lu bytes for reading '%s'\n",
                         blocksize, dest_file->path);
             free(ibuf);
             return -1;
@@ -856,7 +856,7 @@ int compare_file(path_item *src_file,
 
         if (!p_src->open(read_flags, src_file->st.st_mode, offset, length) && !p_src->open(read_flags & ~O_DIRECT, src_file->st.st_mode, offset, length))
         {
-            errsend_fmt(NONFATAL, "Failed to open file %s for compare source\n", p_src->path());
+            errsend_fmt(NONFATAL, "Failed to open file '%s' for compare source\n", p_src->path());
             free(ibuf);
             free(obuf);
             return -1;
@@ -864,7 +864,7 @@ int compare_file(path_item *src_file,
 
         if (!p_dest->open(read_flags, dest_file->st.st_mode, offset, length) && !p_dest->open(read_flags & ~O_DIRECT, dest_file->st.st_mode, offset, length))
         {
-            errsend_fmt(NONFATAL, "Failed to open file %s for compare destination\n", p_dest->path());
+            errsend_fmt(NONFATAL, "Failed to open file '%s' for compare destination\n", p_dest->path());
             free(ibuf);
             free(obuf);
             return -1;
@@ -900,7 +900,7 @@ int compare_file(path_item *src_file,
             bytes_processed = p_src->read(ibuf, blocksize, completed + offset);
             if (bytes_processed != blocksize)
             {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                sprintf(errormsg, "'%s': Read %zd bytes instead of %zd for compare",
                         src_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 free(ibuf);
@@ -911,7 +911,7 @@ int compare_file(path_item *src_file,
             bytes_processed = p_dest->read(obuf, blocksize, completed + offset);
             if (bytes_processed != blocksize)
             {
-                sprintf(errormsg, "%s: Read %zd bytes instead of %zd for compare",
+                sprintf(errormsg, "'%s': Read %zd bytes instead of %zd for compare",
                         dest_file->path, bytes_processed, blocksize);
                 errsend(NONFATAL, errormsg);
                 free(ibuf);
@@ -931,7 +931,7 @@ int compare_file(path_item *src_file,
 
         if (!p_src->close())
         {
-            sprintf(errormsg, "Failed to close src file: %s", src_file->path);
+            sprintf(errormsg, "Failed to close src file: '%s'", src_file->path);
             errsend(NONFATAL, errormsg);
             free(ibuf);
             free(obuf);
@@ -940,7 +940,7 @@ int compare_file(path_item *src_file,
 
         if (!p_dest->close())
         {
-            sprintf(errormsg, "Failed to close dst file: %s", dest_file->path);
+            sprintf(errormsg, "Failed to close dst file: '%s'", dest_file->path);
             errsend(NONFATAL, errormsg);
             free(ibuf);
             free(obuf);
@@ -987,7 +987,7 @@ int update_stats(PathPtr p_src,
     {
         if (!p_dest->lchown(p_src->st().st_uid, p_src->st().st_gid))
         {
-            errsend_fmt(NONFATAL, "update_stats -- Failed to chown %s: %s\n",
+            errsend_fmt(NONFATAL, "update_stats -- Failed to chown '%s': %s\n",
                         p_dest->path(), p_dest->strerror());
         }
     }
@@ -995,7 +995,7 @@ int update_stats(PathPtr p_src,
     {
         if (!p_dest->lchown(geteuid(), p_src->st().st_gid) && o.preserve)
         {   // only report a failure if 'preserve' option was explicitly set
-            errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership %s: %s\n",
+            errsend_fmt(NONFATAL, "update_stats -- Failed to set group ownership '%s': %s\n",
                         p_dest->path(), p_dest->strerror());
         }
     }
@@ -1006,7 +1006,7 @@ int update_stats(PathPtr p_src,
 
     // perform any final adjustments on destination, before we set atime/mtime
     if ( p_dest->post_process(p_src) != true ) {
-        errsend_fmt(NONFATAL, "Failed to finalize destination file %s: %s\n",
+        errsend_fmt(NONFATAL, "Failed to finalize destination file '%s': %s\n",
                     p_dest->path(), p_dest->strerror());
         return -1; // DO NOT update any other stats if this step fails
     }
@@ -1016,7 +1016,7 @@ int update_stats(PathPtr p_src,
     mode = (p_src->mode() & 07777) | S_IWUSR;
     if (!p_dest->chmod(mode))
     {
-        errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file %s: %s\n",
+        errsend_fmt(NONFATAL, "update_stats -- Failed to chmod fuse chunked file '%s': %s\n",
                     p_dest->path(), p_dest->strerror());
     }
 
@@ -1031,7 +1031,7 @@ int update_stats(PathPtr p_src,
 
     if (!p_dest->utimensat(times, AT_SYMLINK_NOFOLLOW))
     {
-        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime %s: %s\n",
+        errsend_fmt(NONFATAL, "update_stats -- Failed to change atime/mtime '%s': %s\n",
                     p_dest->path(), p_dest->strerror());
     }
 #ifdef TMPFILE
@@ -1045,13 +1045,13 @@ int update_stats(PathPtr p_src,
 
             if (!p_dest->rename(p_dest_orig->path()))
             {
-                errsend_fmt(FATAL, "update_stats -- Failed to rename %s "
-                                   "to original file path %s\n",
+                errsend_fmt(FATAL, "update_stats -- Failed to rename '%s' "
+                                   "to original file path '%s'\n",
                             p_dest->path(), p_dest_orig->path());
             }
             else if (o.verbose >= 1)
             {
-                output_fmt(0, "INFO  DATACOPY Renamed temp-file %s to %s\n",
+                output_fmt(0, "INFO  DATACOPY Renamed temp-file '%s' to '%s'\n",
                            p_dest->path(), p_dest_orig->path());
             }
 
@@ -1540,7 +1540,7 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
     PathPtr p(PathFactory::create(use_path));
     if (!p)
     {
-        fprintf(stderr, "PathFactory couldn't interpret path %s\n", use_path);
+        fprintf(stderr, "PathFactory couldn't interpret path '%s'\n", use_path);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     else if (!p->stat())
@@ -1552,12 +1552,12 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
         p = PathFactory::create(use_path);
         if (!p)
         {
-            fprintf(stderr, "PathFactory couldn't interpret parent-path %s\n", use_path);
+            fprintf(stderr, "PathFactory couldn't interpret parent-path '%s'\n", use_path);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
         else if (!p->stat())
         {
-            fprintf(stderr, "Failed to stat path %s, or parent %s\n", path, use_path);
+            fprintf(stderr, "Failed to stat path '%s', or parent '%s'\n", path, use_path);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }
@@ -1590,7 +1590,7 @@ void get_stat_fs_info(const char *path, SrcDstFSType *fs)
         rc = statfs(use_path, &stfs);
         if (rc < 0)
         {
-            snprintf(errortext, MESSAGESIZE, "Failed to statfs path %s", path);
+            snprintf(errortext, MESSAGESIZE, "Failed to statfs path '%s'", path);
             errsend(FATAL, errortext);
         }
         else if (stfs.f_type == GPFS_FILE)
@@ -1689,7 +1689,7 @@ void print_queue_path(path_list *head)
     //print the entire queue
     while (head != NULL)
     {
-        printf("%s\n", head->data.path);
+        printf("'%s'\n", head->data.path);
         head = head->next;
     }
 }
