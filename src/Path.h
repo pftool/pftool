@@ -542,7 +542,7 @@ protected:
 #endif
             if (err_on_failure)
             {
-               errsend_fmt(NONFATAL, "Failed to stat path %s\n", _item->path);
+               errsend_fmt(NONFATAL, "Failed to stat path '%s'\n", _item->path);
             }
          }
       }
@@ -1118,7 +1118,7 @@ public:
          snprintf( ret + rppathlen, PATH_MAX - rppathlen, "/%s", childref );
       }
       free( duppath );
-      //printf( "REALPATH: %s\n  RET: %s\n", _item->path, ret );
+      //printf( "REALPATH: '%s'\n  RET: %s\n", _item->path, ret );
       return ret;
    }
 

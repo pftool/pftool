@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os.path
 import sys
-import subprocess
 import time
 import argparse
 import syslog
@@ -28,7 +27,7 @@ def main(parser):
         commands.add(parser.values.exclude)
 
     if args.verbose:
-        commands.add("-v")
+        commands.set_verbose()
 
     # drop -i until we can make it make sense on command line
     # if options.input_list:
@@ -65,6 +64,8 @@ def main(parser):
     pfcmd.add("-n", str(config.total_procs))
     pfcmd.add(pfs.PF.PFTOOL)
     pfcmd.add(*commands.commands)
+    if commands.verbose:
+        pfcmd.set_verbose()
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0], host, time.strftime(
@@ -75,7 +76,7 @@ def main(parser):
             jid, time.strftime("%a %b %d %H:%M:%S %Z %Y", time.localtime())))
         pfs.write_log("[pfls] [%s] CMD %s" % (jid, pfcmd))
 
-    status = subprocess.call(pfcmd.commands)
+    status = pfcmd.run()
     if(status != 0):
         print("ERROR: %s failed" % sys.argv[0])
         if config.logging:
@@ -115,7 +116,7 @@ if __name__ == "__main__":
         '-v',
         '--verbose',
         action='store_true',
-        help='Verbose output',
+        help='Verbose error output',
         default=False
     )
 
