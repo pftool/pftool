@@ -55,6 +55,8 @@ def main(parser):
         commands.add("-D")
     if args.verbose:
         commands.set_verbose()
+    if args.conduit:
+        commands.set_conduit()
     if args.preserve:
         commands.add("-o")
     if args.exclude is not None:
@@ -107,6 +109,8 @@ def main(parser):
     pfcmd.add(*commands.commands)
     if commands.verbose:
         pfcmd.set_verbose()
+    if commands.conduit:
+        pfcmd.set_conduit()
     host = gethostname()
     print("Launched %s from host %s at: %s" % (
         sys.argv[0], host, time.strftime(
@@ -190,6 +194,13 @@ if __name__ == "__main__":
         '--symlinks',
         action='store_true',
         help='Do not dereference symlink arguments ( source or dest )',
+        default=False
+    )
+
+    parser.add_argument(
+        '--conduit',
+        action='store_true',
+        help=argparse.SUPPRESS,
         default=False
     )
 

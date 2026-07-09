@@ -33,6 +33,7 @@ class Commands:
     def __init__(self):
         self.commands = []
         self.verbose = False
+        self.conduit = False
 
     def __str__(self):
         return " ".join(self.commands)
@@ -45,6 +46,9 @@ class Commands:
     def set_verbose(self):
         self.verbose = True
 
+    def set_conduit(self):
+        self.conduit = True
+
     def run(self):
         # start the command subprocess
         proc = subprocess.Popen(self.commands, stdout=subprocess.PIPE)
@@ -55,12 +59,13 @@ class Commands:
         fileRE = re.compile(" +'(/.*)'")
         offsetRE = re.compile(" offs [0-9]+ ")
         footerRE = re.compile(" *INFO +FOOTER +")
+        conduitRE = re.compile(" *#CONDUIT-MSG ")
         # process stdout lines
         footer_seen = False
         for rawline in proc.stdout:
             # filter any openmpi error messages
             line = rawline.decode('utf-8')
-            if not mpiRE.match(line):
+            if not mpiRE.match(line) and (self.conduit  or  not conduitRE.match(line)):
                 ematch = errprefixRE.match(line)
                 if ematch is not None:
                     # establish error components from regexes
