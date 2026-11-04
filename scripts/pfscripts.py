@@ -107,20 +107,20 @@ class Commands:
                         sys.stdout.write(line)
         # possibly output error summary
         if errdict:
-            sys.stdout.write("\n-------- ERROR SUMMARY --------\n")
+            sys.stderr.write("\n-------- ERROR SUMMARY --------\n")
             for etype in errdict:
-                sys.stdout.write("\n" + etype + " ERRORS:\n")
+                sys.stderr.write("\n" + etype + " ERRORS:\n")
                 for emsg in errdict[etype]:
                     ecnt = len(errdict[etype][emsg]["PRINTED"]) + errdict[etype][emsg]["HIDDEN"]
-                    sys.stdout.write("\t\"" + emsg + "\" ( " + str(ecnt) + " Errors ) for paths including...\n")
+                    sys.stderr.write("\t\"" + emsg + "\" ( " + str(ecnt) + " Errors ) for paths including...\n")
                     for efile in errdict[etype][emsg]["PRINTED"]:
-                        sys.stdout.write("\t\t\"" + efile + "\"\n")
+                        sys.stderr.write("\t\t\"" + efile + "\"\n")
                     if errdict[etype][emsg]["HIDDEN"] > 0:
                         if self.verbose:
-                            sys.stdout.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors ( SEE VERBOSE ERROR OUTPUT ABOVE )\n")
+                            sys.stderr.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors ( SEE VERBOSE ERROR OUTPUT ABOVE )\n")
                         else:
-                            sys.stdout.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors\n")
-                    sys.stdout.write("\n")
+                            sys.stderr.write("\t\t... " + str(errdict[etype][emsg]["HIDDEN"]) + " additional, omitted errors\n")
+                    sys.stderr.write("\n")
         # return subprocess result
         return proc.wait()
 
@@ -319,10 +319,12 @@ def is_ssh_running(host):
     return reachable
 
 def is_fta_booted(host):
-    output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | wc -l"'], stderr=subprocess.DEVNULL)
-    if int(output) >= 1:
-        reachable = True
-    else:
+    reachable = True
+    try:
+        output = subprocess.check_output(['/usr/bin/ssh', '-oConnectTimeout=3', '-oConnectionAttempts=1', host, '/bin/bash --norc --noprofile -c "mount -t fuse.marfs-fuse | wc -l"'], stderr=subprocess.DEVNULL)
+        if int(output) < 1:
+            reachable = False
+    except:
         reachable = False
     return reachable
 
